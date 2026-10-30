@@ -8,7 +8,8 @@ on:
 jobs:
   build:
     name: Build TemplePlus
-    runs-on: windows-latest
+    # v143 and the vcvars32 path below require the VS 2022 runner.
+    runs-on: windows-2022
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       release: ${{ steps.get_version.outputs.release }}
