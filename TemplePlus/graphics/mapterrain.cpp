@@ -98,9 +98,13 @@ void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
 	// not replace a previously valid patch or silently hide the background.
 	for (const auto &path : patch.textures) {
 		auto texture = mDevice.GetTextures().Resolve(path, false);
-		if (!texture || !texture->IsValid() || texture->GetSize().width != patch.width ||
-			texture->GetSize().height != patch.height) {
-			throw std::invalid_argument("original door texture missing or dimensions differ from its pixel rectangle");
+		if (!texture || !texture->IsValid() || !texture->GetResourceView()) {
+			throw std::invalid_argument("original door texture could not be loaded: " + path + "; see TemplePlus.log");
+		}
+		const auto &size = texture->GetSize();
+		if (size.width != patch.width || size.height != patch.height) {
+			throw std::invalid_argument(fmt::format("original door texture {} is {}x{}; expected {}x{}",
+				path, size.width, size.height, patch.width, patch.height));
 		}
 	}
 	mOriginalDoors.Register(std::move(patch));
