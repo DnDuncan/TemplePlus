@@ -261,6 +261,9 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 		|| uiSystems->GetChar().GetInventoryObject() || uiSystems->GetTownmap().IsVisible()
 		|| uiSystems->GetLogbook().IsVisible() || uiSystems->GetDlg().IsActive()
 		|| tig->GetConsole().IsOpen() || mouseFuncs.MouseOutsideWndGet()
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_SHIFT)
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_CONTROL)
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_MENU)
 		|| (dmSys.IsActive() && (dmSys.IsEditorActive() || dmSys.IsActionActive()))) {
 		CancelOriginalDoorInput(); return false;
 	}

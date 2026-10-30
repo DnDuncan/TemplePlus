@@ -75,6 +75,8 @@ clears its input geometry. A thin yellow hover line displays the source outline.
 Only non-combat in-game viewport input participates. Native selectable objects
 take precedence. Dialog, character/townmap/logbook screens, console, radial menu,
 target picker and DM tools retain their input. An owned left press is consumed
+through release; modifier-assisted clicks retain their native input behavior.
+An unmodified press is consumed
 through release; it toggles exactly once only on the same door/map without a
 drag beyond four native pixels. Starting on ground and releasing on a door does
 not toggle it. Map changes, reset and cancelled/UI-interrupted gestures discard
