@@ -898,9 +898,8 @@ bool MapObjectRenderer::IsObjectOnScreen(LocAndOffsets &location, float offsetZ,
 	auto bbTop = screenPos.y - (offsetZ + renderHeight + radius) * cos45;
 	auto bbBottom = bbTop + (2 * radius + renderHeight) * cos45;
 
-	auto screenWidth = gameView->GetWidth();
-	auto screenHeight = gameView->GetHeight();
-	if (bbRight < 0 || bbBottom < 0 || bbLeft > screenWidth || bbTop > screenHeight) {
+	auto viewport = gameView->GetWorldViewport();
+	if (bbRight < viewport.left || bbBottom < viewport.top || bbLeft > viewport.right || bbTop > viewport.bottom) {
 		return false;
 	}
 

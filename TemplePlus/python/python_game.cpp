@@ -1423,6 +1423,15 @@ static PyObject* PyGame_BgDoorApiVersion(PyObject*, PyObject* args) {
 	return PyInt_FromLong(1); // source-art rendering only; not navigation/save support
 }
 
+static PyObject* PyGame_BgCameraZoom(PyObject*, PyObject* args) {
+	double zoom = 1.0;
+	if (!PyArg_ParseTuple(args, "|d:bg_camera_zoom", &zoom)) return nullptr;
+	try {
+		if (PyTuple_Size(args)) gameView->SetWorldZoom(zoom);
+		return PyFloat_FromDouble(gameView->GetWorldZoom());
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
 static PyObject* PyGame_BgDoorRegister(PyObject*, PyObject* args) {
 	const char *id, *dayClosed, *dayOpen, *nightClosed, *nightOpen;
 	int x, y, width, height, open = 0;
@@ -1650,6 +1659,7 @@ static PyMethodDef PyGameMethods[]{
 	{"is_alert_popup_active", PyGame_IsAlertPopupActive, METH_VARARGS, NULL},
 	{"is_daytime", PyGame_IsDaytime, METH_VARARGS, NULL},
 	{"bg_door_api_version", PyGame_BgDoorApiVersion, METH_VARARGS, NULL},
+	{"bg_camera_zoom", PyGame_BgCameraZoom, METH_VARARGS, NULL},
 	{"bg_door_register", PyGame_BgDoorRegister, METH_VARARGS, NULL},
 	{"bg_door_set_state", PyGame_BgDoorSetState, METH_VARARGS, NULL},
 	{"bg_door_get_state", PyGame_BgDoorGetState, METH_VARARGS, NULL},

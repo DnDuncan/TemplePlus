@@ -48,6 +48,7 @@ private:
 	OriginalDoorMousePress mOriginalDoorPress;
 	void CancelOriginalDoorInput();
 	bool HandleOriginalDoorMessage(const TigMsg &msg);
+	bool HandleWorldZoomWheel(const TigMsg &msg);
 
 	void HandleCombatMessage(const TigMsg &msg);
 	void HandleNonCombatMessage(const TigMsg &msg);

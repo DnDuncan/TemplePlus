@@ -15,9 +15,9 @@ namespace gfx {
 		auto screenY = dy - screenCenter.y;
 
 		// calculate viewport
-		float viewportRight = mScreenWidth * 0.5f / mScale;
+		float viewportRight = mScreenWidth * 0.5f / (mScale * mPresentationZoom);
 		float viewportLeft = -viewportRight;
-		float viewportBottom = mScreenHeight * 0.5f / mScale;
+		float viewportBottom = mScreenHeight * 0.5f / (mScale * mPresentationZoom);
 		float viewportTop = -viewportBottom;
 
 		if (screenX + left >= viewportRight)
@@ -78,7 +78,7 @@ namespace gfx {
 			mScreenHeight,
 			zNear,
 			zFar,
-			XMLoadFloat4x4(&mProjection),
+			XMLoadFloat4x4(&mInputProjection),
 			XMLoadFloat4x4(&mView),
 			XMMatrixIdentity()
 		));
@@ -92,7 +92,7 @@ namespace gfx {
 			mScreenHeight,
 			zNear,
 			zFar,
-			XMLoadFloat4x4(&mProjection),
+			XMLoadFloat4x4(&mInputProjection),
 			XMLoadFloat4x4(&mView),
 			XMMatrixIdentity()
 		));
@@ -107,6 +107,7 @@ namespace gfx {
 	}
 
 	Ray3d WorldCamera::GetPickRay(float x, float y) {
+		if (mDirty) Update();
 		auto screenVecFar(XMVectorSet(x, y, 0, 1));
 		auto worldFar(XMVector3Unproject(
 			screenVecFar,
@@ -116,7 +117,7 @@ namespace gfx {
 			mScreenHeight,
 			zNear,
 			zFar,
-			XMLoadFloat4x4(&mProjection),
+			XMLoadFloat4x4(&mInputProjection),
 			XMLoadFloat4x4(&mView),
 			XMMatrixIdentity()
 		));
@@ -130,7 +131,7 @@ namespace gfx {
 			mScreenHeight,
 			zNear,
 			zFar,
-			XMLoadFloat4x4(&mProjection),
+			XMLoadFloat4x4(&mInputProjection),
 			XMLoadFloat4x4(&mView),
 			XMMatrixIdentity()
 		));
@@ -174,8 +175,10 @@ namespace gfx {
 			return;
 		}
 
-		auto projection(XMMatrixOrthographicLH(mScreenWidth / mScale,
-		                                       mScreenHeight / mScale,
+		XMStoreFloat4x4(&mInputProjection, XMMatrixOrthographicLH(mScreenWidth / mScale,
+			mScreenHeight / mScale, zNear, zFar));
+		auto projection(XMMatrixOrthographicLH(mScreenWidth / (mScale * mPresentationZoom),
+		                                       mScreenHeight / (mScale * mPresentationZoom),
 		                                       zNear,
 		                                       zFar));
 
@@ -230,7 +233,11 @@ namespace gfx {
 		// To be used for UI drawing
 		XMStoreFloat4x4(
 			&mUiProjection,
-			XMMatrixOrthographicOffCenterLH(0, mScreenWidth, mScreenHeight, 0, 1, 0)
+			XMMatrixOrthographicOffCenterLH(
+				mScreenWidth * 0.5f * (1 - 1 / mPresentationZoom),
+				mScreenWidth * 0.5f * (1 + 1 / mPresentationZoom),
+				mScreenHeight * 0.5f * (1 + 1 / mPresentationZoom),
+				mScreenHeight * 0.5f * (1 - 1 / mPresentationZoom), 1, 0)
 		);
 
 		mDirty = false;

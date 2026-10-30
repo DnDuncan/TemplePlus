@@ -17,6 +17,7 @@ source_group("Header Files" FILES ${Header_Files})
 set(Source_Files
     "main.cpp"
     "images_test.cpp"
+    "camera_zoom_test.cpp"
     "stdafx.cpp"
     "tokenizer_test.cpp"
 )

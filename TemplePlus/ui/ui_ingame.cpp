@@ -32,6 +32,7 @@
 #include "graphics/mapterrain.h"
 #include "config/config.h"
 #include "maps.h"
+#include "ui_picker.h"
 
 UiInGame::UiInGame(const UiSystemConf &config) {
 	auto startup = temple::GetPointer<int(const UiSystemConf*)>(0x10112e70);
@@ -49,11 +50,13 @@ void UiInGame::ResizeViewport(const UiResizeArgs& resizeArg) {
 }
 void UiInGame::Reset() {
 	CancelOriginalDoorInput();
+	if (gameView) gameView->ResetWorldZoom();
 	auto reset = temple::GetPointer<void()>(0x101140b0);
 	reset();
 }
 bool UiInGame::LoadGame(const UiSaveFile &save) {
 	CancelOriginalDoorInput();
+	if (gameView) gameView->ResetWorldZoom();
 	auto load = temple::GetPointer<int(const UiSaveFile*)>(0x101140c0);
 	return load(&save) == 1;
 }
@@ -86,8 +89,11 @@ void UiInGame::SetFocusObject(objHndl handle)
 	SetIntgameFocus(handle);
 }
 
-void UiInGame::ProcessMessage(const TigMsg & msg) {
+void UiInGame::ProcessMessage(const TigMsg & source) {
+	auto msg = source;
 	DoKeyboardScrolling();
+	if (HandleWorldZoomWheel(msg)) return;
+	ScopedWorldInput worldInput(&msg);
 	if (msg.type == TigMsgType::KEYSTATECHANGE || msg.type == TigMsgType::KEYDOWN
 		|| msg.type == TigMsgType::CHAR || msg.type == TigMsgType::EXIT
 		|| (msg.type == TigMsgType::WIDGET && reinterpret_cast<const TigMsgWidget&>(msg).widgetEventType == TigMsgWidgetEvent::Exited)
@@ -274,7 +280,8 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 		CancelOriginalDoorInput(); return false;
 	}
 	auto x = static_cast<int>(msg.arg1), y = static_cast<int>(msg.arg2);
-	if (x < 0 || y < 0 || x >= config.renderWidth || y >= config.renderHeight) {
+	auto visible = gameView->GetWorldViewport();
+	if (x < visible.left || y < visible.top || x >= visible.right || y >= visible.bottom) {
 		CancelOriginalDoorInput(); return false;
 	}
 	// Native selectable actors/objects take precedence over the terrain layer.
@@ -292,6 +299,29 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	}
 	if (!hit.empty()) { ResetFocusObject(); ClearGroupArray(); }
 	return result.consumed;
+}
+
+bool UiInGame::HandleWorldZoomWheel(const TigMsg &msg) {
+	if (msg.type != TigMsgType::MOUSE || !(msg.arg4 & MSF_SCROLLWHEEL_CHANGE)) return false;
+	static auto viewportIds = temple::GetPointer<int>(0x10BD3AF8);
+	static auto &viewportIdx = temple::GetRef<uint32_t>(0x10BD3B44);
+	if (viewportIds[viewportIdx + 1] || maps.GetCurrentMapId() == 5000
+		|| gameSystems->GetMap().IsClearingMap() || uiSystems->GetDlg().IsActive()
+		|| uiSystems->GetChar().IsVisible() || uiSystems->GetTownmap().IsVisible()
+		|| uiSystems->GetLogbook().IsVisible() || tig->GetConsole().IsOpen()
+		|| uiPicker.PickerActiveCheck() || radialMenus.GetActiveRadialMenuNode() != -1
+		|| mouseFuncs.MouseOutsideWndGet()
+		|| (dmSys.IsActive() && (dmSys.IsMoused() || dmSys.IsEditorActive() || dmSys.IsActionActive()))
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_CONTROL)
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_SHIFT)
+		|| infrastructure::gKeyboard.IsKeyPressed(VK_MENU)
+		|| (msg.arg4 & (MSF_LMB_DOWN | MSF_RMB_DOWN | MSF_MMB_DOWN))) return false;
+	auto x = static_cast<int>(msg.arg1), y = static_cast<int>(msg.arg2);
+	if (x < 0 || y < 0 || x >= config.renderWidth || y >= config.renderHeight) return false;
+	CancelOriginalDoorInput();
+	if (gameView->ZoomWorldByWheel(static_cast<int>(msg.arg3)))
+		logger->info("Camera wheel zoom: {} percent", int(std::round(gameView->GetWorldZoom() * 100)));
+	return true;
 }
 
 void UiInGame::HandleNonCombatKeyStateChange(const TigMsg& msg){
