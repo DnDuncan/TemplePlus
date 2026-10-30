@@ -36,6 +36,7 @@
 #include "python_support.h"
 #include "python_integration_obj.h"
 #include "../gamesystems/timeevents.h"
+#include "../graphics/mapterrain.h"
 #include "tig/tig_startup.h"
 #include <graphics/device.h>
 #include <particles/instances.h>
@@ -1417,6 +1418,60 @@ PyObject* PyGame_IsDaytime(PyObject*, PyObject* args) {
 	return PyInt_FromLong(gameSystems->GetTimeEvent().IsDaytime());
 }
 
+static PyObject* PyGame_BgDoorApiVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_api_version")) return nullptr;
+	return PyInt_FromLong(1); // source-art rendering only; not navigation/save support
+}
+
+static PyObject* PyGame_BgDoorRegister(PyObject*, PyObject* args) {
+	const char *id, *dayClosed, *dayOpen, *nightClosed, *nightOpen;
+	int x, y, width, height, open = 0;
+	if (!PyArg_ParseTuple(args, "siiiissss|i:bg_door_register", &id, &x, &y, &width, &height,
+		&dayClosed, &dayOpen, &nightClosed, &nightOpen, &open)) return nullptr;
+	try {
+		if (open != 0 && open != 1) throw std::invalid_argument("door state must be 0 or 1");
+		OriginalDoorPatch patch{ maps.GetCurrentMapId(), id, x, y, width, height,
+			{ dayClosed, dayOpen, nightClosed, nightOpen }, open != 0 };
+		auto &terrain = gameSystems->GetTerrain();
+		terrain.RegisterOriginalDoor(std::move(patch));
+		return PyBool_FromLong(terrain.GetOriginalDoorOpen(id));
+	} catch (const std::exception &e) {
+		PyErr_SetString(PyExc_ValueError, e.what());
+		return nullptr;
+	}
+}
+
+static PyObject* PyGame_BgDoorSetState(PyObject*, PyObject* args) {
+	const char *id;
+	int open;
+	if (!PyArg_ParseTuple(args, "si:bg_door_set_state", &id, &open)) return nullptr;
+	try {
+		if (open != 0 && open != 1) throw std::invalid_argument("door state must be 0 or 1");
+		gameSystems->GetTerrain().SetOriginalDoorOpen(id, open != 0);
+		Py_RETURN_NONE;
+	} catch (const std::exception &e) {
+		PyErr_SetString(PyExc_ValueError, e.what());
+		return nullptr;
+	}
+}
+
+static PyObject* PyGame_BgDoorGetState(PyObject*, PyObject* args) {
+	const char *id;
+	if (!PyArg_ParseTuple(args, "s:bg_door_get_state", &id)) return nullptr;
+	try {
+		return PyBool_FromLong(gameSystems->GetTerrain().GetOriginalDoorOpen(id));
+	} catch (const std::exception &e) {
+		PyErr_SetString(PyExc_ValueError, e.what());
+		return nullptr;
+	}
+}
+
+static PyObject* PyGame_BgDoorClear(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_clear")) return nullptr;
+	gameSystems->GetTerrain().ClearOriginalDoors();
+	Py_RETURN_NONE;
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1542,6 +1597,11 @@ static PyMethodDef PyGameMethods[]{
 	{"written_ui_show", PyGame_WrittenUiShow, METH_VARARGS, NULL},
 	{"is_alert_popup_active", PyGame_IsAlertPopupActive, METH_VARARGS, NULL},
 	{"is_daytime", PyGame_IsDaytime, METH_VARARGS, NULL},
+	{"bg_door_api_version", PyGame_BgDoorApiVersion, METH_VARARGS, NULL},
+	{"bg_door_register", PyGame_BgDoorRegister, METH_VARARGS, NULL},
+	{"bg_door_set_state", PyGame_BgDoorSetState, METH_VARARGS, NULL},
+	{"bg_door_get_state", PyGame_BgDoorGetState, METH_VARARGS, NULL},
+	{"bg_door_clear", PyGame_BgDoorClear, METH_VARARGS, NULL},
 
 	{"damage_type_match", PyGame_DamageTypeMatch, METH_VARARGS, NULL },
 	{"vlist", PyGame_Vlist, METH_VARARGS, NULL },

@@ -2,6 +2,7 @@
 
 #include "../gamesystems/gamesystem.h"
 #include <temple/dll.h>
+#include "originaldoorstate.h"
 
 struct TigRect;
 
@@ -10,7 +11,7 @@ namespace gfx {
 	class ShapeRenderer2d;
 }
 
-class TerrainSystem : public GameSystem, public ModuleAwareGameSystem {
+class TerrainSystem : public GameSystem, public ModuleAwareGameSystem, public ResetAwareGameSystem {
 public:
 	static constexpr auto Name = "Terrain";
 
@@ -49,6 +50,12 @@ public:
 	void Load(int groundArtId);
 	
 	void LoadModule() override;
+	void UnloadModule() override;
+	void Reset() override;
+	void RegisterOriginalDoor(OriginalDoorPatch patch);
+	void SetOriginalDoorOpen(const std::string &id, bool open);
+	bool GetOriginalDoorOpen(const std::string &id) const;
+	void ClearOriginalDoors();
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -74,6 +81,8 @@ private:
 	float &mTerrainTintBlue = temple::GetRef<float>(0x11E69564);
 
 	std::unordered_map<int, std::string> mTerrainDirs;
+	OriginalDoorState mOriginalDoors;
+	void RenderOriginalDoors(int terrainOriginX, int terrainOriginY);
 
 	std::string GetTileTexture(int mapArtId, int x, int y);
 
