@@ -65,7 +65,16 @@ jobs:
       shell: cmd
       env:
         TEMPLEPLUS_VERSION: ${{ steps.get_version.outputs.version }}
-        COMMIT_ID: ${GITHUB_SHA::8}
+        COMMIT_ID: ${{ github.sha }}
+    - name: Record engine build provenance
+      shell: pwsh
+      run: |
+        @{
+          repository = '${{ github.repository }}'
+          commit = '${{ github.sha }}'
+          run_id = '${{ github.run_id }}'
+          executable_sha256 = (Get-FileHash Release/TemplePlus.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        } | ConvertTo-Json | Set-Content engine-build.json
     - name: Pack Release
       run: .\PackRelease.ps1
       shell: pwsh
@@ -96,6 +105,11 @@ jobs:
       with:
         name: TemplePlus
         path: TemplePlus-*.zip
+    - name: Upload engine build provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: TemplePlusBuild
+        path: engine-build.json
     - name: Upload PDB
       uses: actions/upload-artifact@v4
       with:
