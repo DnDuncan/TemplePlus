@@ -46,17 +46,9 @@ void TerrainSystem::Render() {
 	// The terrain is centered on the center tile of the map
 	// This is 480,480 for all vanilla maps, but theoretically it 
 	// depends on the map size specified in the map's map.prp file
-	auto mapCenter = maps.GetMapCenterTile();
-
 	// The center of the map in pixels relative to the current screen viewport
 	int terrainOriginX, terrainOriginY;
-	locSys.ToTranslation(mapCenter.locx, mapCenter.locy, terrainOriginX, terrainOriginY);
-
-	// Since the origin is still pointing at the map center, shift it left/up by half
-	// the terrains overall size. The Map is slightly off-center for *some* unknown
-	// reason. This may be a relic from Arkanum
-	terrainOriginX -= MapWidthPixels / 2 - 40;
-	terrainOriginY -= MapHeightPixels / 2 - 14;
+	GetTerrainOrigin(terrainOriginX, terrainOriginY);
 
 	auto startX = - terrainOriginX / TileSize;
 	auto startY = - terrainOriginY / TileSize;
@@ -122,14 +114,39 @@ bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
 
 void TerrainSystem::ClearOriginalDoors() {
 	mOriginalDoors.ClearMap(maps.GetCurrentMapId());
+	mHoveredOriginalDoor.clear();
+}
+
+void TerrainSystem::GetTerrainOrigin(int &x, int &y) const {
+	auto center = maps.GetMapCenterTile();
+	locSys.ToTranslation(center.locx, center.locy, x, y);
+	x -= MapWidthPixels / 2 - 40;
+	y -= MapHeightPixels / 2 - 14;
+}
+
+void TerrainSystem::BindOriginalDoor(const std::string &id, OriginalDoorOutline outline) {
+	mOriginalDoors.Bind(maps.GetCurrentMapId(), id, std::move(outline));
+}
+void TerrainSystem::UnbindOriginalDoor(const std::string &id) {
+	mOriginalDoors.Unbind(maps.GetCurrentMapId(), id);
+	mHoveredOriginalDoor.clear();
+}
+bool TerrainSystem::IsOriginalDoorBound(const std::string &id) const {
+	return mOriginalDoors.Outline(maps.GetCurrentMapId(), id) != nullptr;
+}
+std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
+	int x, y; GetTerrainOrigin(x, y);
+	return mOriginalDoors.HitTest(maps.GetCurrentMapId(), screenX - x, screenY - y);
 }
 
 void TerrainSystem::Reset() {
 	mOriginalDoors.Clear();
+	mHoveredOriginalDoor.clear();
 }
 
 void TerrainSystem::UnloadModule() {
 	mOriginalDoors.Clear();
+	mHoveredOriginalDoor.clear();
 	mTerrainDirs.clear();
 	mMapArtId = 0;
 }
@@ -154,6 +171,19 @@ void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) 
 		};
 		draw(mIsTransitioning ? !mIsNightTime : mIsNightTime, 1.0f);
 		if (mIsTransitioning) draw(mIsNightTime, mTransitionProgress);
+	}
+	if (!mHoveredOriginalDoor.empty()) {
+		auto polygon = mOriginalDoors.Outline(mapId, mHoveredOriginalDoor);
+		if (polygon) {
+			std::vector<gfx::Line2d> lines;
+			for (size_t i = 0; i < polygon->size(); ++i) {
+				const auto &a = (*polygon)[i];
+				const auto &b = (*polygon)[(i + 1) % polygon->size()];
+				lines.emplace_back(XMFLOAT2(float(terrainOriginX + a.x), float(terrainOriginY + a.y)),
+					XMFLOAT2(float(terrainOriginX + b.x), float(terrainOriginY + b.y)), XMCOLOR(1.0f, 0.85f, 0.1f, 1.0f));
+			}
+			mShapeRenderer.DrawLines(lines);
+		}
 	}
 }
 
@@ -217,6 +247,7 @@ const std::string & TerrainSystem::GetName(void) const
 
 void TerrainSystem::Load(int groundArtId)
 {
+	mHoveredOriginalDoor.clear();
 	if (mMapArtId == groundArtId) {
 		return;
 	}

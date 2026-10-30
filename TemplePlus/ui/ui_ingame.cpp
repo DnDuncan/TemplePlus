@@ -29,6 +29,9 @@
 #include "location.h"
 #include "action_sequence.h"
 #include "graphics/device.h"
+#include "graphics/mapterrain.h"
+#include "config/config.h"
+#include "maps.h"
 
 UiInGame::UiInGame(const UiSystemConf &config) {
 	auto startup = temple::GetPointer<int(const UiSystemConf*)>(0x10112e70);
@@ -45,10 +48,12 @@ void UiInGame::ResizeViewport(const UiResizeArgs& resizeArg) {
 	resize(&resizeArg);
 }
 void UiInGame::Reset() {
+	CancelOriginalDoorInput();
 	auto reset = temple::GetPointer<void()>(0x101140b0);
 	reset();
 }
 bool UiInGame::LoadGame(const UiSaveFile &save) {
+	CancelOriginalDoorInput();
 	auto load = temple::GetPointer<int(const UiSaveFile*)>(0x101140c0);
 	return load(&save) == 1;
 }
@@ -83,6 +88,11 @@ void UiInGame::SetFocusObject(objHndl handle)
 
 void UiInGame::ProcessMessage(const TigMsg & msg) {
 	DoKeyboardScrolling();
+	if ((msg.type != TigMsgType::MOUSE && msg.type != TigMsgType::UPDATE_TIME)
+		|| combatSys.isCombatActive() || gameSystems->GetMap().IsClearingMap()
+		|| uiSystems->GetDlg().IsActive() || uiSystems->GetChar().IsVisible()
+		|| uiSystems->GetTownmap().IsVisible() || uiSystems->GetLogbook().IsVisible()
+		|| tig->GetConsole().IsOpen()) CancelOriginalDoorInput();
 
 
 	if (dmSys.IsActive()){
@@ -90,12 +100,14 @@ void UiInGame::ProcessMessage(const TigMsg & msg) {
 		auto actionWasActive = dmSys.IsActionActive();
 
 		if (dmSys.HandleMsg(msg)){
+			CancelOriginalDoorInput();
 			return;
 		}
 		dmSys.SetIsHandlingMsg(false);
 			
 
 		if (dmSys.IsMoused()){
+			CancelOriginalDoorInput();
 			return;
 		}
 
@@ -122,14 +134,17 @@ void UiInGame::ProcessMessage(const TigMsg & msg) {
 	
 
 	if (HandleRadialMenuMessage(msg)) {
+		CancelOriginalDoorInput();
 		return;
 	}
 
 	if (HandlePickerMessage(msg)) {
+		CancelOriginalDoorInput();
 		return;
 	}
 
 	if (radialMenus.GetActiveRadialMenuNode() != -1) {
+		CancelOriginalDoorInput();
 		return;
 	}
 
@@ -152,6 +167,7 @@ void UiInGame::ProcessMessage(const TigMsg & msg) {
 
 		static int* viewportIds = temple::GetPointer<int>(0x10BD3AF8);
 		static uint32_t &viewportIdx = temple::GetRef<uint32_t>(0x10BD3B44);
+		if (viewportIds[viewportIdx + 1]) CancelOriginalDoorInput();
 
 		
 		if (!viewportIds[viewportIdx+1])
@@ -210,6 +226,7 @@ void UiInGame::HandleNonCombatMessage(const TigMsg & msg)
 	}
 
 	if (msg.type == TigMsgType::MOUSE) {
+		if (HandleOriginalDoorMessage(msg)) return;
 
 		auto tigMsgMouse = (TigMsgMouse&)msg;
 		auto mouseFlags = tigMsgMouse.buttonStateFlags;
@@ -229,6 +246,46 @@ void UiInGame::HandleNonCombatMessage(const TigMsg & msg)
 		}
 	}
 
+}
+
+void UiInGame::CancelOriginalDoorInput() {
+	mOriginalDoorPress.Cancel();
+	if (gameSystems) gameSystems->GetTerrain().SetHoveredOriginalDoor({});
+}
+
+bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
+	if (gameSystems->GetMap().IsClearingMap() || combatSys.isCombatActive()
+		|| uiSystems->GetChar().IsVisible() || uiSystems->GetChar().IsLevelingUp()
+		|| uiSystems->GetChar().GetInventoryObject() || uiSystems->GetTownmap().IsVisible()
+		|| uiSystems->GetLogbook().IsVisible() || uiSystems->GetDlg().IsActive()
+		|| tig->GetConsole().IsOpen() || mouseFuncs.MouseOutsideWndGet()
+		|| (dmSys.IsActive() && (dmSys.IsEditorActive() || dmSys.IsActionActive()))) {
+		CancelOriginalDoorInput(); return false;
+	}
+	auto flags = msg.arg4;
+	if (flags & (MSF_RMB_CLICK | MSF_RMB_DOWN | MSF_RMB_RELEASED | MSF_MMB_CLICK | MSF_MMB_DOWN | MSF_SCROLLWHEEL_CHANGE)) {
+		CancelOriginalDoorInput(); return false;
+	}
+	auto &terrain = gameSystems->GetTerrain();
+	auto x = static_cast<int>(msg.arg1), y = static_cast<int>(msg.arg2);
+	if (x < 0 || y < 0 || x >= config.renderWidth || y >= config.renderHeight) {
+		CancelOriginalDoorInput(); return false;
+	}
+	// Native selectable actors/objects take precedence over the terrain layer.
+	auto hit = terrain.HitTestOriginalDoor(x, y);
+	if (!hit.empty() && GetMouseTarget(x, y)) hit.clear();
+	terrain.SetHoveredOriginalDoor(hit);
+	int originX, originY; terrain.GetTerrainOrigin(originX, originY);
+	using Event = OriginalDoorMousePress::Event;
+	auto event = (flags & MSF_LMB_CLICK) ? Event::Down : (flags & MSF_LMB_RELEASED) ? Event::Up : Event::Move;
+	auto result = mOriginalDoorPress.Process(maps.GetCurrentMapId(), hit, event, x - originX, y - originY);
+	if (!result.toggle.empty()) {
+		auto open = !terrain.GetOriginalDoorOpen(result.toggle);
+		terrain.SetOriginalDoorOpen(result.toggle, open);
+		logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
+	}
+	if (!hit.empty()) { ResetFocusObject(); ClearGroupArray(); }
+	return result.consumed;
 }
 
 void UiInGame::HandleNonCombatKeyStateChange(const TigMsg& msg){
@@ -405,6 +462,7 @@ objHndl UiInGame::PickObject(int x, int y, GameRaycastFlags flags)
 
 void UiInGame::ResetInput()
 {
+	CancelOriginalDoorInput();
 	static auto ui_intgame_reset_input = temple::GetPointer<void()>(0x10112f10);
 	ui_intgame_reset_input();
 }

@@ -53,3 +53,37 @@ full engine. A successful build is not a graphics/interaction acceptance test.
 The bg2toee repository supplies a resource-free exporter and a console test
 adapter. Test only in a debug copy; retain the original executable and use a
 separate save. Original artwork stays on the player's machine.
+
+## Optional mouse input v1
+
+`bg_door_api_version()` remains 1 for the existing rendering contract. Builds
+with mouse switching additionally expose `bg_door_input_version() == 1`:
+
+```
+game.bg_door_bind(id, closed_outline, open_outline)
+game.bg_door_is_bound(id)
+game.bg_door_unbind(id)
+```
+
+Outlines are 3..256 `(x,y)` integer terrain-canvas vertices, translated from
+the original ARE using the same canvas offset as the image. Bind is opt-in and
+requires registered textures. Rejected geometry leaves the old binding intact.
+The live state selects the corresponding polygon, with edges included; ambiguous
+overlapping doors do not select an arbitrary target. Clearing a map/reset also
+clears its input geometry. A thin yellow hover line displays the source outline.
+
+Only non-combat in-game viewport input participates. Native selectable objects
+take precedence. Dialog, character/townmap/logbook screens, console, radial menu,
+target picker and DM tools retain their input. An owned left press is consumed
+through release; it toggles exactly once only on the same door/map without a
+drag beyond four native pixels. Starting on ground and releasing on a door does
+not toggle it. Map changes, reset and cancelled/UI-interrupted gestures discard
+the press. Input uses scene coordinates already provided by GameView, without
+a second window-scale transformation; render and picking share GetTerrainOrigin.
+
+This is still an interaction probe: no automatic actor approach, reach/lock
+rules, combat actions, path blocking, travel gating, WED occlusion or persistence.
+The existing Python threshold probe remains independent. Do not infer gameplay
+blocking from a closed graphic. Mouse input is disabled again by unbind/clear.
+Standalone tests cover the actual polygon and press-state code; in-game routing,
+hover registration and UI fall-through require a separate user acceptance run.

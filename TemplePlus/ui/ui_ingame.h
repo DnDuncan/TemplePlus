@@ -3,6 +3,7 @@
 
 #include "ui_system.h"
 #include "raycast.h"
+#include "../graphics/originaldoorstate.h"
 
 struct objHndl;
 struct TigMsg;
@@ -44,6 +45,9 @@ public:
 private:
 	bool mPrevMsgWasInCombat = false;
 	bool mPartyMembersMoving = false;
+	OriginalDoorMousePress mOriginalDoorPress;
+	void CancelOriginalDoorInput();
+	bool HandleOriginalDoorMessage(const TigMsg &msg);
 
 	void HandleCombatMessage(const TigMsg &msg);
 	void HandleNonCombatMessage(const TigMsg &msg);
