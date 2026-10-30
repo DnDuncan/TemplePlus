@@ -88,7 +88,9 @@ void UiInGame::SetFocusObject(objHndl handle)
 
 void UiInGame::ProcessMessage(const TigMsg & msg) {
 	DoKeyboardScrolling();
-	if ((msg.type != TigMsgType::MOUSE && msg.type != TigMsgType::UPDATE_TIME)
+	if (msg.type == TigMsgType::KEYSTATECHANGE || msg.type == TigMsgType::KEYDOWN
+		|| msg.type == TigMsgType::CHAR || msg.type == TigMsgType::EXIT
+		|| (msg.type == TigMsgType::WIDGET && reinterpret_cast<const TigMsgWidget&>(msg).widgetEventType == TigMsgWidgetEvent::Exited)
 		|| combatSys.isCombatActive() || gameSystems->GetMap().IsClearingMap()
 		|| uiSystems->GetDlg().IsActive() || uiSystems->GetChar().IsVisible()
 		|| uiSystems->GetTownmap().IsVisible() || uiSystems->GetLogbook().IsVisible()
