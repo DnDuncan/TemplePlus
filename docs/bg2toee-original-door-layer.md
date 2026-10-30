@@ -74,10 +74,9 @@ clears its input geometry. A thin yellow hover line displays the source outline.
 
 Only non-combat in-game viewport input participates. Native selectable objects
 take precedence. Dialog, character/townmap/logbook screens, console, radial menu,
-target picker and DM tools retain their input. An owned left press is consumed
-through release; modifier-assisted clicks retain their native input behavior.
-An unmodified press is consumed
-through release; it toggles exactly once only on the same door/map without a
+target picker and DM tools retain their input. Modifier-assisted clicks retain
+their native input behavior. An owned unmodified press is consumed through
+release; it toggles exactly once only on the same door/map without a
 drag beyond four native pixels. Starting on ground and releasing on a door does
 not toggle it. Map changes, reset and cancelled/UI-interrupted gestures discard
 the press. Input uses scene coordinates already provided by GameView, without
@@ -89,3 +88,5 @@ The existing Python threshold probe remains independent. Do not infer gameplay
 blocking from a closed graphic. Mouse input is disabled again by unbind/clear.
 Standalone tests cover the actual polygon and press-state code; in-game routing,
 hover registration and UI fall-through require a separate user acceptance run.
+Maps without bound doors bypass the input layer before querying terrain origin
+or raycasting native objects.

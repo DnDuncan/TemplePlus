@@ -136,6 +136,10 @@ public:
 		mOutlines[std::make_pair(mapId, NormalizeId(id))] = std::move(outline);
 	}
 	void Unbind(int mapId, const std::string &id) { mOutlines.erase(std::make_pair(mapId, NormalizeId(id))); }
+	bool HasBindings(int mapId) const {
+		for (const auto &entry : mOutlines) if (entry.first.first == mapId) return true;
+		return false;
+	}
 	const OriginalDoorPolygon *Outline(int mapId, const std::string &id) const {
 		auto patch = Find(mapId, id);
 		auto found = mOutlines.find(std::make_pair(mapId, NormalizeId(id)));

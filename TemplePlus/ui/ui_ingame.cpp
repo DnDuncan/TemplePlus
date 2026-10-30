@@ -256,6 +256,8 @@ void UiInGame::CancelOriginalDoorInput() {
 }
 
 bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
+	auto &terrain = gameSystems->GetTerrain();
+	if (!terrain.HasOriginalDoorInput()) { CancelOriginalDoorInput(); return false; }
 	if (gameSystems->GetMap().IsClearingMap() || combatSys.isCombatActive()
 		|| uiSystems->GetChar().IsVisible() || uiSystems->GetChar().IsLevelingUp()
 		|| uiSystems->GetChar().GetInventoryObject() || uiSystems->GetTownmap().IsVisible()
@@ -271,7 +273,6 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	if (flags & (MSF_RMB_CLICK | MSF_RMB_DOWN | MSF_RMB_RELEASED | MSF_MMB_CLICK | MSF_MMB_DOWN | MSF_SCROLLWHEEL_CHANGE)) {
 		CancelOriginalDoorInput(); return false;
 	}
-	auto &terrain = gameSystems->GetTerrain();
 	auto x = static_cast<int>(msg.arg1), y = static_cast<int>(msg.arg2);
 	if (x < 0 || y < 0 || x >= config.renderWidth || y >= config.renderHeight) {
 		CancelOriginalDoorInput(); return false;

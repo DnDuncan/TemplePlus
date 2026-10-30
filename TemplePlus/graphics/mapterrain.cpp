@@ -134,7 +134,11 @@ void TerrainSystem::UnbindOriginalDoor(const std::string &id) {
 bool TerrainSystem::IsOriginalDoorBound(const std::string &id) const {
 	return mOriginalDoors.Outline(maps.GetCurrentMapId(), id) != nullptr;
 }
+bool TerrainSystem::HasOriginalDoorInput() const {
+	return mOriginalDoors.HasBindings(maps.GetCurrentMapId());
+}
 std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
+	if (!HasOriginalDoorInput()) return {};
 	int x, y; GetTerrainOrigin(x, y);
 	return mOriginalDoors.HitTest(maps.GetCurrentMapId(), screenX - x, screenY - y);
 }

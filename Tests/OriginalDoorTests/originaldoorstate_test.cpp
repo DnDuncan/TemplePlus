@@ -19,8 +19,10 @@ static void TestOutlines() {
 	state.Register(MakePatch());
 	OriginalDoorOutline outline{ {{10,10},{40,10},{40,40},{10,40}}, {{50,10},{55,10},{55,40},{50,40}} };
 	assert(state.HitTest(5136, 20, 20).empty()); // registration does not enable input
+	assert(!state.HasBindings(5136));
 	Reject([&]() { state.Bind(5136, "MISSING", outline); });
 	state.Bind(5136, "door2616", outline);
+	assert(state.HasBindings(5136) && !state.HasBindings(5190));
 	assert(state.HitTest(5136, 20, 20) == "DOOR2616");
 	assert(state.HitTest(5136, 10, 25) == "DOOR2616"); // boundary included
 	assert(state.HitTest(5136, 9, 25).empty());
@@ -46,6 +48,7 @@ static void TestOutlines() {
 	state.Unbind(5136, "SECOND");
 	assert(state.HitTest(5136, 52, 25) == "DOOR2616");
 	state.ClearMap(5136);
+	assert(!state.HasBindings(5136));
 	assert(state.HitTest(5136, 52, 25).empty());
 	state.Register(MakePatch());
 	assert(!state.Outline(5136, "DOOR2616"));

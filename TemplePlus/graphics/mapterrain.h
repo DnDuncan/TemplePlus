@@ -59,6 +59,7 @@ public:
 	void BindOriginalDoor(const std::string &id, OriginalDoorOutline outline);
 	void UnbindOriginalDoor(const std::string &id);
 	bool IsOriginalDoorBound(const std::string &id) const;
+	bool HasOriginalDoorInput() const;
 	std::string HitTestOriginalDoor(int screenX, int screenY) const;
 	void GetTerrainOrigin(int &x, int &y) const;
 	void SetHoveredOriginalDoor(const std::string &id) { mHoveredOriginalDoor = id; }
