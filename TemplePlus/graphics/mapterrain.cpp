@@ -17,6 +17,12 @@
 #include "path_node.h"
 #include "gamesystems/objects/objsystem.h"
 #include "gamesystems/map/sector.h"
+#include "gamesystems/mapsystem.h"
+#include "animgoals/anim.h"
+#include "combat.h"
+#include "critter.h"
+#include "party.h"
+#include "raycast.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -99,6 +105,7 @@ void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
 	}
 	ValidateOriginalDoorTextures(patch);
 	mOriginalDoors.Register(std::move(patch));
+	++mDoorUseRevision;
 }
 
 void TerrainSystem::ValidateOriginalDoorTextures(const OriginalDoorPatch &patch) const {
@@ -122,6 +129,7 @@ void TerrainSystem::SetOriginalDoorOpen(const std::string &id, bool open) {
 	candidate.SetOpen(maps.GetCurrentMapId(), id, open);
 	CheckNewDoorBlockers(candidate);
 	mOriginalDoors = std::move(candidate);
+	++mDoorUseRevision;
 	pathfindingSys.PathCacheInit();
 }
 
@@ -159,10 +167,12 @@ void TerrainSystem::BindOriginalDoorNavigation(const std::string &id, DoorNaviga
 	candidate.BindNavigation(maps.GetCurrentMapId(), id, std::move(geometry));
 	CheckNewDoorBlockers(candidate);
 	mOriginalDoors = std::move(candidate);
+	++mDoorUseRevision;
 	pathfindingSys.PathCacheInit();
 }
 void TerrainSystem::UnbindOriginalDoorNavigation(const std::string &id, int mapId) {
-	mOriginalDoors.UnbindNavigation(mapId ? mapId : maps.GetCurrentMapId(), id); pathfindingSys.PathCacheInit();
+	mapId = mapId ? mapId : maps.GetCurrentMapId();
+	mOriginalDoors.UnbindNavigation(mapId, id); UnbindOriginalDoorUse(mapId, id); pathfindingSys.PathCacheInit();
 }
 bool TerrainSystem::HasOriginalDoorNavigation(const std::string &id) const {
 	return mOriginalDoors.HasNavigation(maps.GetCurrentMapId(), id);
@@ -172,6 +182,79 @@ bool TerrainSystem::CanTravelThroughOriginalDoor(int mapId, const std::string &i
 }
 const std::vector<DoorNavigationTile> &TerrainSystem::GetOriginalDoorBlockingTiles() const {
 	return mOriginalDoors.NavigationTiles(maps.GetCurrentMapId());
+}
+
+void TerrainSystem::BindOriginalDoorUse(int mapId, const std::string &id, OriginalDoorUseGeometry geometry) {
+	ValidateOriginalDoorUse(geometry);
+	if (!mOriginalDoors.Find(mapId, id) || !mOriginalDoors.HasNavigation(mapId, id))
+		throw std::invalid_argument("register door and navigation before binding approach");
+	mDoorUse[{mapId, OriginalDoorState::NormalizeId(id)}] = std::move(geometry);
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
+}
+
+void TerrainSystem::UnbindOriginalDoorUse(int mapId, const std::string &id) {
+	mDoorUse.erase({mapId, OriginalDoorState::NormalizeId(id)});
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
+}
+
+bool TerrainSystem::HasOriginalDoorUse(int mapId, const std::string &id) const {
+	return mDoorUse.count({mapId, OriginalDoorState::NormalizeId(id)}) != 0;
+}
+
+void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actorHandle) {
+	objHndl actor{actorHandle};
+	if (!gameSystems->GetObj().IsValidHandle(actor) || !party.IsInParty(actor)
+		|| critterSys.IsDeadOrUnconscious(actor) || combatSys.isCombatActive())
+		throw std::invalid_argument("door approach requires a conscious party actor outside combat");
+	auto mapId = maps.GetCurrentMapId();
+	auto found = mDoorUse.find({mapId, OriginalDoorState::NormalizeId(id)});
+	if (found == mDoorUse.end()) throw std::invalid_argument("original door approach is not bound");
+	auto from = objects.GetLocationFull(actor).ToInches2D();
+	mDoorUseQueue.Begin(mapId, found->first.second, actorHandle, mDoorUseRevision,
+		timeGetTime(), GetOriginalDoorOpen(id), found->second, {from.x, from.y});
+	AdvanceTime(timeGetTime()); // near use is immediate, but still requires a clear line
+	if (mDoorUseQueue.Pending()) {
+		auto target = mDoorUseQueue.Pending()->target;
+		if (!gameSystems->GetAnim().PushMoveToTile(actor, LocAndOffsets::FromInches(float(target.x), float(target.y)))) {
+			CancelOriginalDoorUse(); throw std::invalid_argument("cannot start movement to original door approach point");
+		}
+	}
+}
+
+void TerrainSystem::AdvanceTime(uint32_t time) {
+	if (!mDoorUseQueue.Pending()) return;
+	try {
+		auto request = *mDoorUseQueue.Pending();
+		if (gameSystems->GetMap().IsClearingMap() || maps.GetCurrentMapId() != request.mapId
+			|| request.revision != mDoorUseRevision) { CancelOriginalDoorUse(); return; }
+		objHndl actor{request.actor};
+		auto valid = gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
+			&& !critterSys.IsDeadOrUnconscious(actor);
+		bool reachable = false;
+		if (valid && !combatSys.isCombatActive()) {
+			auto from = objects.GetLocationFull(actor);
+			auto inches = from.ToInches2D();
+			if (OriginalDoorUseDistance({inches.x, inches.y}, request.target) <= request.reach) {
+				RaycastPacket ray;
+				ray.flags = static_cast<RaycastFlags>(HasToBeCleared | HasSourceObj | ExcludeItemObjects);
+				ray.origin = from; ray.targetLoc = LocAndOffsets::FromInches(float(request.target.x), float(request.target.y));
+				ray.sourceObj = actor; ray.radius = 0;
+				ray.Raycast(); reachable = true;
+				for (int i = 0; i < ray.resultCount; ++i)
+					if (ray.results[i].flags & BlockerSubtile) { reachable = false; break; }
+			}
+		}
+		auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
+			combatSys.isCombatActive(), GetOriginalDoorOpen(request.id), reachable);
+		if (action == OriginalDoorUseQueue::Action::Apply) {
+			SetOriginalDoorOpen(request.id, request.open);
+			logger->info("Original door approach applied: map={} id={} open={}", request.mapId, request.id, request.open);
+		} else if (action == OriginalDoorUseQueue::Action::Cancelled) {
+			logger->info("Original door approach cancelled: map={} id={}", request.mapId, request.id);
+		}
+	} catch (const std::exception &e) {
+		CancelOriginalDoorUse(); logger->info("Original door approach refused: {}", e.what());
+	}
 }
 
 bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
@@ -210,6 +293,10 @@ std::string TerrainSystem::LoadOriginalDoorSession() {
 
 void TerrainSystem::ClearOriginalDoors() {
 	mOriginalDoors.ClearMap(maps.GetCurrentMapId());
+	for (auto it = mDoorUse.begin(); it != mDoorUse.end();) {
+		if (it->first.first == maps.GetCurrentMapId()) it = mDoorUse.erase(it); else ++it;
+	}
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
 	pathfindingSys.PathCacheInit();
 	mHoveredOriginalDoor.clear();
 }
@@ -223,9 +310,11 @@ void TerrainSystem::GetTerrainOrigin(int &x, int &y) const {
 
 void TerrainSystem::BindOriginalDoor(const std::string &id, OriginalDoorOutline outline) {
 	mOriginalDoors.Bind(maps.GetCurrentMapId(), id, std::move(outline));
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
 }
 void TerrainSystem::UnbindOriginalDoor(const std::string &id) {
 	mOriginalDoors.Unbind(maps.GetCurrentMapId(), id);
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
 	mHoveredOriginalDoor.clear();
 }
 bool TerrainSystem::IsOriginalDoorBound(const std::string &id) const {
@@ -242,11 +331,13 @@ std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
 
 void TerrainSystem::Reset() {
 	mOriginalDoors.Clear();
+	mDoorUse.clear(); CancelOriginalDoorUse(); ++mDoorUseRevision;
 	mHoveredOriginalDoor.clear();
 }
 
 void TerrainSystem::UnloadModule() {
 	mOriginalDoors.Clear();
+	mDoorUse.clear(); CancelOriginalDoorUse(); ++mDoorUseRevision;
 	mHoveredOriginalDoor.clear();
 	mTerrainDirs.clear();
 	mMapArtId = 0;

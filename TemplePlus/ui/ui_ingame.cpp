@@ -258,7 +258,10 @@ void UiInGame::HandleNonCombatMessage(const TigMsg & msg)
 
 void UiInGame::CancelOriginalDoorInput() {
 	mOriginalDoorPress.Cancel();
-	if (gameSystems) gameSystems->GetTerrain().SetHoveredOriginalDoor({});
+	if (gameSystems) {
+		gameSystems->GetTerrain().SetHoveredOriginalDoor({});
+		gameSystems->GetTerrain().CancelOriginalDoorUse();
+	}
 }
 
 bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
@@ -276,6 +279,7 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 		CancelOriginalDoorInput(); return false;
 	}
 	auto flags = msg.arg4;
+	if (flags & MSF_LMB_CLICK) terrain.CancelOriginalDoorUse(); // a new command replaces pending intent
 	if (flags & (MSF_RMB_CLICK | MSF_RMB_DOWN | MSF_RMB_RELEASED | MSF_MMB_CLICK | MSF_MMB_DOWN | MSF_SCROLLWHEEL_CHANGE)) {
 		CancelOriginalDoorInput(); return false;
 	}
@@ -295,8 +299,12 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	if (!result.toggle.empty()) {
 		auto open = !terrain.GetOriginalDoorOpen(result.toggle);
 		try {
-			terrain.SetOriginalDoorOpen(result.toggle, open);
-			logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
+			if (terrain.HasOriginalDoorUse(maps.GetCurrentMapId(), result.toggle)) {
+				terrain.RequestOriginalDoorUse(result.toggle, party.GetConsciousPartyLeader().handle);
+			} else {
+				terrain.SetOriginalDoorOpen(result.toggle, open);
+				logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
+			}
 		} catch (const std::exception &e) {
 			logger->info("Original door refused: {}", e.what());
 		}

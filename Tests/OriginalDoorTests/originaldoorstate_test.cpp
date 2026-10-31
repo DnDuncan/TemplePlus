@@ -1,5 +1,7 @@
 #include "../../TemplePlus/graphics/originaldoorstate.h"
 #include "../../TemplePlus/graphics/originaldoorsave.h"
+#include "../../TemplePlus/graphics/originaldooruse.h"
+#include <limits>
 #include <cassert>
 #include <iostream>
 
@@ -165,7 +167,39 @@ static void TestSave() {
 	assert(originaldoorsave::Decode(originaldoorsave::Encode(empty, "")).doors.Patches().empty());
 }
 
+static void TestUse() {
+	OriginalDoorUseGeometry geometry{{{100,200}, {300,400}}, 60};
+	OriginalDoorUseQueue queue;
+	using Action = OriginalDoorUseQueue::Action;
+	assert(queue.Poll(5136, 0, 0, true, false, false, true) == Action::Idle);
+	queue.Begin(5136, "DOOR2616", 42, 7, 100, false, geometry, {310,410});
+	assert(queue.Pending()->target.x == 300); // source candidate nearest the actor
+	assert(queue.Pending()->open);
+	assert(queue.Poll(5136, 7, 200, true, false, false, false) == Action::Waiting);
+	assert(queue.Poll(5136, 7, 300, true, false, false, true) == Action::Apply);
+	assert(queue.Poll(5136, 7, 301, true, false, true, true) == Action::Idle); // consumed once
+	for (int reason = 0; reason < 6; ++reason) {
+		queue.Begin(5136, "DOOR2616", 42, 7, 100, false, geometry, {100,200});
+		assert(queue.Poll(reason == 0 ? 5190 : 5136, reason == 1 ? 8 : 7,
+			reason == 2 ? 15101 : 200, reason != 3, reason == 4, reason == 5, true) == Action::Cancelled);
+	}
+	queue.Begin(5136, "DOOR2616", 42, 7, 0xfffffff0, true, geometry, {100,200});
+	assert(!queue.Pending()->open);
+	assert(queue.Poll(5136, 7, 20, true, false, true, false) == Action::Waiting); // clock wrap
+	queue.Cancel(); assert(!queue.Pending());
+	assert(OriginalDoorUseDistance({0,0}, {36,48}) == 60);
+	for (double reach : {0.0, -1.0, 60.01, std::numeric_limits<double>::infinity()}) {
+		auto bad = geometry; bad.reach = reach; Reject([&]() { ValidateOriginalDoorUse(bad); });
+	}
+	auto bad = geometry; bad.points.clear(); Reject([&]() { ValidateOriginalDoorUse(bad); });
+	bad = geometry; bad.points[0].x = std::numeric_limits<double>::quiet_NaN();
+	Reject([&]() { ValidateOriginalDoorUse(bad); });
+	bad = geometry; bad.points[0].y = 960 * 28.2842712474619;
+	Reject([&]() { ValidateOriginalDoorUse(bad); });
+}
+
 int main() {
+	TestUse();
 	TestSave();
 	TestNavigation();
 	TestOutlines();
