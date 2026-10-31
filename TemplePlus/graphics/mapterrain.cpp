@@ -126,6 +126,8 @@ void TerrainSystem::CheckNewDoorBlockers(const OriginalDoorState &candidate) con
 	std::vector<DoorNavigationTile> added;
 	for (auto tile : candidate.NavigationTiles(mapId)) {
 		tile.mask &= ~before[{tile.x, tile.y}];
+		LocAndOffsets loc{ {static_cast<uint32_t>(tile.x), static_cast<uint32_t>(tile.y)}, 0, 0 };
+		tile.mask &= ~static_cast<uint32_t>(sectorSys.GetTileFlags(loc)); // existing walls are not new blockers
 		if (tile.mask) added.push_back(tile);
 	}
 	if (added.empty()) return;

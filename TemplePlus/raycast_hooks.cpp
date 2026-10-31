@@ -5,6 +5,7 @@
 #include "util/fixes.h"
 #include "gamesystems/gamesystems.h"
 #include "gamesystems/map/sector.h"
+#include "gamesystems/mapsystem.h"
 #include "graphics/mapterrain.h"
 
 // Only the synchronous native query sees extra sector bits. Holding the sector
@@ -13,6 +14,7 @@ class ScopedOriginalDoorRaycast {
 public:
 	ScopedOriginalDoorRaycast(const RaycastPacket &packet, bool shortRange) {
 		if (!originalDoorTerrain) return;
+		if (gameSystems->GetMap().IsClearingMap()) return;
 		const auto &tiles = originalDoorTerrain->GetOriginalDoorBlockingTiles();
 		if (tiles.empty()) return;
 		auto to = shortRange ? packet.origin.location : packet.targetLoc.location;
