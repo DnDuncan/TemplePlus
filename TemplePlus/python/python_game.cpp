@@ -1642,6 +1642,39 @@ static PyObject* PyGame_BgDoorUseIsBound(PyObject*, PyObject* args) {
 	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
 }
 
+static PyObject* PyGame_BgTravelVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_travel_version")) return nullptr;
+	return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgTravelBind(PyObject*, PyObject* args) {
+	int mapId,gateMap; const char *id,*gateId; double x,y,dx,dy,px,py,reach=60;
+	if (!PyArg_ParseTuple(args,"isisdddddd|d:bg_travel_bind",&mapId,&id,&gateMap,&gateId,&x,&y,&dx,&dy,&px,&py,&reach)) return nullptr;
+	try {
+		gameSystems->GetTerrain().BindOriginalTravel({mapId,gateMap,OriginalDoorState::NormalizeId(id),
+			OriginalDoorState::NormalizeId(gateId),x,y,dx,dy,{{{px,py}},reach}});
+		Py_RETURN_NONE;
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError,e.what()); return nullptr; }
+}
+static PyObject* PyGame_BgTravelClear(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_travel_clear")) return nullptr;
+	gameSystems->GetTerrain().ClearOriginalTravel(); Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgTravelPeek(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_travel_peek")) return nullptr;
+	auto intent=gameSystems->GetTerrain().PeekOriginalTravel();
+	if (!intent) { Py_RETURN_NONE; }
+	return Py_BuildValue("Iis",intent->serial,intent->mapId,intent->id.c_str());
+}
+static PyObject* PyGame_BgTravelAck(PyObject*, PyObject* args) {
+	unsigned int serial;
+	if (!PyArg_ParseTuple(args,"I:bg_travel_ack",&serial)) return nullptr;
+	return PyBool_FromLong(gameSystems->GetTerrain().AckOriginalTravel(serial));
+}
+static PyObject* PyGame_BgTravelCancel(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_travel_cancel")) return nullptr;
+	gameSystems->GetTerrain().CancelOriginalDoorUse(); Py_RETURN_NONE;
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1785,6 +1818,12 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_session_version", PyGame_BgDoorSessionVersion, METH_VARARGS, NULL},
 	{"bg_door_session_save", PyGame_BgDoorSessionSave, METH_VARARGS, NULL},
 	{"bg_door_session_load", PyGame_BgDoorSessionLoad, METH_VARARGS, NULL},
+	{"bg_travel_version", PyGame_BgTravelVersion, METH_VARARGS, NULL},
+	{"bg_travel_bind", PyGame_BgTravelBind, METH_VARARGS, NULL},
+	{"bg_travel_clear", PyGame_BgTravelClear, METH_VARARGS, NULL},
+	{"bg_travel_peek", PyGame_BgTravelPeek, METH_VARARGS, NULL},
+	{"bg_travel_ack", PyGame_BgTravelAck, METH_VARARGS, NULL},
+	{"bg_travel_cancel", PyGame_BgTravelCancel, METH_VARARGS, NULL},
 	{"bg_door_use_version", PyGame_BgDoorUseVersion, METH_VARARGS, NULL},
 	{"bg_door_use_bind", PyGame_BgDoorUseBind, METH_VARARGS, NULL},
 	{"bg_door_use_unbind", PyGame_BgDoorUseUnbind, METH_VARARGS, NULL},

@@ -260,6 +260,7 @@ void UiInGame::CancelOriginalDoorInput() {
 	mOriginalDoorPress.Cancel();
 	if (gameSystems) {
 		gameSystems->GetTerrain().SetHoveredOriginalDoor({});
+		gameSystems->GetTerrain().SetHoveredOriginalTravel({});
 		gameSystems->GetTerrain().CancelOriginalDoorUse();
 	}
 }
@@ -288,20 +289,26 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	if (x < visible.left || y < visible.top || x >= visible.right || y >= visible.bottom) {
 		CancelOriginalDoorInput(); return false;
 	}
-	// Native selectable actors/objects take precedence over the terrain layer.
-	auto hit = terrain.HitTestOriginalDoor(x, y);
-	if (!hit.empty() && GetMouseTarget(x, y)) hit.clear();
+	// Explicit markers and the stable door frame must remain clickable even
+	// when the approaching actor stands in front of them.
+	auto travel = terrain.HitTestOriginalTravel(x, y);
+	auto hit = travel.empty() ? terrain.HitTestOriginalDoor(x, y) : std::string();
+	if (!terrain.HasOriginalTravel() && !hit.empty() && GetMouseTarget(x, y)) hit.clear();
 	terrain.SetHoveredOriginalDoor(hit);
+	terrain.SetHoveredOriginalTravel(travel);
+	if (!travel.empty()) hit = "@" + travel;
 	int originX, originY; terrain.GetTerrainOrigin(originX, originY);
 	using Event = OriginalDoorMousePress::Event;
 	auto event = (flags & MSF_LMB_CLICK) ? Event::Down : (flags & MSF_LMB_RELEASED) ? Event::Up : Event::Move;
 	auto result = mOriginalDoorPress.Process(maps.GetCurrentMapId(), hit, event, x - originX, y - originY);
 	if (!result.toggle.empty()) {
-		auto open = !terrain.GetOriginalDoorOpen(result.toggle);
 		try {
-			if (terrain.HasOriginalDoorUse(maps.GetCurrentMapId(), result.toggle)) {
+			if (result.toggle[0] == '@') {
+				terrain.RequestOriginalTravel(result.toggle.substr(1), party.GetConsciousPartyLeader().handle);
+			} else if (terrain.HasOriginalDoorUse(maps.GetCurrentMapId(), result.toggle)) {
 				terrain.RequestOriginalDoorUse(result.toggle, party.GetConsciousPartyLeader().handle);
 			} else {
+				auto open = !terrain.GetOriginalDoorOpen(result.toggle);
 				terrain.SetOriginalDoorOpen(result.toggle, open);
 				logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
 			}

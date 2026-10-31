@@ -1,6 +1,7 @@
 #include "../../TemplePlus/graphics/originaldoorstate.h"
 #include "../../TemplePlus/graphics/originaldoorsave.h"
 #include "../../TemplePlus/graphics/originaldooruse.h"
+#include "../../TemplePlus/graphics/originaltravel.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -198,7 +199,54 @@ static void TestUse() {
 	Reject([&]() { ValidateOriginalDoorUse(bad); });
 }
 
+static void TestClickTravel() {
+	OriginalTravelMarker m{5136,5136,"DOOR2616A","DOOR2616",7000,7800,-60,-40,{{{13000,11000}},60}};
+	ValidateOriginalTravel(m);
+	for (double zoom : {0.5,1.0,2.3}) {
+		assert(OriginalTravelHit(m,m.x+29/zoom,m.y,zoom));
+		assert(!OriginalTravelHit(m,m.x+31/zoom,m.y,zoom));
+		auto arrow=OriginalTravelArrow(m,zoom);
+		assert(std::abs(OriginalDoorUseDistance({m.x,m.y},arrow[3])*zoom-22)<0.00001);
+		assert((arrow[3].x-m.x)*m.dx+(arrow[3].y-m.y)*m.dy>0);
+	}
+	for (int bad=0;bad<4;++bad) {
+		auto invalid=m;
+		if (bad==0) invalid.mapId=0;
+		if (bad==1) invalid.x=-1;
+		if (bad==2) invalid.dx=invalid.dy=0;
+		if (bad==3) invalid.approach.reach=61;
+		Reject([&]() {ValidateOriginalTravel(invalid);});
+	}
+	OriginalTravelReady ready;
+	ready.Publish(100,5136,m.id,7,42); auto serial=ready.Peek()->serial;
+	assert(!ready.Ack(serial+1) && ready.Peek());
+	assert(ready.Ack(serial) && !ready.Peek() && !ready.Ack(serial));
+	for (int reason=0;reason<4;++reason) {
+		ready.Publish(100,5136,m.id,7,42);
+		ready.Validate(reason==0 ? 15101:200,reason==1 ? 5190:5136,reason==2 ? 8:7,reason!=3);
+		assert(!ready.Peek());
+	}
+	ready.Publish(0xfffffff0,5190,"DOOR2600",7,42); ready.Validate(20,5190,7,true); assert(ready.Peek());
+	ready.Cancel(); assert(!ready.Peek());
+	OriginalDoorState state; state.Register(MakePatch());
+	state.Bind(5136,"DOOR2616",{{{10,10},{40,10},{40,40},{10,40}},{{50,10},{55,10},{55,40},{50,40}}});
+	state.SetOpen(5136,"DOOR2616",true);
+	assert(state.HitTest(5136,20,20).empty());
+	assert(state.HitTestStable(5136,20,20)=="DOOR2616");
+	assert(state.HitTestStable(5136,52,20)=="DOOR2616");
+	assert(state.HitTestStable(5136,5,20)=="DOOR2616");
+	assert(state.HitTestStable(5136,0,20).empty());
+	state.BindNavigation(5136,"DOOR2616",{{{1,2,0x200}},{{1,2,0x400}}});
+	state.Register(MakePatch(5136,"OTHER")); state.BindNavigation(5136,"OTHER",{{{1,2,0x800}}, {}});
+	assert(state.NavigationTiles(5136)[0].mask==0xc00);
+	assert(state.NavigationTiles(5136,"DOOR2616")[0].mask==0x800);
+	assert(state.NavigationTiles(5136)[0].mask==0xc00); // scoped own-door ray cannot leak into movement
+	state.Register(MakePatch(5136,"OVERLAP")); state.Bind(5136,"OVERLAP",{{{10,10},{40,10},{40,40},{10,40}},{{10,10},{40,10},{40,40},{10,40}}});
+	assert(state.HitTestStable(5136,20,20).empty());
+}
+
 int main() {
+	TestClickTravel();
 	TestUse();
 	TestSave();
 	TestNavigation();

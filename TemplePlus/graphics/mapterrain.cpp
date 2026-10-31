@@ -23,6 +23,7 @@
 #include "critter.h"
 #include "party.h"
 #include "raycast.h"
+#include "float_line.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -181,7 +182,7 @@ bool TerrainSystem::CanTravelThroughOriginalDoor(int mapId, const std::string &i
 	return mOriginalDoors.CanTravel(mapId, id);
 }
 const std::vector<DoorNavigationTile> &TerrainSystem::GetOriginalDoorBlockingTiles() const {
-	return mOriginalDoors.NavigationTiles(maps.GetCurrentMapId());
+	return mOriginalDoors.NavigationTiles(maps.GetCurrentMapId(), mDoorLineExclusion);
 }
 
 void TerrainSystem::BindOriginalDoorUse(int mapId, const std::string &id, OriginalDoorUseGeometry geometry) {
@@ -209,6 +210,7 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 	auto mapId = maps.GetCurrentMapId();
 	auto found = mDoorUse.find({mapId, OriginalDoorState::NormalizeId(id)});
 	if (found == mDoorUse.end()) throw std::invalid_argument("original door approach is not bound");
+	CancelOriginalDoorUse();
 	auto from = objects.GetLocationFull(actor).ToInches2D();
 	mDoorUseQueue.Begin(mapId, found->first.second, actorHandle, mDoorUseRevision,
 		timeGetTime(), GetOriginalDoorOpen(id), found->second, {from.x, from.y});
@@ -222,6 +224,7 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 }
 
 void TerrainSystem::AdvanceTime(uint32_t time) {
+	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;
 	try {
 		auto request = *mDoorUseQueue.Pending();
@@ -230,31 +233,14 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 		objHndl actor{request.actor};
 		auto valid = gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
 			&& !critterSys.IsDeadOrUnconscious(actor);
-		bool reachable = false;
-		if (valid && !combatSys.isCombatActive()) {
-			auto from = objects.GetLocationFull(actor);
-			auto inches = from.ToInches2D();
-			if (OriginalDoorUseDistance({inches.x, inches.y}, request.target) <= request.reach) {
-				RaycastPacket ray;
-				ray.flags = static_cast<RaycastFlags>(HasToBeCleared | HasSourceObj | ExcludeItemObjects);
-				ray.origin = from; ray.targetLoc = LocAndOffsets::FromInches(float(request.target.x), float(request.target.y));
-				ray.sourceObj = actor; ray.radius = 0;
-				ray.Raycast(); reachable = true;
-				for (int i = 0; i < ray.resultCount; ++i)
-					if (ray.results[i].flags & BlockerSubtile) { reachable = false; break; }
-			}
-		}
+		auto reachable = valid && !combatSys.isCombatActive()
+			&& DoorUseReachable(request.actor, request.target, request.reach, request.id);
 		auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
 			combatSys.isCombatActive(), GetOriginalDoorOpen(request.id), reachable);
 		if (action == OriginalDoorUseQueue::Action::Apply) {
 			// Finish movement before opening. Continuing toward the approach point
 			// could otherwise cross the independent travel band after this click.
-			AnimSlotId moving{};
-			auto &anim = gameSystems->GetAnim();
-			if ((anim.DoesObjHaveGoal(actor, ag_move_to_tile, &moving)
-				|| anim.DoesObjHaveGoal(actor, ag_run_to_tile, &moving))
-				&& !anim.Interrupt(actor, AnimGoalPriority::AGP_3, false))
-				throw std::invalid_argument("cannot finish movement before using original door");
+			StopDoorMovement(request.actor);
 			SetOriginalDoorOpen(request.id, request.open);
 			logger->info("Original door approach applied: map={} id={} open={}", request.mapId, request.id, request.open);
 		} else if (action == OriginalDoorUseQueue::Action::Cancelled) {
@@ -262,6 +248,155 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 		}
 	} catch (const std::exception &e) {
 		CancelOriginalDoorUse(); logger->info("Original door approach refused: {}", e.what());
+		auto actor = party.GetConsciousPartyLeader();
+		if (actor) floatSys.floatMesLine(actor, 1, FloatLineColor::Yellow, "Door blocked: move away from the leaf");
+	}
+}
+
+bool TerrainSystem::DoorUseReachable(uint64_t handle, OriginalDoorUsePoint target, double reach, const std::string &excluded) {
+	objHndl actor{handle};
+	auto from = objects.GetLocationFull(actor);
+	auto p = from.ToInches2D();
+	if (OriginalDoorUseDistance({p.x,p.y}, target) > reach) return false;
+	// A door must not block using its own handle. Keep all static walls and
+	// every OTHER door in the ray; restore the exclusion even on an exception.
+	struct Restore { std::string &value; std::string saved; ~Restore() { value=saved; } } restore{mDoorLineExclusion,mDoorLineExclusion};
+	mDoorLineExclusion = excluded;
+	RaycastPacket ray;
+	ray.flags = static_cast<RaycastFlags>(HasToBeCleared | HasSourceObj | ExcludeItemObjects);
+	ray.origin=from; ray.targetLoc=LocAndOffsets::FromInches(float(target.x),float(target.y));
+	ray.sourceObj=actor; ray.radius=0; ray.Raycast();
+	for (int i=0;i<ray.resultCount;++i) if (ray.results[i].flags & BlockerSubtile) return false;
+	return true;
+}
+
+void TerrainSystem::StopDoorMovement(uint64_t handle) {
+	objHndl actor{handle}; AnimSlotId moving{}; auto &anim=gameSystems->GetAnim();
+	if ((anim.DoesObjHaveGoal(actor,ag_move_to_tile,&moving) || anim.DoesObjHaveGoal(actor,ag_run_to_tile,&moving))
+		&& !anim.Interrupt(actor,AnimGoalPriority::AGP_3,false))
+		throw std::invalid_argument("cannot finish movement before door interaction");
+}
+
+void TerrainSystem::BindOriginalTravel(OriginalTravelMarker marker) {
+	ValidateOriginalTravel(marker);
+	if (!mOriginalDoors.HasNavigation(marker.gateMap,marker.gateId))
+		throw std::invalid_argument("travel marker requires a registered navigation gate");
+	if (mTravelMarkers.size() >= 128 && !mTravelMarkers.count({marker.mapId,marker.id}))
+		throw std::invalid_argument("too many travel markers");
+	mTravelMarkers[{marker.mapId,marker.id}]=std::move(marker);
+	CancelOriginalDoorUse(); ++mDoorUseRevision;
+}
+void TerrainSystem::ClearOriginalTravel() {
+	mTravelMarkers.clear(); mHoveredTravel.clear(); CancelOriginalDoorUse(); ++mDoorUseRevision;
+}
+bool TerrainSystem::HasOriginalTravel() const {
+	for (const auto &entry:mTravelMarkers) if (entry.first.first==maps.GetCurrentMapId()) return true;
+	return false;
+}
+std::string TerrainSystem::HitTestOriginalTravel(int x,int y) const {
+	int ox,oy; GetTerrainOrigin(ox,oy); std::string hit;
+	for (const auto &entry:mTravelMarkers) {
+		if (entry.first.first!=maps.GetCurrentMapId() || !OriginalTravelHit(entry.second,x-ox,y-oy,gameView->GetWorldZoom())) continue;
+		if (!hit.empty()) return {}; hit=entry.first.second;
+	}
+	return hit;
+}
+void TerrainSystem::RequestOriginalTravel(const std::string &id,uint64_t handle) {
+	CancelOriginalDoorUse();
+	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),OriginalDoorState::NormalizeId(id)});
+	if (entry==mTravelMarkers.end()) throw std::invalid_argument("travel marker is not bound");
+	objHndl actor{handle};
+	if (!gameSystems->GetObj().IsValidHandle(actor) || !party.IsInParty(actor)
+		|| critterSys.IsDeadOrUnconscious(actor) || combatSys.isCombatActive())
+		throw std::invalid_argument("travel requires a conscious party actor outside combat");
+	const auto &m=entry->second;
+	if (!CanTravelThroughOriginalDoor(m.gateMap,m.gateId)) {
+		floatSys.floatMesLine(actor,1,FloatLineColor::Yellow,"Open the door first"); return;
+	}
+	auto from=objects.GetLocationFull(actor).ToInches2D();
+	mTravelQueue.Begin(m.mapId,m.id,handle,mDoorUseRevision,timeGetTime(),false,m.approach,{from.x,from.y});
+	logger->info("Original travel click: map={} route={}",m.mapId,m.id);
+	AdvanceTravel(timeGetTime());
+	if (mTravelQueue.Pending()) {
+		auto target=mTravelQueue.Pending()->target;
+		if (!gameSystems->GetAnim().PushMoveToTile(actor,LocAndOffsets::FromInches(float(target.x),float(target.y)))) {
+			CancelOriginalDoorUse(); throw std::invalid_argument("cannot approach travel marker");
+		}
+	}
+}
+std::optional<OriginalTravelReady::Intent> TerrainSystem::PeekOriginalTravel() {
+	if (mTravelReady.Peek()) {
+		auto intent=*mTravelReady.Peek(); objHndl actor{intent.actor};
+		auto entry=mTravelMarkers.find({intent.mapId,intent.id});
+		bool valid=!gameSystems->GetMap().IsClearingMap() && !combatSys.isCombatActive()
+			&& gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor) && !critterSys.IsDeadOrUnconscious(actor)
+			&& entry!=mTravelMarkers.end() && CanTravelThroughOriginalDoor(entry->second.gateMap,entry->second.gateId);
+		mTravelReady.Validate(timeGetTime(),maps.GetCurrentMapId(),mDoorUseRevision,valid);
+	}
+	return mTravelReady.Peek();
+}
+bool TerrainSystem::AckOriginalTravel(uint32_t serial) {
+	PeekOriginalTravel(); return mTravelReady.Ack(serial);
+}
+void TerrainSystem::AdvanceTravel(uint32_t time) {
+	PeekOriginalTravel();
+	if (!mTravelQueue.Pending()) return;
+	try {
+		auto request=*mTravelQueue.Pending();
+		auto entry=mTravelMarkers.find({request.mapId,request.id});
+		if (entry==mTravelMarkers.end() || gameSystems->GetMap().IsClearingMap()) { CancelOriginalDoorUse(); return; }
+		const auto &m=entry->second; objHndl actor{request.actor};
+		auto valid=gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
+			&& !critterSys.IsDeadOrUnconscious(actor) && CanTravelThroughOriginalDoor(m.gateMap,m.gateId);
+		auto reachable=valid && request.mapId==maps.GetCurrentMapId() && !combatSys.isCombatActive()
+			&& DoorUseReachable(request.actor,request.target,request.reach,m.gateMap==request.mapId ? m.gateId : "");
+		auto action=mTravelQueue.Poll(maps.GetCurrentMapId(),mDoorUseRevision,time,valid,combatSys.isCombatActive(),false,reachable);
+		if (action==OriginalDoorUseQueue::Action::Apply) {
+			StopDoorMovement(request.actor);
+			mTravelReady.Publish(time,request.mapId,request.id,mDoorUseRevision,request.actor);
+			logger->info("Original travel ready: map={} route={}",request.mapId,request.id);
+		} else if (action==OriginalDoorUseQueue::Action::Cancelled) {
+			logger->info("Original travel cancelled: map={} route={}",request.mapId,request.id);
+		}
+	} catch (const std::exception &e) { CancelOriginalDoorUse(); logger->info("Original travel refused: {}",e.what()); }
+}
+
+void TerrainSystem::RenderOriginalTravel() {
+	if (!HasOriginalTravel() || combatSys.isCombatActive()) return;
+	int ox,oy; GetTerrainOrigin(ox,oy); auto zoom=gameView->GetWorldZoom();
+	auto viewport=gameView->GetWorldViewport();
+	auto triangle=[&](OriginalDoorUsePoint a,OriginalDoorUsePoint b,OriginalDoorUsePoint c,XMCOLOR color) {
+		gfx::Vertex2d vertices[4]{}; OriginalDoorUsePoint points[4]={a,b,c,c};
+		for (int i=0;i<4;++i) {
+			vertices[i].pos=XMFLOAT4(float(points[i].x+ox),float(points[i].y+oy),0,1);
+			vertices[i].diffuse=color;
+		}
+		mShapeRenderer.DrawRectangle(vertices);
+	};
+	for (const auto &entry:mTravelMarkers) {
+		if (entry.first.first!=maps.GetCurrentMapId()) continue;
+		const auto &m=entry.second;
+		auto r=29/zoom;
+		if (m.x+ox+r<viewport.left || m.x+ox-r>viewport.right || m.y+oy+r<viewport.top || m.y+oy-r>viewport.bottom) continue;
+		auto enabled=CanTravelThroughOriginalDoor(m.gateMap,m.gateId);
+		auto pending=(mTravelQueue.Pending() && mTravelQueue.Pending()->id==m.id) || (mTravelReady.Peek() && mTravelReady.Peek()->id==m.id);
+		XMCOLOR gold=enabled ? XMCOLOR(0.90f,0.70f,0.30f,1.0f) : XMCOLOR(0.48f,0.46f,0.40f,0.85f);
+		if (pending || mHoveredTravel==m.id) gold=XMCOLOR(0.55f,0.85f,1.0f,1.0f);
+		std::vector<gfx::Line2d> ring;
+		for (int i=0;i<32;++i) {
+			double a=i*6.283185307179586/32,b=(i+1)*6.283185307179586/32;
+			OriginalDoorUsePoint p{m.x+r*cos(a),m.y+r*sin(a)},q{m.x+r*cos(b),m.y+r*sin(b)};
+			triangle({m.x,m.y},p,q,XMCOLOR(0.07f,0.05f,0.03f,0.78f));
+			ring.emplace_back(XMFLOAT2(float(p.x+ox),float(p.y+oy)),XMFLOAT2(float(q.x+ox),float(q.y+oy)),gold);
+		}
+		mShapeRenderer.DrawLines(ring);
+		auto arrow=OriginalTravelArrow(m,zoom);
+		triangle(arrow[0],arrow[1],arrow[5],gold); triangle(arrow[0],arrow[5],arrow[6],gold);
+		triangle(arrow[2],arrow[3],arrow[4],gold);
+		if (!enabled) {
+			gfx::Line2d slash[1]={{XMFLOAT2(float(m.x+ox-18/zoom),float(m.y+oy+18/zoom)),XMFLOAT2(float(m.x+ox+18/zoom),float(m.y+oy-18/zoom)),gold}};
+			mShapeRenderer.DrawLines(slash);
+		}
 	}
 }
 
@@ -301,6 +436,7 @@ std::string TerrainSystem::LoadOriginalDoorSession() {
 
 void TerrainSystem::ClearOriginalDoors() {
 	mOriginalDoors.ClearMap(maps.GetCurrentMapId());
+	ClearOriginalTravel();
 	for (auto it = mDoorUse.begin(); it != mDoorUse.end();) {
 		if (it->first.first == maps.GetCurrentMapId()) it = mDoorUse.erase(it); else ++it;
 	}
@@ -329,23 +465,24 @@ bool TerrainSystem::IsOriginalDoorBound(const std::string &id) const {
 	return mOriginalDoors.Outline(maps.GetCurrentMapId(), id) != nullptr;
 }
 bool TerrainSystem::HasOriginalDoorInput() const {
-	return mOriginalDoors.HasBindings(maps.GetCurrentMapId());
+	return mOriginalDoors.HasBindings(maps.GetCurrentMapId()) || HasOriginalTravel();
 }
 std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
 	if (!HasOriginalDoorInput()) return {};
 	int x, y; GetTerrainOrigin(x, y);
-	return mOriginalDoors.HitTest(maps.GetCurrentMapId(), screenX - x, screenY - y);
+	return HasOriginalTravel() ? mOriginalDoors.HitTestStable(maps.GetCurrentMapId(), screenX-x, screenY-y)
+		: mOriginalDoors.HitTest(maps.GetCurrentMapId(), screenX-x, screenY-y);
 }
 
 void TerrainSystem::Reset() {
 	mOriginalDoors.Clear();
-	mDoorUse.clear(); CancelOriginalDoorUse(); ++mDoorUseRevision;
+	mDoorUse.clear(); ClearOriginalTravel(); CancelOriginalDoorUse(); ++mDoorUseRevision;
 	mHoveredOriginalDoor.clear();
 }
 
 void TerrainSystem::UnloadModule() {
 	mOriginalDoors.Clear();
-	mDoorUse.clear(); CancelOriginalDoorUse(); ++mDoorUseRevision;
+	mDoorUse.clear(); ClearOriginalTravel(); CancelOriginalDoorUse(); ++mDoorUseRevision;
 	mHoveredOriginalDoor.clear();
 	mTerrainDirs.clear();
 	mMapArtId = 0;
@@ -375,6 +512,10 @@ void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) 
 	}
 	if (!mHoveredOriginalDoor.empty()) {
 		auto polygon = mOriginalDoors.Outline(mapId, mHoveredOriginalDoor);
+		if (HasOriginalTravel()) {
+			auto entry = mOriginalDoors.Outlines().find({mapId, mHoveredOriginalDoor});
+			if (entry != mOriginalDoors.Outlines().end()) polygon = &entry->second.closed;
+		}
 		if (polygon) {
 			std::vector<gfx::Line2d> lines;
 			for (size_t i = 0; i < polygon->size(); ++i) {

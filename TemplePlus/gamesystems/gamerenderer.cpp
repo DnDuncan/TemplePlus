@@ -299,6 +299,7 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
 	
 	gfx::PerfGroup perfGroup(mRenderingDevice, "World UI");
     renderFuncs.RenderUiRelated(info);
+    gameSystems->GetTerrain().RenderOriginalTravel();
     renderFuncs.RenderTextBubbles(info);
     renderFuncs.RenderTextFloaters(info);
 
