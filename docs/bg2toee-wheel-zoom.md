@@ -1,7 +1,8 @@
 # Mouse-wheel world zoom
 
 Wheel up/down over the game world changes a presentation-only zoom between
-50% and 200%, centered on the scene. Six full wheel notches double/halve it;
+50% and 230%, centered on the scene. Six full wheel notches double/halve it;
+one extra stop above 200% reaches exactly 230% (requested by the user).
 partial high-resolution deltas accumulate. Start/load/reset uses 100%.
 Source art, area coordinates, navigation, camera elevation and native tile
 projection are unchanged. Magnifying a background does not add image detail.
@@ -21,7 +22,7 @@ button-held wheel gestures keep their input.
 
 Optional game console API: `game.bg_camera_zoom()` queries zoom;
 `game.bg_camera_zoom(1.0)` resets it. Set values must be finite and within
-0.5..2.0; they snap to the wheel's steps. No save/config persistence is added.
+0.5..2.3; they snap to the wheel's steps. No save/config persistence is added.
 
 Camera tests exercise the actual matrices for identical 2D/3D transforms,
 logical ground picking and single-axis resizing. Portable zoom tests cover

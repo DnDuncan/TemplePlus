@@ -15,20 +15,31 @@ TEST(CameraZoom, WheelStepsClampAndAccumulateHighResolutionInput) {
 	EXPECT_TRUE(zoom.Wheel(60));
 	zoom.Wheel(5 * 120);
 	EXPECT_DOUBLE_EQ(2, zoom.Scale());
+	EXPECT_TRUE(zoom.Wheel(120));
+	EXPECT_DOUBLE_EQ(2.3, zoom.Scale());
 	EXPECT_FALSE(zoom.Wheel(12000));
-	zoom.Wheel(-12 * 120);
+	zoom.Wheel(-13 * 120);
 	EXPECT_DOUBLE_EQ(0.5, zoom.Scale());
 	zoom.Wheel((std::numeric_limits<int>::min)());
 	EXPECT_DOUBLE_EQ(0.5, zoom.Scale());
 	zoom.Reset();
 	EXPECT_DOUBLE_EQ(1, zoom.Scale());
 	EXPECT_THROW(zoom.Set(0), std::invalid_argument);
+	EXPECT_THROW(zoom.Set(2.31), std::invalid_argument);
 	EXPECT_THROW(zoom.Set(std::numeric_limits<double>::infinity()), std::invalid_argument);
+	zoom.Set(2.3);
+	EXPECT_DOUBLE_EQ(2.3, zoom.Scale());
+	zoom.Wheel(-120);
+	EXPECT_DOUBLE_EQ(2, zoom.Scale());
+	zoom.Set(2.14);
+	EXPECT_DOUBLE_EQ(2, zoom.Scale());
+	zoom.Set(2.15);
+	EXPECT_DOUBLE_EQ(2.3, zoom.Scale());
 }
 
 TEST(CameraZoom, PointerInverseAndVisibleBoundsShareTheSameTransform) {
 	WorldViewZoom zoom;
-	for (auto scale : { 0.5, 1.0, 2.0 }) {
+	for (auto scale : { 0.5, 1.0, 2.0, 2.3 }) {
 		zoom.Set(scale);
 		for (auto width : { 1280.0, 1440.0 }) {
 			for (auto height : { 720.0, 960.0 }) {
@@ -51,12 +62,12 @@ TEST(CameraZoom, ThreeDimensionalActorsAndTwoDimensionalArtProjectIdentically) {
 	camera.SetScreenSize(1280, 720);
 	camera.SetTranslation(-500, -400);
 	WorldViewZoom zoom;
-	for (auto scale : { 0.5f, 1.0f, 2.0f }) {
+	for (auto scale : { 0.5, 1.0, 2.0, 2.3 }) {
 		zoom.Set(scale);
 		for (XMFLOAT3 world : { XMFLOAT3(0,0,0), XMFLOAT3(1000,0,1600), XMFLOAT3(900,120,1300) }) {
 			camera.SetPresentationZoom(1);
 			auto original = Project(camera.GetViewProj(), world, 1280, 720);
-			camera.SetPresentationZoom(scale);
+			camera.SetPresentationZoom(static_cast<float>(scale));
 			auto actor = Project(camera.GetViewProj(), world, 1280, 720);
 			auto art = Project(camera.GetUiProjection(), XMFLOAT3(original.x, original.y, 0), 1280, 720);
 			auto expected = zoom.ToDisplay(original.x, original.y, 1280, 720);
