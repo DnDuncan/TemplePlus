@@ -300,7 +300,8 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	int originX, originY; terrain.GetTerrainOrigin(originX, originY);
 	using Event = OriginalDoorMousePress::Event;
 	auto event = (flags & MSF_LMB_CLICK) ? Event::Down : (flags & MSF_LMB_RELEASED) ? Event::Up : Event::Move;
-	auto result = mOriginalDoorPress.Process(maps.GetCurrentMapId(), hit, event, x - originX, y - originY);
+	auto result = mOriginalDoorPress.Process(maps.GetCurrentMapId(), hit, event, x - originX, y - originY,
+		terrain.HasOriginalTravel() ? (std::max)(4, int(std::ceil(6 / gameView->GetWorldZoom()))) : 4);
 	if (!result.toggle.empty()) {
 		try {
 			if (result.toggle[0] == '@') {

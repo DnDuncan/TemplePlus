@@ -27,17 +27,17 @@ public:
 	enum class Action { Idle, Waiting, Apply, Cancelled };
 	struct Request {
 		int mapId; std::string id; uint64_t actor, revision; uint32_t started;
-		bool open; OriginalDoorUsePoint target; double reach;
+		bool open; OriginalDoorUsePoint target; double reach; uint32_t timeout;
 	};
 	void Begin(int mapId, const std::string &id, uint64_t actor, uint64_t revision,
-		uint32_t now, bool currentOpen, const OriginalDoorUseGeometry &geometry, OriginalDoorUsePoint from) {
+		uint32_t now, bool currentOpen, const OriginalDoorUseGeometry &geometry, OriginalDoorUsePoint from, uint32_t timeout = 15000) {
 		ValidateOriginalDoorUse(geometry);
-		if (mapId <= 0 || id.empty() || id.size() > 32 || !actor || !std::isfinite(from.x) || !std::isfinite(from.y))
+		if (mapId <= 0 || id.empty() || id.size() > 32 || !actor || !std::isfinite(from.x) || !std::isfinite(from.y) || !timeout || timeout > 60000)
 			throw std::invalid_argument("invalid original door use request");
 		auto target = geometry.points.front();
 		for (const auto &point : geometry.points)
 			if (OriginalDoorUseDistance(from, point) < OriginalDoorUseDistance(from, target)) target = point;
-		mRequest = Request{mapId, id, actor, revision, now, !currentOpen, target, geometry.reach};
+		mRequest = Request{mapId, id, actor, revision, now, !currentOpen, target, geometry.reach, timeout};
 	}
 	const std::optional<Request> &Pending() const { return mRequest; }
 	void Cancel() { mRequest.reset(); }
@@ -45,7 +45,7 @@ public:
 		bool inCombat, bool currentOpen, bool reachable) {
 		if (!mRequest) return Action::Idle;
 		if (mRequest->mapId != mapId || mRequest->revision != revision || !actorCanUse
-			|| inCombat || uint32_t(now - mRequest->started) > 15000 || currentOpen == mRequest->open) {
+			|| inCombat || uint32_t(now - mRequest->started) > mRequest->timeout || currentOpen == mRequest->open) {
 			Cancel(); return Action::Cancelled;
 		}
 		if (!reachable) return Action::Waiting;

@@ -213,7 +213,7 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 	CancelOriginalDoorUse();
 	auto from = objects.GetLocationFull(actor).ToInches2D();
 	mDoorUseQueue.Begin(mapId, found->first.second, actorHandle, mDoorUseRevision,
-		timeGetTime(), GetOriginalDoorOpen(id), found->second, {from.x, from.y});
+		timeGetTime(), GetOriginalDoorOpen(id), found->second, {from.x, from.y}, HasOriginalTravel() ? 60000 : 15000);
 	AdvanceTime(timeGetTime()); // near use is immediate, but still requires a clear line
 	if (mDoorUseQueue.Pending()) {
 		auto target = mDoorUseQueue.Pending()->target;
@@ -314,7 +314,7 @@ void TerrainSystem::RequestOriginalTravel(const std::string &id,uint64_t handle)
 		floatSys.floatMesLine(actor,1,FloatLineColor::Yellow,"Open the door first"); return;
 	}
 	auto from=objects.GetLocationFull(actor).ToInches2D();
-	mTravelQueue.Begin(m.mapId,m.id,handle,mDoorUseRevision,timeGetTime(),false,m.approach,{from.x,from.y});
+	mTravelQueue.Begin(m.mapId,m.id,handle,mDoorUseRevision,timeGetTime(),false,m.approach,{from.x,from.y},60000);
 	logger->info("Original travel click: map={} route={}",m.mapId,m.id);
 	AdvanceTravel(timeGetTime());
 	if (mTravelQueue.Pending()) {
@@ -371,7 +371,7 @@ void TerrainSystem::RenderOriginalTravel() {
 			vertices[i].pos=XMFLOAT4(float(points[i].x+ox),float(points[i].y+oy),0,1);
 			vertices[i].diffuse=color;
 		}
-		mShapeRenderer.DrawRectangle(vertices);
+		mShapeRenderer.DrawRectangle(vertices, static_cast<gfx::Texture*>(nullptr));
 	};
 	for (const auto &entry:mTravelMarkers) {
 		if (entry.first.first!=maps.GetCurrentMapId()) continue;

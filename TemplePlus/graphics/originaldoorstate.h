@@ -243,7 +243,7 @@ public:
 	enum class Event { Down, Move, Up };
 	struct Result { bool consumed; std::string toggle; };
 	void Cancel() { mId.clear(); mDragged = false; }
-	Result Process(int mapId, const std::string &hit, Event event, int x, int y) {
+	Result Process(int mapId, const std::string &hit, Event event, int x, int y, int tolerance = 4) {
 		if (event == Event::Down) {
 			Cancel();
 			if (hit.empty()) return { false, {} };
@@ -253,7 +253,7 @@ public:
 		if (mId.empty()) return { false, {} };
 		if (mMap != mapId) { Cancel(); return { true, {} }; }
 		auto dx = static_cast<int64_t>(x) - mX, dy = static_cast<int64_t>(y) - mY;
-		if (dx < -4 || dx > 4 || dy < -4 || dy > 4) mDragged = true;
+		if (dx < -tolerance || dx > tolerance || dy < -tolerance || dy > tolerance) mDragged = true;
 		if (event == Event::Up) {
 			auto id = (!mDragged && hit == mId) ? mId : std::string();
 			Cancel();

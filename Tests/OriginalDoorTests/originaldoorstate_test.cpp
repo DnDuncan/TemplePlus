@@ -188,6 +188,14 @@ static void TestUse() {
 	assert(!queue.Pending()->open);
 	assert(queue.Poll(5136, 7, 20, true, false, true, false) == Action::Waiting); // clock wrap
 	queue.Cancel(); assert(!queue.Pending());
+	queue.Begin(5136, "DOOR2616", 42, 7, 100, false, geometry, {100,200}, 60000);
+	assert(queue.Poll(5136, 7, 20100, true, false, false, false) == Action::Waiting);
+	assert(queue.Poll(5136, 7, 60101, true, false, false, true) == Action::Cancelled);
+	Reject([&]() {queue.Begin(5136, "DOOR2616", 42, 7, 100, false, geometry, {100,200}, 60001);});
+	OriginalDoorMousePress press;
+	using Event = OriginalDoorMousePress::Event;
+	assert(press.Process(5136, "DOOR2616", Event::Down, 0, 0, 12).consumed);
+	assert(press.Process(5136, "DOOR2616", Event::Up, 9, 0, 12).toggle == "DOOR2616");
 	assert(OriginalDoorUseDistance({0,0}, {36,48}) == 60);
 	for (double reach : {0.0, -1.0, 60.01, std::numeric_limits<double>::infinity()}) {
 		auto bad = geometry; bad.reach = reach; Reject([&]() { ValidateOriginalDoorUse(bad); });
