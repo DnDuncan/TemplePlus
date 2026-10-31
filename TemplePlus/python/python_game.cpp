@@ -1466,9 +1466,10 @@ static PyObject* PyGame_BgDoorSetState(PyObject*, PyObject* args) {
 
 static PyObject* PyGame_BgDoorGetState(PyObject*, PyObject* args) {
 	const char *id;
-	if (!PyArg_ParseTuple(args, "s:bg_door_get_state", &id)) return nullptr;
+	int mapId = 0;
+	if (!PyArg_ParseTuple(args, "s|i:bg_door_get_state", &id, &mapId)) return nullptr;
 	try {
-		return PyBool_FromLong(gameSystems->GetTerrain().GetOriginalDoorOpen(id));
+		return PyBool_FromLong(gameSystems->GetTerrain().GetOriginalDoorOpenOnMap(mapId ? mapId : maps.GetCurrentMapId(), id));
 	} catch (const std::exception &e) {
 		PyErr_SetString(PyExc_ValueError, e.what());
 		return nullptr;
@@ -1584,6 +1585,22 @@ static PyObject* PyGame_BgDoorCanTravel(PyObject*, PyObject* args) {
 	const char *id; int mapId;
 	if (!PyArg_ParseTuple(args, "is:bg_door_can_travel", &mapId, &id)) return nullptr;
 	try { return PyBool_FromLong(gameSystems->GetTerrain().CanTravelThroughOriginalDoor(mapId, id)); }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorSessionVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_session_version")) return nullptr;
+	return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgDoorSessionSave(PyObject*, PyObject* args) {
+	const char *metadata;
+	if (!PyArg_ParseTuple(args, "s:bg_door_session_save", &metadata)) return nullptr;
+	try { gameSystems->GetTerrain().SaveOriginalDoorSession(metadata); Py_RETURN_NONE; }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+static PyObject* PyGame_BgDoorSessionLoad(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_session_load")) return nullptr;
+	try { return PyString_FromString(gameSystems->GetTerrain().LoadOriginalDoorSession().c_str()); }
 	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
 }
 
@@ -1727,6 +1744,9 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_navigation_unbind", PyGame_BgDoorNavigationUnbind, METH_VARARGS, NULL},
 	{"bg_door_navigation_is_bound", PyGame_BgDoorNavigationIsBound, METH_VARARGS, NULL},
 	{"bg_door_can_travel", PyGame_BgDoorCanTravel, METH_VARARGS, NULL},
+	{"bg_door_session_version", PyGame_BgDoorSessionVersion, METH_VARARGS, NULL},
+	{"bg_door_session_save", PyGame_BgDoorSessionSave, METH_VARARGS, NULL},
+	{"bg_door_session_load", PyGame_BgDoorSessionLoad, METH_VARARGS, NULL},
 
 	{"damage_type_match", PyGame_DamageTypeMatch, METH_VARARGS, NULL },
 	{"vlist", PyGame_Vlist, METH_VARARGS, NULL },

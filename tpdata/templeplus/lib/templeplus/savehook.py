@@ -1,11 +1,29 @@
 
 #use 4 space indentation!
 
+def _original_doors(event, filename):
+    # Optional locally built mod. Ordinary Temple+/Co8 installs have no adapter.
+    try:
+        import bg2toee_lifecycle
+    except ImportError as exc:
+        if str(exc) == 'No module named bg2toee_lifecycle':
+            return
+        raise
+    getattr(bg2toee_lifecycle, event)(filename)
+
+def pre_load(filename):
+    _original_doors('pre_load', filename)
+
 def save(filename):
-    return
+    try:
+        _original_doors('save', filename)
+    except Exception as exc:
+        print('Original door save failed: ' + str(exc))
+        return False
+    return True
 
 def load(filename):
-    return
+    _original_doors('load', filename)
 
 # Co8 python save hook - executes after the archive is done
 # save hook (default - Co8 hook; will silently fail for vanilla; feel free to change for your own custom mod!)

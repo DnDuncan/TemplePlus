@@ -1,11 +1,13 @@
 
 #include "stdafx.h"
+#include "originaldoorsave.h"
 #include "mapterrain.h"
 #include "maps.h"
 #include <tig/tig.h>
 #include <graphics/device.h>
 #include <graphics/shaperenderer2d.h>
 #include <infrastructure/mesparser.h>
+#include <infrastructure/vfs.h>
 #include <config/config.h>
 #include <util/fixes.h>
 #include <gamesystems/gamesystems.h>
@@ -95,6 +97,11 @@ void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
 	if (patch.mapId != maps.GetCurrentMapId()) {
 		throw std::invalid_argument("register original doors only on the current map");
 	}
+	ValidateOriginalDoorTextures(patch);
+	mOriginalDoors.Register(std::move(patch));
+}
+
+void TerrainSystem::ValidateOriginalDoorTextures(const OriginalDoorPatch &patch) const {
 	// Resolve every state before changing the registry, so a missing asset does
 	// not replace a previously valid patch or silently hide the background.
 	for (const auto &path : patch.textures) {
@@ -108,7 +115,6 @@ void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
 				path, size.width, size.height, patch.width, patch.height));
 		}
 	}
-	mOriginalDoors.Register(std::move(patch));
 }
 
 void TerrainSystem::SetOriginalDoorOpen(const std::string &id, bool open) {
@@ -169,9 +175,37 @@ const std::vector<DoorNavigationTile> &TerrainSystem::GetOriginalDoorBlockingTil
 }
 
 bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
-	auto patch = mOriginalDoors.Find(maps.GetCurrentMapId(), id);
+	return GetOriginalDoorOpenOnMap(maps.GetCurrentMapId(), id);
+}
+
+bool TerrainSystem::GetOriginalDoorOpenOnMap(int mapId, const std::string &id) const {
+	auto patch = mOriginalDoors.Find(mapId, id);
 	if (!patch) throw std::invalid_argument("original door is not registered on this map");
 	return patch->open;
+}
+
+void TerrainSystem::SaveOriginalDoorSession(const std::string &metadata) const {
+	auto bytes = originaldoorsave::Encode(mOriginalDoors, metadata);
+	vfs->WriteBinaryFile("Save/Current/bg2toee-doors-v1.bin", gsl::span<uint8_t>(bytes.data(), bytes.size()));
+}
+
+std::string TerrainSystem::LoadOriginalDoorSession() {
+	Reset(); // old saves and rejected sidecars cannot inherit another game's doors
+	pathfindingSys.PathCacheInit();
+	const char *path = "Save/Current/bg2toee-doors-v1.bin";
+	if (!vfs->FileExists(path)) return {};
+	auto file = vfs->Open(path, "rb");
+	if (!file) throw std::invalid_argument("cannot open original door save");
+	auto size = vfs->Length(file); vfs->Close(file);
+	if (size > originaldoorsave::MaxBytes) throw std::invalid_argument("original door save exceeds size limit");
+	auto session = originaldoorsave::Decode(vfs->ReadAsBinary(path));
+	for (const auto &entry : session.doors.Patches()) ValidateOriginalDoorTextures(entry.second);
+	if (PathNodeSys::hasClearanceData && !session.doors.NavigationTiles(maps.GetCurrentMapId()).empty())
+		throw std::invalid_argument("saved door navigation requires a map without precomputed clearance");
+	CheckNewDoorBlockers(session.doors);
+	mOriginalDoors = std::move(session.doors);
+	pathfindingSys.PathCacheInit();
+	return session.metadata;
 }
 
 void TerrainSystem::ClearOriginalDoors() {
