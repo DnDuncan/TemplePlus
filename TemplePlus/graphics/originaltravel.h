@@ -15,7 +15,7 @@ inline void ValidateOriginalTravel(const OriginalTravelMarker &m) {
 		|| m.gateId != OriginalDoorState::NormalizeId(m.gateId)
 		|| !std::isfinite(m.x) || !std::isfinite(m.y) || m.x < 0 || m.y < 0
 		|| m.x >= 66*256 || m.y >= 71*256 || !std::isfinite(m.dx) || !std::isfinite(m.dy)
-		|| std::hypot(m.dx, m.dy) < 0.001)
+		|| !std::isfinite(std::hypot(m.dx,m.dy)) || std::hypot(m.dx, m.dy) < 0.001)
 		throw std::invalid_argument("invalid original travel marker");
 	ValidateOriginalDoorUse(m.approach);
 }

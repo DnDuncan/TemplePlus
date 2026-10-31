@@ -217,7 +217,13 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 	AdvanceTime(timeGetTime()); // near use is immediate, but still requires a clear line
 	if (mDoorUseQueue.Pending()) {
 		auto target = mDoorUseQueue.Pending()->target;
-		if (!gameSystems->GetAnim().PushMoveToTile(actor, LocAndOffsets::FromInches(float(target.x), float(target.y)))) {
+		// The source point may itself be covered by the closed leaf. Ask the
+		// native near-tile pathfinder for reachable floor within four feet,
+		// then keep the independent five-foot distance and wall-ray check.
+		auto dest = LocAndOffsets::FromInches(float(target.x), float(target.y));
+		auto &anim = gameSystems->GetAnim();
+		auto moving = HasOriginalTravel() ? anim.PushRunNearTile(actor, dest, 4) : anim.PushMoveToTile(actor, dest);
+		if (!moving) {
 			CancelOriginalDoorUse(); throw std::invalid_argument("cannot start movement to original door approach point");
 		}
 	}
@@ -272,7 +278,8 @@ bool TerrainSystem::DoorUseReachable(uint64_t handle, OriginalDoorUsePoint targe
 
 void TerrainSystem::StopDoorMovement(uint64_t handle) {
 	objHndl actor{handle}; AnimSlotId moving{}; auto &anim=gameSystems->GetAnim();
-	if ((anim.DoesObjHaveGoal(actor,ag_move_to_tile,&moving) || anim.DoesObjHaveGoal(actor,ag_run_to_tile,&moving))
+	if ((anim.DoesObjHaveGoal(actor,ag_move_to_tile,&moving) || anim.DoesObjHaveGoal(actor,ag_run_to_tile,&moving)
+		|| anim.DoesObjHaveGoal(actor,ag_move_near_tile,&moving) || anim.DoesObjHaveGoal(actor,ag_run_near_tile,&moving))
 		&& !anim.Interrupt(actor,AnimGoalPriority::AGP_3,false))
 		throw std::invalid_argument("cannot finish movement before door interaction");
 }
@@ -319,7 +326,7 @@ void TerrainSystem::RequestOriginalTravel(const std::string &id,uint64_t handle)
 	AdvanceTravel(timeGetTime());
 	if (mTravelQueue.Pending()) {
 		auto target=mTravelQueue.Pending()->target;
-		if (!gameSystems->GetAnim().PushMoveToTile(actor,LocAndOffsets::FromInches(float(target.x),float(target.y)))) {
+		if (!gameSystems->GetAnim().PushRunNearTile(actor,LocAndOffsets::FromInches(float(target.x),float(target.y)),4)) {
 			CancelOriginalDoorUse(); throw std::invalid_argument("cannot approach travel marker");
 		}
 	}
