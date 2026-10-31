@@ -13,6 +13,7 @@
 #include "combat.h"
 #include "location.h"
 #include "objlist.h"
+#include "graphics/mapterrain.h"
 
 using GoalCallback = int(__cdecl *)(AnimSlot&);
 
@@ -1002,6 +1003,16 @@ int GoalDyingCleanup(AnimSlot &slot) {
 
 // Originally @ 0x100147d0
 int GoalMoveAlongPath(AnimSlot &slot) {
+	const auto &tiles = gameSystems->GetTerrain().GetOriginalDoorBlockingTiles();
+	if (!tiles.empty() && slot.animObj && slot.path.currentNode >= 0 && slot.path.currentNode < slot.path.nodeCount
+		&& slot.path.currentNode < 200) {
+		auto from = objects.GetLocationFull(slot.animObj).ToInches3D();
+		auto to = slot.path.nodes[slot.path.currentNode].ToInches3D();
+		if (DoorNavigationBlocksSegment(tiles, from.x, from.z, to.x, to.z, objects.GetRadius(slot.animObj) * 0.7)) {
+			slot.path.flags = 0; // stale path cannot carry an actor through a newly closed door
+			return FALSE;
+		}
+	}
 	static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x100147d0);
 	return org(slot);
 }

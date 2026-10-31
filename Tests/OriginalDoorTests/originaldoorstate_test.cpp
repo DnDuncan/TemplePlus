@@ -87,7 +87,56 @@ static void TestMousePress() {
 	assert(!press.Process(5136, "DOOR", Event::Up, 10, 10).consumed);
 }
 
+static void TestNavigation() {
+	OriginalDoorState state;
+	state.Register(MakePatch());
+	state.Register(MakePatch(5190));
+	DoorNavigationGeometry geometry{{{10, 20, 0x200}, {11, 20, 0x400}}, {{12, 20, 0x800}}};
+	state.BindNavigation(5136, "door2616", geometry);
+	assert(!state.CanTravel(5136, "DOOR2616"));
+	assert(!state.CanTravel(5190, "DOOR2616"));
+	assert(state.NavigationTiles(5136).size() == 2);
+	state.SetOpen(5136, "DOOR2616", true);
+	assert(state.CanTravel(5136, "DOOR2616"));
+	assert(state.NavigationTiles(5136).size() == 1);
+	assert(state.NavigationTiles(5136)[0].x == 12);
+	assert(state.NavigationTiles(5190).empty());
+	state.Register(MakePatch(5136, "OTHER"));
+	state.BindNavigation(5136, "OTHER", {{{12, 20, 0x200}}, {}});
+	assert(state.NavigationTiles(5136)[0].mask == 0xa00); // independent doors OR, never erase each other
+	state.UnbindNavigation(5136, "OTHER");
+	assert(state.NavigationTiles(5136)[0].mask == 0x800);
+	for (auto bad : {DoorNavigationGeometry{{{10, 20, 1}}, {}}, DoorNavigationGeometry{{{-1,20,0x200}}, {}},
+		DoorNavigationGeometry{{{10,20,0x200},{10,20,0x400}}, {}}, DoorNavigationGeometry{{}, {}}}) {
+		Reject([&]() { state.BindNavigation(5136, "DOOR2616", bad); });
+		assert(state.CanTravel(5136, "DOOR2616"));
+		assert(state.NavigationTiles(5136)[0].mask == 0x800);
+	}
+	uint32_t flags = 0x8000200;
+	try {
+		TemporaryDoorTileMasks<uint32_t> outer;
+		outer.Add(flags, 0x400);
+		assert(flags == 0x8000600);
+		{ TemporaryDoorTileMasks<uint32_t> inner; inner.Add(flags, 0x800); assert(flags == 0x8000e00); }
+		assert(flags == 0x8000600);
+		outer.Add(flags, 0x1000); // repeated pointer also restores in reverse order
+		throw std::runtime_error("synthetic native query failure");
+	} catch (const std::runtime_error&) {}
+	assert(flags == 0x8000200); // unrelated base blocker and cover are intact
+	constexpr double subtile = 28.2842712474619 / 3;
+	std::vector<DoorNavigationTile> cells{{10,20,0x200}};
+	auto x = 30.5 * subtile, y = 60.5 * subtile;
+	assert(DoorNavigationBlocksSegment(cells, x-30, y, x+30, y, 0));
+	assert(DoorNavigationBlocksSegment(cells, x, y, x, y, 10)); // actor under the leaf
+	assert(!DoorNavigationBlocksSegment(cells, x-30, y+40, x+30, y+40, 10));
+	state.ClearMap(5136);
+	assert(!state.HasNavigation(5136, "DOOR2616"));
+	assert(!state.CanTravel(5136, "DOOR2616"));
+	assert(state.NavigationTiles(5136).empty());
+}
+
 int main() {
+	TestNavigation();
 	TestOutlines();
 	TestMousePress();
 	OriginalDoorState state;

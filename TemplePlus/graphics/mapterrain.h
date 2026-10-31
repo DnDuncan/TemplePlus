@@ -63,6 +63,11 @@ public:
 	std::string HitTestOriginalDoor(int screenX, int screenY) const;
 	void GetTerrainOrigin(int &x, int &y) const;
 	void SetHoveredOriginalDoor(const std::string &id) { mHoveredOriginalDoor = id; }
+	void BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry);
+	void UnbindOriginalDoorNavigation(const std::string &id);
+	bool HasOriginalDoorNavigation(const std::string &id) const;
+	bool CanTravelThroughOriginalDoor(int mapId, const std::string &id) const;
+	const std::vector<DoorNavigationTile> &GetOriginalDoorBlockingTiles() const;
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -91,6 +96,7 @@ private:
 	OriginalDoorState mOriginalDoors;
 	std::string mHoveredOriginalDoor;
 	void RenderOriginalDoors(int terrainOriginX, int terrainOriginY);
+	void CheckNewDoorBlockers(const OriginalDoorState &candidate) const;
 
 	std::string GetTileTexture(int mapArtId, int x, int y);
 

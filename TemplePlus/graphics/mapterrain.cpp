@@ -11,6 +11,10 @@
 #include <gamesystems/gamesystems.h>
 #include <gamesystems/timeevents.h>
 #include "gameview.h"
+#include "pathfinding.h"
+#include "path_node.h"
+#include "gamesystems/objects/objsystem.h"
+#include "gamesystems/map/sector.h"
 
 TerrainSystem::TerrainSystem(gfx::RenderingDevice& device, gfx::ShapeRenderer2d& shapeRenderer)
 	: mDevice(device),mShapeRenderer(shapeRenderer) {
@@ -103,7 +107,57 @@ void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
 }
 
 void TerrainSystem::SetOriginalDoorOpen(const std::string &id, bool open) {
-	mOriginalDoors.SetOpen(maps.GetCurrentMapId(), id, open);
+	auto candidate = mOriginalDoors;
+	candidate.SetOpen(maps.GetCurrentMapId(), id, open);
+	CheckNewDoorBlockers(candidate);
+	mOriginalDoors = std::move(candidate);
+	pathfindingSys.PathCacheInit();
+}
+
+void TerrainSystem::CheckNewDoorBlockers(const OriginalDoorState &candidate) const {
+	auto mapId = maps.GetCurrentMapId();
+	std::map<std::pair<int, int>, uint32_t> before;
+	for (const auto &tile : mOriginalDoors.NavigationTiles(mapId)) before[{tile.x, tile.y}] = tile.mask;
+	std::vector<DoorNavigationTile> added;
+	for (auto tile : candidate.NavigationTiles(mapId)) {
+		tile.mask &= ~before[{tile.x, tile.y}];
+		if (tile.mask) added.push_back(tile);
+	}
+	if (added.empty()) return;
+	bool occupied = false;
+	gameSystems->GetObj().ForEachObj([&](objHndl handle, GameObjectBody &obj) {
+		if (occupied || !obj.IsCritter() || (obj.GetFlags() & (OF_OFF | OF_DESTROYED | OF_NO_BLOCK))) return;
+		auto pos = obj.GetLocationFull().ToInches3D();
+		occupied = DoorNavigationBlocksSegment(added, pos.x, pos.z, pos.x, pos.z, objects.GetRadius(handle) * 0.7);
+	});
+	if (occupied) throw std::invalid_argument("door movement blocked by an actor; move away from the leaf first");
+}
+
+void TerrainSystem::BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry) {
+	if (PathNodeSys::hasClearanceData) throw std::invalid_argument("door navigation probe requires a map without precomputed clearance");
+	auto candidate = mOriginalDoors;
+	candidate.BindNavigation(maps.GetCurrentMapId(), id, std::move(geometry));
+	for (const auto &tile : candidate.NavigationTiles(maps.GetCurrentMapId())) {
+		SectorLoc loc(locXY{ static_cast<uint32_t>(tile.x), static_cast<uint32_t>(tile.y) });
+		Sector *sector = nullptr;
+		if (!sectorSys.SectorLock(loc, &sector)) throw std::invalid_argument("door navigation requires existing map sectors");
+		sectorSys.SectorUnlock(loc);
+	}
+	CheckNewDoorBlockers(candidate);
+	mOriginalDoors = std::move(candidate);
+	pathfindingSys.PathCacheInit();
+}
+void TerrainSystem::UnbindOriginalDoorNavigation(const std::string &id) {
+	mOriginalDoors.UnbindNavigation(maps.GetCurrentMapId(), id); pathfindingSys.PathCacheInit();
+}
+bool TerrainSystem::HasOriginalDoorNavigation(const std::string &id) const {
+	return mOriginalDoors.HasNavigation(maps.GetCurrentMapId(), id);
+}
+bool TerrainSystem::CanTravelThroughOriginalDoor(int mapId, const std::string &id) const {
+	return mOriginalDoors.CanTravel(mapId, id);
+}
+const std::vector<DoorNavigationTile> &TerrainSystem::GetOriginalDoorBlockingTiles() const {
+	return mOriginalDoors.NavigationTiles(maps.GetCurrentMapId());
 }
 
 bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
@@ -114,6 +168,7 @@ bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
 
 void TerrainSystem::ClearOriginalDoors() {
 	mOriginalDoors.ClearMap(maps.GetCurrentMapId());
+	pathfindingSys.PathCacheInit();
 	mHoveredOriginalDoor.clear();
 }
 
