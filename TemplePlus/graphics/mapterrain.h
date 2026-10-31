@@ -40,6 +40,7 @@ public:
 
 	TerrainSystem(gfx::RenderingDevice &device,
 		gfx::ShapeRenderer2d &shapeRenderer);
+	~TerrainSystem() override;
 
 	void Render();
 
@@ -64,7 +65,7 @@ public:
 	void GetTerrainOrigin(int &x, int &y) const;
 	void SetHoveredOriginalDoor(const std::string &id) { mHoveredOriginalDoor = id; }
 	void BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry);
-	void UnbindOriginalDoorNavigation(const std::string &id);
+	void UnbindOriginalDoorNavigation(const std::string &id, int mapId = 0);
 	bool HasOriginalDoorNavigation(const std::string &id) const;
 	bool CanTravelThroughOriginalDoor(int mapId, const std::string &id) const;
 	const std::vector<DoorNavigationTile> &GetOriginalDoorBlockingTiles() const;
@@ -101,3 +102,6 @@ private:
 	std::string GetTileTexture(int mapArtId, int x, int y);
 
 };
+
+// Raycast hooks can run during system construction/shutdown.
+extern TerrainSystem *originalDoorTerrain;

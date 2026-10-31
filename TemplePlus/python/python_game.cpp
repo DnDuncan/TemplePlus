@@ -1567,9 +1567,9 @@ static PyObject* PyGame_BgDoorNavigationBind(PyObject*, PyObject* args) {
 }
 
 static PyObject* PyGame_BgDoorNavigationUnbind(PyObject*, PyObject* args) {
-	const char *id;
-	if (!PyArg_ParseTuple(args, "s:bg_door_navigation_unbind", &id)) return nullptr;
-	try { gameSystems->GetTerrain().UnbindOriginalDoorNavigation(id); Py_RETURN_NONE; }
+	const char *id; int mapId = 0;
+	if (!PyArg_ParseTuple(args, "s|i:bg_door_navigation_unbind", &id, &mapId)) return nullptr;
+	try { gameSystems->GetTerrain().UnbindOriginalDoorNavigation(id, mapId); Py_RETURN_NONE; }
 	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
 }
 

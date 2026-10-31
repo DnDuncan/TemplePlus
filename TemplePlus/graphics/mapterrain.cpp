@@ -16,6 +16,8 @@
 #include "gamesystems/objects/objsystem.h"
 #include "gamesystems/map/sector.h"
 
+TerrainSystem *originalDoorTerrain = nullptr;
+
 TerrainSystem::TerrainSystem(gfx::RenderingDevice& device, gfx::ShapeRenderer2d& shapeRenderer)
 	: mDevice(device),mShapeRenderer(shapeRenderer) {
 
@@ -23,8 +25,11 @@ TerrainSystem::TerrainSystem(gfx::RenderingDevice& device, gfx::ShapeRenderer2d&
 	mTerrainTintRed = 1.0f;
 	mTerrainTintGreen = 1.0f;
 	mTerrainTintBlue = 1.0f;
+	originalDoorTerrain = this;
 
 }
+
+TerrainSystem::~TerrainSystem() { originalDoorTerrain = nullptr; }
 
 void TerrainSystem::Render() {
 
@@ -135,20 +140,21 @@ void TerrainSystem::CheckNewDoorBlockers(const OriginalDoorState &candidate) con
 
 void TerrainSystem::BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry) {
 	if (PathNodeSys::hasClearanceData) throw std::invalid_argument("door navigation probe requires a map without precomputed clearance");
-	auto candidate = mOriginalDoors;
-	candidate.BindNavigation(maps.GetCurrentMapId(), id, std::move(geometry));
-	for (const auto &tile : candidate.NavigationTiles(maps.GetCurrentMapId())) {
+	ValidateDoorNavigation(geometry.closed); ValidateDoorNavigation(geometry.open);
+	for (const auto *state : {&geometry.closed, &geometry.open}) for (const auto &tile : *state) {
 		SectorLoc loc(locXY{ static_cast<uint32_t>(tile.x), static_cast<uint32_t>(tile.y) });
 		Sector *sector = nullptr;
 		if (!sectorSys.SectorLock(loc, &sector)) throw std::invalid_argument("door navigation requires existing map sectors");
 		sectorSys.SectorUnlock(loc);
 	}
+	auto candidate = mOriginalDoors;
+	candidate.BindNavigation(maps.GetCurrentMapId(), id, std::move(geometry));
 	CheckNewDoorBlockers(candidate);
 	mOriginalDoors = std::move(candidate);
 	pathfindingSys.PathCacheInit();
 }
-void TerrainSystem::UnbindOriginalDoorNavigation(const std::string &id) {
-	mOriginalDoors.UnbindNavigation(maps.GetCurrentMapId(), id); pathfindingSys.PathCacheInit();
+void TerrainSystem::UnbindOriginalDoorNavigation(const std::string &id, int mapId) {
+	mOriginalDoors.UnbindNavigation(mapId ? mapId : maps.GetCurrentMapId(), id); pathfindingSys.PathCacheInit();
 }
 bool TerrainSystem::HasOriginalDoorNavigation(const std::string &id) const {
 	return mOriginalDoors.HasNavigation(maps.GetCurrentMapId(), id);

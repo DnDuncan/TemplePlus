@@ -12,8 +12,8 @@
 class ScopedOriginalDoorRaycast {
 public:
 	ScopedOriginalDoorRaycast(const RaycastPacket &packet, bool shortRange) {
-		if (!gameSystems) return;
-		const auto &tiles = gameSystems->GetTerrain().GetOriginalDoorBlockingTiles();
+		if (!originalDoorTerrain) return;
+		const auto &tiles = originalDoorTerrain->GetOriginalDoorBlockingTiles();
 		if (tiles.empty()) return;
 		auto to = shortRange ? packet.origin.location : packet.targetLoc.location;
 		auto radius = (packet.flags & HasRadius) && std::isfinite(packet.radius) ? (std::max)(0.0f, packet.radius) : 0.0f;
