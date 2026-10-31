@@ -54,15 +54,18 @@ private:
 	}
 };
 
+static int (__cdecl *originalRaycast)(RaycastPacket*) = nullptr;
+static int (__cdecl *originalShortRange)(RaycastPacket*) = nullptr;
+
 static class RaycastHooks : public TempleFix {
 public:
 
 	void apply() override {
-		static auto originalRaycast = replaceFunction<int(__cdecl)(RaycastPacket*)>(0x100BACE0, [](RaycastPacket *packet) {
+		originalRaycast = replaceFunction<int(__cdecl)(RaycastPacket*)>(0x100BACE0, [](RaycastPacket *packet) {
 			ScopedOriginalDoorRaycast overlay(*packet, false);
 			return originalRaycast(packet);
 		});
-		static auto originalShortRange = replaceFunction<int(__cdecl)(RaycastPacket*)>(0x100BC750, [](RaycastPacket *packet) {
+		originalShortRange = replaceFunction<int(__cdecl)(RaycastPacket*)>(0x100BC750, [](RaycastPacket *packet) {
 			ScopedOriginalDoorRaycast overlay(*packet, true);
 			return originalShortRange(packet);
 		});
