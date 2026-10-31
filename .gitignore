@@ -255,3 +255,7 @@ kotbfixes.dat
 tpgamefiles.dat
 palcov.dat
 
+# Python test caches are not Python 2 game assets.
+__pycache__/
+*.pyc
+
