@@ -7,7 +7,7 @@
 #include <vector>
 
 struct OriginalDoorUsePoint { double x, y; }; // world inches, never screen pixels
-struct OriginalDoorUseGeometry { std::vector<OriginalDoorUsePoint> points; double reach = 60; };
+struct OriginalDoorUseGeometry { std::vector<OriginalDoorUsePoint> points; double reach = 12; };
 
 inline void ValidateOriginalDoorUse(const OriginalDoorUseGeometry &geometry) {
 	if (geometry.points.empty() || geometry.points.size() > 2 || !std::isfinite(geometry.reach)

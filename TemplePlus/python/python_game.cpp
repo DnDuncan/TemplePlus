@@ -1609,7 +1609,7 @@ static PyObject* PyGame_BgDoorUseVersion(PyObject*, PyObject* args) {
 	return PyInt_FromLong(1);
 }
 static PyObject* PyGame_BgDoorUseBind(PyObject*, PyObject* args) {
-	int mapId; const char *id; PyObject *points; double reach = 60;
+	int mapId; const char *id; PyObject *points; double reach = 12;
 	if (!PyArg_ParseTuple(args, "isO|d:bg_door_use_bind", &mapId, &id, &points, &reach)) return nullptr;
 	OriginalDoorUseGeometry geometry; geometry.reach = reach;
 	auto seq = PySequence_Fast(points, "approach requires (world_x_inches, world_y_inches) pairs");

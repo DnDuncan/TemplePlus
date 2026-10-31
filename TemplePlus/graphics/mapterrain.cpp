@@ -247,6 +247,14 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 		auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
 			combatSys.isCombatActive(), GetOriginalDoorOpen(request.id), reachable);
 		if (action == OriginalDoorUseQueue::Action::Apply) {
+			// Finish movement before opening. Continuing toward the approach point
+			// could otherwise cross the independent travel band after this click.
+			AnimSlotId moving{};
+			auto &anim = gameSystems->GetAnim();
+			if ((anim.DoesObjHaveGoal(actor, ag_move_to_tile, &moving)
+				|| anim.DoesObjHaveGoal(actor, ag_run_to_tile, &moving))
+				&& !anim.Interrupt(actor, AnimGoalPriority::AGP_3, false))
+				throw std::invalid_argument("cannot finish movement before using original door");
 			SetOriginalDoorOpen(request.id, request.open);
 			logger->info("Original door approach applied: map={} id={} open={}", request.mapId, request.id, request.open);
 		} else if (action == OriginalDoorUseQueue::Action::Cancelled) {
