@@ -6,7 +6,7 @@ def _original_doors(event, filename):
     try:
         import bg2toee_lifecycle
     except ImportError as exc:
-        if str(exc) == 'No module named bg2toee_lifecycle':
+        if str(exc) in ('No module named bg2toee_lifecycle', "No module named 'bg2toee_lifecycle'"):
             return
         raise
     getattr(bg2toee_lifecycle, event)(filename)
@@ -30,11 +30,11 @@ def load(filename):
 def post_save(filename):
     try:
         import _co8init
-        print "imported Co8Init inside templeplus package"
+        print("imported Co8Init inside templeplus package")
         _co8init.save(filename)
-        print "Co8 Save hook successful"
+        print("Co8 Save hook successful")
     except:
-        print "Co8 Save hook failed\n"
+        print("Co8 Save hook failed\n")
 
 # save hook (default - Co8 hook; will silently fail for vanilla; feel free to change for your own custom mod!)
 def post_load(filename):
@@ -42,4 +42,4 @@ def post_load(filename):
         import _co8init
         _co8init.load(filename)
     except:
-        print "Co8 Load hook failed\n"
+        print("Co8 Load hook failed\n")
