@@ -15,7 +15,7 @@ public:
 		if (!std::isfinite(scale) || scale < 0.5 || scale > 2.3)
 			throw std::invalid_argument("camera zoom must be between 0.5 and 2.3");
 		// Keep six notches per doubling, with one extra stop at exactly 230%.
-		mStep = scale >= std::sqrt(2.0 * 2.3) ? 7 : static_cast<int>(std::round(6.0 * std::log2(scale)));
+		mStep = scale >= std::sqrt(2.0 * 2.3) ? 7 : (std::min)(6, static_cast<int>(std::round(6.0 * std::log2(scale))));
 		mRemainder = 0;
 	}
 	bool Wheel(int delta) {
