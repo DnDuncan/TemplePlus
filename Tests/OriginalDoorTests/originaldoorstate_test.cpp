@@ -2,6 +2,7 @@
 #include "../../TemplePlus/graphics/originaldoorsave.h"
 #include "../../TemplePlus/graphics/originaldooruse.h"
 #include "../../TemplePlus/graphics/originaltravel.h"
+#include "../../TemplePlus/graphics/originaldoorcontext.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -253,7 +254,33 @@ static void TestClickTravel() {
 	assert(state.HitTestStable(5136,20,20).empty());
 }
 
+static void TestContextAndScenes() {
+	DoorSecurity security;assert(DoorContextActions(false,security)==std::vector<DoorContextAction>{DoorContextAction::Open});
+	security.locked=true;auto actions=DoorContextActions(false,security);assert(actions.size()==2 && actions[0]==DoorContextAction::Search && actions[1]==DoorContextAction::PickLock);
+	assert(DoorContextActions(true,security).back()==DoorContextAction::Travel);
+	assert(BestDoorSkillCandidate({{1,8,10,true},{2,15,40,true},{3,99,5,false}})==2); // wizard wins on bonus, not class
+	assert(BestDoorSkillCandidate({{1,-5,10,true},{2,-2,40,true}})==2);
+	assert(BestDoorSkillCandidate({{1,10,40,true},{2,10,10,true}})==2);
+	assert(BestDoorSkillCandidate({{1,99,10,false}})==0);
+	DoorContextHover hover;hover.Update("DOOR",100);assert(!hover.Visible(549));assert(hover.Visible(550));
+	assert(hover.Visible(5000)); // stationary mouse still opens the delayed palette
+	hover.Update("",5100);assert(hover.Visible(5300));hover.Update("DOOR",5301);assert(hover.Visible(5301));
+	hover.Update("OTHER",5400);assert(!hover.Visible(5800));hover.Update("",5900);assert(!hover.Visible(6251));
+	hover.Update("DOOR",0xfffffff0);assert(hover.Visible(500));hover.Clear();assert(!hover.Active(600));
+	OriginalSceneArea outer{5136,5136,5848,7154,5120,3840,0,0,0},inner{5190,5136,7928,14098,960,704,901,0,5376};
+	ValidateOriginalSceneArea(outer);ValidateOriginalSceneArea(inner);
+	constexpr double unit=28.2842712474619;
+	auto before=SceneCanvasPoint(483.5*unit,486.5*unit),after=SceneCanvasPoint((483.5+192)*unit,(486.5+192)*unit);
+	assert(std::abs(after.x-before.x)<0.00001 && std::abs(after.y-before.y-5376)<0.00001);
+	assert(SceneContains(inner,after.x,after.y) && !SceneContains(outer,after.x,after.y));
+	assert(SameDoorSelection({1,2},{2,1}));assert(!SameDoorSelection({1,2},{1,3}));assert(!SameDoorSelection({},{}));
+	auto bad=inner;bad.shiftY=5377;Reject([&](){ValidateOriginalSceneArea(bad);});
+	security.searchDc=61;Reject([&](){ValidateDoorSecurity(security);});
+	security.searchDc=10;security.found=true;Reject([&](){ValidateDoorSecurity(security);});
+}
+
 int main() {
+	TestContextAndScenes();
 	TestClickTravel();
 	TestUse();
 	TestSave();

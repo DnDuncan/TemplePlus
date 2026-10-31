@@ -1,0 +1,67 @@
+#pragma once
+#include "originaltravel.h"
+#include <limits>
+
+enum class DoorContextAction { Open, Close, Search, PickLock, Travel };
+struct DoorSecurity {
+	bool locked=false, trapped=false, found=false, pickable=true;
+	int lockDc=10, searchDc=10;
+};
+inline void ValidateDoorSecurity(const DoorSecurity &s) {
+	if (s.lockDc<0 || s.lockDc>60 || s.searchDc<0 || s.searchDc>60 || (s.found && !s.trapped))
+		throw std::invalid_argument("invalid door security");
+}
+inline std::vector<DoorContextAction> DoorContextActions(bool open,const DoorSecurity &s) {
+	if (open) return {DoorContextAction::Close,DoorContextAction::Travel};
+	if (s.locked) return {DoorContextAction::Search,DoorContextAction::PickLock};
+	return {DoorContextAction::Open};
+}
+struct DoorSkillCandidate { uint64_t actor; int bonus; double distance; bool eligible; };
+inline uint64_t BestDoorSkillCandidate(const std::vector<DoorSkillCandidate> &candidates) {
+	uint64_t chosen=0; int bonus=(std::numeric_limits<int>::min)(); double distance=0;
+	for (const auto &c:candidates) if (c.actor && c.eligible && std::isfinite(c.distance)
+		&& (!chosen || c.bonus>bonus || (c.bonus==bonus && c.distance<distance))) {
+		chosen=c.actor; bonus=c.bonus; distance=c.distance;
+	}
+	return chosen; // class never participates; negative effective bonuses are valid
+}
+class DoorContextHover {
+public:
+	void Update(const std::string &id,uint32_t now) {
+		if (!id.empty()) { if (id!=mId) {mId=id;mStarted=now;} mLeaving=false; }
+		else if (!mId.empty()) {if (!mLeaving) {mLeaving=true;mLeft=now;} else if (uint32_t(now-mLeft)>350) Clear();}
+	}
+	void Clear() {mId.clear();}
+	const std::string &Target() const {return mId;}
+	bool Active(uint32_t now) const {return !mId.empty() && (!mLeaving || uint32_t(now-mLeft)<=350);}
+	bool Visible(uint32_t now) const {return Active(now) && uint32_t(now-mStarted)>=450;}
+	float Alpha(uint32_t now) const {
+		return Visible(now) ? float((std::min)(1.0,double(uint32_t(now-mStarted)-450)/150.0))*0.68f : 0.0f;
+	}
+private:
+	std::string mId; uint32_t mStarted=0,mLeft=0; bool mLeaving=false;
+};
+struct DoorContextDefinition { std::array<std::string,5> textures; DoorSecurity security; };
+
+// Isolated source areas share one native map. Moving selected actors keeps the
+// native party, object IDs, inventory, dispatchers and normal save format intact.
+struct OriginalSceneArea {
+	int id, nativeMap, x,y,width,height,sourceGround=0,shiftX=0,shiftY=0;
+};
+inline void ValidateOriginalSceneArea(const OriginalSceneArea &a) {
+	if (a.id<=0 || a.nativeMap<=0 || a.x<0 || a.y<0 || a.width<=0 || a.height<=0
+		|| a.width>66*256 || a.height>71*256 || a.x>66*256-a.width || a.y>71*256-a.height || a.sourceGround<0
+		|| a.shiftX%256 || a.shiftY%256)
+		throw std::invalid_argument("invalid isolated scene area");
+}
+inline bool SceneContains(const OriginalSceneArea &a,double x,double y) {
+	return x>=a.x && y>=a.y && x<a.x+a.width && y<a.y+a.height;
+}
+inline OriginalDoorUsePoint SceneCanvasPoint(double worldX,double worldY) {
+	constexpr double unit=28.2842712474619;
+	return {(worldY-worldX)/unit*20+8428,(worldX+worldY)/unit*14-4366};
+}
+struct OriginalSceneRoute {int source,destination; OriginalDoorUsePoint arrival;};
+inline bool SameDoorSelection(std::vector<uint64_t> a,std::vector<uint64_t> b) {
+	std::sort(a.begin(),a.end());std::sort(b.begin(),b.end());return !a.empty() && a==b;
+}

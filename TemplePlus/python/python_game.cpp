@@ -1675,6 +1675,61 @@ static PyObject* PyGame_BgTravelCancel(PyObject*, PyObject* args) {
 	gameSystems->GetTerrain().CancelOriginalDoorUse(); Py_RETURN_NONE;
 }
 
+static PyObject* PyGame_BgContextVersion(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_context_version")) return nullptr;return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgContextBind(PyObject*,PyObject* args) {
+	int mapId,locked,trapped,found,pickable,lockDc,searchDc;const char *id;PyObject *icons;
+	if (!PyArg_ParseTuple(args,"isOiiiiii:bg_context_bind",&mapId,&id,&icons,&locked,&trapped,&found,&pickable,&lockDc,&searchDc)) return nullptr;
+	if ((locked&~1) || (trapped&~1) || (found&~1) || (pickable&~1)) {PyErr_SetString(PyExc_ValueError,"security flags must be boolean");return nullptr;}
+	DoorContextDefinition definition;definition.security={locked!=0,trapped!=0,found!=0,pickable!=0,lockDc,searchDc};
+	auto seq=PySequence_Fast(icons,"expected five icon paths");if (!seq) return nullptr;
+	if (PySequence_Fast_GET_SIZE(seq)!=5) {Py_DECREF(seq);PyErr_SetString(PyExc_ValueError,"expected five icon paths");return nullptr;}
+	for (int i=0;i<5;++i) {
+		auto text=PyString_AsString(PySequence_Fast_GET_ITEM(seq,i));if (!text) {Py_DECREF(seq);return nullptr;}definition.textures[i]=text;
+	}
+	Py_DECREF(seq);
+	try {gameSystems->GetTerrain().BindDoorContext(mapId,id,std::move(definition));Py_RETURN_NONE;}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgContextState(PyObject*,PyObject* args) {
+	int mapId;const char *id;if (!PyArg_ParseTuple(args,"is:bg_context_state",&mapId,&id)) return nullptr;
+	try {auto state=gameSystems->GetTerrain().GetDoorSecurity(mapId,id);
+		return Py_BuildValue("(NNNNii)",PyBool_FromLong(state.locked),PyBool_FromLong(state.trapped),PyBool_FromLong(state.found),PyBool_FromLong(state.pickable),state.lockDc,state.searchDc);}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgContextClear(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_context_clear")) return nullptr;gameSystems->GetTerrain().ClearDoorContext();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgContextOutline(PyObject*,PyObject* args) {
+	int mapId;const char *id;PyObject *points;OriginalDoorPolygon outline;
+	if (!PyArg_ParseTuple(args,"isO:bg_context_outline",&mapId,&id,&points) || !ReadDoorOutline(points,outline)) return nullptr;
+	try {gameSystems->GetTerrain().BindContextOutline(mapId,id,std::move(outline));Py_RETURN_NONE;}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgSceneBind(PyObject*,PyObject* args) {
+	OriginalSceneArea a;
+	if (!PyArg_ParseTuple(args,"iiiiiiiii:bg_scene_bind",&a.id,&a.nativeMap,&a.x,&a.y,&a.width,&a.height,&a.sourceGround,&a.shiftX,&a.shiftY)) return nullptr;
+	try {gameSystems->GetTerrain().BindSceneArea(a);Py_RETURN_NONE;}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgSceneRoute(PyObject*,PyObject* args) {
+	const char *id;OriginalSceneRoute route;
+	if (!PyArg_ParseTuple(args,"siidd:bg_scene_route",&id,&route.source,&route.destination,&route.arrival.x,&route.arrival.y)) return nullptr;
+	try {gameSystems->GetTerrain().BindSceneRoute(id,route);Py_RETURN_NONE;}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgSceneArea(PyObject*,PyObject* args) {
+	auto actor=party.CurrentlySelectedNum() ? party.GetCurrentlySelected(0):party.GetConsciousPartyLeader();
+	if (!PyArg_ParseTuple(args,"|O&:bg_scene_area",&ConvertObjHndl,&actor)) return nullptr;
+	return PyInt_FromLong(gameSystems->GetTerrain().SceneAreaForActor(actor.handle));
+}
+static PyObject* PyGame_BgSceneTravel(PyObject*,PyObject* args) {
+	unsigned int serial;if (!PyArg_ParseTuple(args,"I:bg_scene_travel_selected",&serial)) return nullptr;
+	try {return PyBool_FromLong(gameSystems->GetTerrain().TravelSelectedInScene(serial));}
+	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1818,6 +1873,15 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_session_version", PyGame_BgDoorSessionVersion, METH_VARARGS, NULL},
 	{"bg_door_session_save", PyGame_BgDoorSessionSave, METH_VARARGS, NULL},
 	{"bg_door_session_load", PyGame_BgDoorSessionLoad, METH_VARARGS, NULL},
+	{"bg_context_version",PyGame_BgContextVersion,METH_VARARGS,NULL},
+	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
+	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
+	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},
+	{"bg_context_outline",PyGame_BgContextOutline,METH_VARARGS,NULL},
+	{"bg_scene_bind",PyGame_BgSceneBind,METH_VARARGS,NULL},
+	{"bg_scene_route",PyGame_BgSceneRoute,METH_VARARGS,NULL},
+	{"bg_scene_area",PyGame_BgSceneArea,METH_VARARGS,NULL},
+	{"bg_scene_travel_selected",PyGame_BgSceneTravel,METH_VARARGS,NULL},
 	{"bg_travel_version", PyGame_BgTravelVersion, METH_VARARGS, NULL},
 	{"bg_travel_bind", PyGame_BgTravelBind, METH_VARARGS, NULL},
 	{"bg_travel_clear", PyGame_BgTravelClear, METH_VARARGS, NULL},
