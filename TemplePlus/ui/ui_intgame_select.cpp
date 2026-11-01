@@ -11,6 +11,7 @@
 #include <critter.h>
 #include <party.h>
 #include <config/config.h>
+#include "graphics/sourcecontainers.h"
 
 UiIntgameSelect uiIntgameSelect;
 
@@ -38,6 +39,11 @@ void UiIntgameSelectHooks::TooltipRender(objHndl handle)
 {
 	if (!handle)
 		return ;
+
+	// Baldur's Gate scenery containers have no ToEE name/"empty" tooltip: the
+	// source outline and the hand cursor are their only hover feedback.
+	if (IsSourceContainerProxy(handle))
+		return;
 
 	//auto ttLen = tooltipText.size();
 

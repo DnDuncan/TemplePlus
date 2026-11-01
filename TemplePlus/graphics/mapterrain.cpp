@@ -122,23 +122,36 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 	}
 	mSourceContainers=std::move(candidate);
 }
-uint64_t TerrainSystem::PickSourceContainer(int x,int y) const {
-	if (!gameView || !gameSystems || gameSystems->GetMap().IsClearingMap()) return 0;
-	auto p=gameView->IsWorldInputActive() ? WorldViewZoom::Point{double(x),double(y)} : gameView->ToWorldScreen(x,y);
+// Mouse coordinates are converted to unzoomed world pixels exactly once: inside
+// ScopedWorldInput (native world handlers and world rendering) they already are.
+WorldViewZoom::Point TerrainSystem::SourceContainerPoint(int x,int y) const {
+	return gameView->IsWorldInputActive() ? WorldViewZoom::Point{double(x),double(y)} : gameView->ToWorldScreen(x,y);
+}
+const SourceContainerRegion* TerrainSystem::HitSourceContainer(int x,int y,objHndl &handle) const {
+	handle=objHndl::null;
+	if (!gameView || !gameSystems || gameSystems->GetMap().IsClearingMap()) return nullptr;
+	auto p=SourceContainerPoint(x,y);
 	int ox,oy;GetTerrainOrigin(ox,oy);
 	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(p.x-ox)),int(std::floor(p.y-oy)));
-	if (!region) return 0;
-	auto handle=objSystem->FindObjectByIdStr(region->objectId);
-	if (!handle || !IsSourceContainerProxy(handle) || objects.IsUntargetable(handle)
-		|| (objects.GetFlags(handle)&OF_DESTROYED)) return 0;
-	if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(handle))&1)) return 0;
-	return handle.handle;
+	if (!region) return nullptr;
+	auto found=objSystem->FindObjectByIdStr(region->objectId);
+	if (!found || !IsSourceContainerProxy(found) || objects.IsUntargetable(found)
+		|| (objects.GetFlags(found)&OF_DESTROYED)) return nullptr;
+	if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(found))&1)) return nullptr;
+	handle=found;
+	return region;
+}
+uint64_t TerrainSystem::PickSourceContainer(int x,int y) const {
+	objHndl handle;
+	return HitSourceContainer(x,y,handle) ? handle.handle : 0;
 }
 void TerrainSystem::RenderSourceContainers() {
-	auto mouse=mouseFuncs.GetPos();auto handle=PickSourceContainer(mouse.x,mouse.y);if (!handle) return;
-	auto point=gameView->ToWorldScreen(mouse.x,mouse.y);int ox,oy;GetTerrainOrigin(ox,oy);
-	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(point.x-ox)),int(std::floor(point.y-oy)));
+	// Rendering runs inside ScopedWorldInput: the mouse position is already in
+	// world pixels, so the hover test and the drawn outline use the same point.
+	auto mouse=mouseFuncs.GetPos();objHndl handle;
+	auto region=HitSourceContainer(mouse.x,mouse.y,handle);
 	if (!region) return;
+	int ox,oy;GetTerrainOrigin(ox,oy);
 	std::vector<gfx::Line2d> lines;
 	for (size_t i=0;i<region->outline.size();++i) {
 		const auto &a=region->outline[i], &b=region->outline[(i+1)%region->outline.size()];
