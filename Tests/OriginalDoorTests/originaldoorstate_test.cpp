@@ -3,6 +3,8 @@
 #include "../../TemplePlus/graphics/originaldooruse.h"
 #include "../../TemplePlus/graphics/originaltravel.h"
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
+#include "../../TemplePlus/graphics/sourcecontainers.h"
+#include "../../TemplePlus/worldviewzoom.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -297,7 +299,30 @@ static void TestSelectedArrivalPlanning() {
 	for (const auto &spot:plan) assert(spot.point.x>=1000 && spot.point.y>=1000);
 }
 
+static void TestSourceContainerRegions() {
+	SourceContainerRegions regions;
+	OriginalDoorPolygon poly={{100,100},{140,100},{140,110},{110,110},{110,140},{100,140}};
+	regions.Bind({5136,"BARREL","GUID_A",poly});
+	assert(regions.Hit(5136,105,130)->objectId=="GUID_A");
+	assert(!regions.Hit(5136,120,120)); // concave notch is not the bounding rectangle
+	assert(regions.Hit(5136,100,125)); // exact outline edge is clickable
+	assert(!regions.Hit(5190,105,130));
+	regions.Bind({5136,"OVERLAP","GUID_B",poly});
+	assert(!regions.Hit(5136,105,130)); // never pick arbitrary inventory
+	regions.Clear();assert(!regions.Hit(5136,105,130));
+	Reject([&](){regions.Bind({5136,"BAD","",poly});});
+	Reject([&](){regions.Bind({5136,"BAD","GUID",{{0,0},{1,1},{2,2}}});});
+	for (double scale:{0.5,1.0,2.3}) {
+		WorldViewZoom zoom;zoom.Set(scale);
+		auto screen=zoom.ToDisplay(105,130,1440,960);
+		auto logical=zoom.ToWorld(screen.x,screen.y,1440,960);
+		regions.Bind({5136,"BARREL","GUID_A",poly});
+		assert(regions.Hit(5136,int(std::round(logical.x)),int(std::round(logical.y))));
+	}
+}
+
 int main() {
+	TestSourceContainerRegions();
 	TestSelectedArrivalPlanning();
 	TestContextAndScenes();
 	TestClickTravel();

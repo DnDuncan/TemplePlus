@@ -1678,6 +1678,19 @@ static PyObject* PyGame_BgTravelCancel(PyObject*, PyObject* args) {
 static PyObject* PyGame_BgContextVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_context_version")) return nullptr;return PyInt_FromLong(1);
 }
+static PyObject* PyGame_BgSourceContainerVersion(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_source_container_version")) return nullptr;return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
+	int mapId;const char *id,*guid;PyObject* points;OriginalDoorPolygon outline;
+	if (!PyArg_ParseTuple(args,"issO:bg_source_container_bind",&mapId,&id,&guid,&points) || !ReadDoorOutline(points,outline)) return nullptr;
+	try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)});Py_RETURN_NONE;}
+	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_source_container_clear")) return nullptr;
+	gameSystems->GetTerrain().ClearSourceContainers();Py_RETURN_NONE;
+}
 static PyObject* PyGame_BgContextBind(PyObject*,PyObject* args) {
 	int mapId,locked,trapped,found,pickable,lockDc,searchDc;const char *id;PyObject *icons;
 	if (!PyArg_ParseTuple(args,"isOiiiiii:bg_context_bind",&mapId,&id,&icons,&locked,&trapped,&found,&pickable,&lockDc,&searchDc)) return nullptr;
@@ -1874,6 +1887,9 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_session_save", PyGame_BgDoorSessionSave, METH_VARARGS, NULL},
 	{"bg_door_session_load", PyGame_BgDoorSessionLoad, METH_VARARGS, NULL},
 	{"bg_context_version",PyGame_BgContextVersion,METH_VARARGS,NULL},
+	{"bg_source_container_version",PyGame_BgSourceContainerVersion,METH_VARARGS,NULL},
+	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
+	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
 	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
 	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},

@@ -8,6 +8,7 @@
 #include <tig/tig.h>
 #include <tig/tig_startup.h>
 #include "gameview.h"
+#include "graphics/mapterrain.h"
 #include "gamesystems/gamesystems.h"
 #include "gamesystems/legacysystems.h"
 #include "gamesystems/legacymapsystems.h"
@@ -139,6 +140,10 @@ static bool IsPreferredSelectionObject(objHndl selCurrent, objHndl selNew)
 // Originally @ 0x10022360
 bool PickObjectOnScreen(int x, int y, objHndl * pickedHandle, GameRaycastFlags flags)
 {
+	if (!(flags&GRF_ExcludeContainers) && originalDoorTerrain) {
+		auto source=originalDoorTerrain->PickSourceContainer(x,y);
+		if (source) {*pickedHandle=objHndl{source};return true;}
+	}
 	if (!flags) {
 		flags = GRF_HITTEST_3D;
 	}
@@ -180,6 +185,7 @@ bool PickObjectOnScreen(int x, int y, objHndl * pickedHandle, GameRaycastFlags f
 
 	for (int i = 0; i < objList.size(); i++) {
 		auto handle = objList[i];
+		if (IsSourceContainerProxy(handle)) continue; // only its source polygon is clickable
 
 		auto location = objects.GetLocationFull(handle);
 

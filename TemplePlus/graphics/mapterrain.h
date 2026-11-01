@@ -6,6 +6,7 @@
 #include "originaldooruse.h"
 #include "originaltravel.h"
 #include "originaldoorcontext.h"
+#include "sourcecontainers.h"
 
 struct TigRect;
 
@@ -103,6 +104,9 @@ public:
 	int FocusedSceneArea() const {return mFocusedScene;}
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
+	void BindSourceContainer(SourceContainerRegion region);
+	void ClearSourceContainers() {mSourceContainers.Clear();}
+	uint64_t PickSourceContainer(int x,int y) const;
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -129,6 +133,8 @@ private:
 
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
+	SourceContainerRegions mSourceContainers;
+	void RenderSourceContainers();
 	std::map<OriginalDoorState::Key, OriginalDoorUseGeometry> mDoorUse;
 	OriginalDoorUseQueue mDoorUseQueue, mTravelQueue;
 	std::map<OriginalDoorState::Key, OriginalTravelMarker> mTravelMarkers;
