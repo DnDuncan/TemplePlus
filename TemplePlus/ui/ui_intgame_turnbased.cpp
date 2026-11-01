@@ -11,6 +11,9 @@
 #include "obj.h"
 #include "util/fixes.h"
 #include "gameview.h"
+#include "graphics/mapterrain.h"
+#include "tig/tig_mouse.h"
+#include <graphics/mdfmaterials.h>
 #include "tig/tig_msg.h"
 #include "ui/ui.h"
 #include "ui/ui_picker.h"
@@ -21,7 +24,6 @@
 #include "raycast.h"
 #include "location.h"
 #include <infrastructure/keyboard.h>
-#include <graphics/mdfmaterials.h>
 #include <graphics/shaperenderer2d.h>
 #include <graphics/shaperenderer3d.h>
 #include <graphics/render_hooks.h>
@@ -1015,6 +1017,21 @@ bool UiIntgameTurnbased::AooPossible(objHndl handle)
 	return combatSys.CanMeleeTargetAtLoc(handle, handle, &loc);
 }
 
+// Native cursor states index the 32-entry shader table at 0x118A0900.
+// The source-container state lies outside it and is never used as an index.
+static constexpr int CursorStateLocked = 6, CursorStateHaveKey = 7, CursorStateUseIcon = 11;
+static constexpr int CursorStateSourceContainer = 32;
+
+static int SourceContainerCursorShader(int fallback) {
+	static int shader = -1;
+	if (shader < 0) {
+		auto material = tig->GetMdfFactory().LoadMaterial("art\\interface\\cursors\\Map_GrabHand_Open.mdf");
+		shader = material ? material->GetId() : 0;
+		if (!shader) logger->warn("Map_GrabHand_Open.mdf is unavailable; using the native use cursor for containers");
+	}
+	return shader ? shader : fallback;
+}
+
 void UiIntgameTurnbased::CursorRenderUpdate(){
 	
 	auto &cursorStateForIntgameFocus = temple::GetRef<int>(0x10B3D5B0);
@@ -1029,6 +1046,18 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 	temple::GetRef<void(__cdecl)()>(0x100936D0)(); // CursorHandleIntgameFocusObj
 	if (cursorStateForIntgameFocus){
 		cursorState = cursorStateForIntgameFocus;
+	}
+
+	// Baldur's Gate containers painted into the background: show a grabbing hand
+	// over the source outline (locked ones keep the native lock / key cursors).
+	auto sourceContainerHover = false;
+	if (!combatSys.isCombatActive() && originalDoorTerrain) {
+		auto mouse = mouseFuncs.GetPos();
+		if (originalDoorTerrain->PickSourceContainer(mouse.x, mouse.y)
+			&& cursorStateForIntgameFocus != CursorStateLocked
+			&& cursorStateForIntgameFocus != CursorStateHaveKey) {
+			sourceContainerHover = true;
+		}
 	}
 
 	auto &curSeq = *actSeqSys.actSeqCur;
@@ -1069,6 +1098,9 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 		}
 	}
 
+	if (sourceContainerHover)
+		cursorState = CursorStateSourceContainer;
+
 	auto specialCursor = temple::GetRef<int(__cdecl)()>(0x1009AC00)(); // stuff like dragging party/initiative portraits, wiki help etc.
 	if (specialCursor)
 		cursorState = specialCursor;
@@ -1079,7 +1111,10 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 			temple::GetRef<void(__cdecl)()>(0x101DD770)();
 
 		auto static &shaderIds = temple::GetRef<int[32]>(0x118A0900);
-		if (cursorState){
+		if (cursorState == CursorStateSourceContainer) {
+			MouseFuncs::SetCursor(SourceContainerCursorShader(shaderIds[CursorStateUseIcon]));
+		}
+		else if (cursorState){
 			MouseFuncs::SetCursor(shaderIds[cursorState]);
 		}
 		cursorPrevState = cursorState;

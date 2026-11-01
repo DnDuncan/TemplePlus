@@ -7,6 +7,7 @@
 #include "originaltravel.h"
 #include "originaldoorcontext.h"
 #include "sourcecontainers.h"
+#include "../worldviewzoom.h"
 
 struct TigRect;
 
@@ -107,6 +108,8 @@ public:
 	void BindSourceContainer(SourceContainerRegion region);
 	void ClearSourceContainers() {mSourceContainers.Clear();}
 	uint64_t PickSourceContainer(int x,int y) const;
+	const SourceContainerRegion* HitSourceContainer(int x,int y,objHndl &handle) const;
+	WorldViewZoom::Point SourceContainerPoint(int x,int y) const;
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
