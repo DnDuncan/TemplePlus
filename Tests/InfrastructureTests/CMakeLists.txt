@@ -16,6 +16,7 @@ source_group("Header Files" FILES ${Header_Files})
 
 set(Source_Files
     "main.cpp"
+    "images_test.cpp"
     "stdafx.cpp"
     "tokenizer_test.cpp"
 )
@@ -137,14 +138,17 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 set(ADDITIONAL_LIBRARY_DEPENDENCIES
     "$<$<CONFIG:Debug>:"
         "gmockd;"
+        "turbojpeg-static_d;"
         "gmock_maind"
     ">"
     "$<$<CONFIG:Release>:"
         "gmock;"
+        "turbojpeg-static;"
         "gmock_main"
     ">"
     "$<$<CONFIG:TestWithIda>:"
         "gmock;"
+        "turbojpeg-static;"
         "gmock_main"
     ">"
 )

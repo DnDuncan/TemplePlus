@@ -66,6 +66,14 @@ jobs:
       env:
         TEMPLEPLUS_VERSION: ${{ steps.get_version.outputs.version }}
         COMMIT_ID: ${{ github.sha }}
+    - name: Test engine image decoding
+      shell: cmd
+      run: Release\InfrastructureTests.exe
+    - name: Upload image decoder test tool
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImageDecodeProbe
+        path: Release/InfrastructureTests.exe
     - name: Record engine build provenance
       shell: pwsh
       run: |
