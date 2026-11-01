@@ -4,6 +4,7 @@
 #include <temple/dll.h>
 #include "originaldoorstate.h"
 #include "originaldooruse.h"
+#include "originaltravel.h"
 
 struct TigRect;
 
@@ -77,7 +78,16 @@ public:
 	void UnbindOriginalDoorUse(int mapId, const std::string &id);
 	bool HasOriginalDoorUse(int mapId, const std::string &id) const;
 	void RequestOriginalDoorUse(const std::string &id, uint64_t actor);
-	void CancelOriginalDoorUse() { mDoorUseQueue.Cancel(); }
+	void CancelOriginalDoorUse() { mDoorUseQueue.Cancel(); mTravelQueue.Cancel(); mTravelReady.Cancel(); }
+	void BindOriginalTravel(OriginalTravelMarker marker);
+	void ClearOriginalTravel();
+	bool HasOriginalTravel() const;
+	std::string HitTestOriginalTravel(int x, int y) const;
+	void SetHoveredOriginalTravel(const std::string &id) { mHoveredTravel = id; }
+	void RequestOriginalTravel(const std::string &id, uint64_t actor);
+	std::optional<OriginalTravelReady::Intent> PeekOriginalTravel();
+	bool AckOriginalTravel(uint32_t serial);
+	void RenderOriginalTravel();
 	void AdvanceTime(uint32_t time) override;
 
 	TerrainSystem(TerrainSystem&) = delete;
@@ -106,7 +116,13 @@ private:
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
 	std::map<OriginalDoorState::Key, OriginalDoorUseGeometry> mDoorUse;
-	OriginalDoorUseQueue mDoorUseQueue;
+	OriginalDoorUseQueue mDoorUseQueue, mTravelQueue;
+	std::map<OriginalDoorState::Key, OriginalTravelMarker> mTravelMarkers;
+	OriginalTravelReady mTravelReady;
+	std::string mHoveredTravel, mDoorLineExclusion;
+	bool DoorUseReachable(uint64_t actor, OriginalDoorUsePoint target, double reach, const std::string &excluded);
+	void StopDoorMovement(uint64_t actor);
+	void AdvanceTravel(uint32_t time);
 	uint64_t mDoorUseRevision = 0;
 	std::string mHoveredOriginalDoor;
 	void RenderOriginalDoors(int terrainOriginX, int terrainOriginY);

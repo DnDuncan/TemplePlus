@@ -165,6 +165,25 @@ public:
 		}
 		return hit;
 	}
+	// A stable frame plus the leaf is much easier to select than a thin open leaf.
+	std::string HitTestStable(int mapId, int x, int y, double tolerance = 6) const {
+		std::string hit;
+		for (const auto &entry : mOutlines) {
+			if (entry.first.first != mapId) continue;
+			bool contains = false;
+			for (const auto *poly : {&entry.second.closed, &entry.second.open}) {
+				if (DoorPolygonContains(*poly, x, y)) contains = true;
+				for (size_t i=0; i<poly->size(); ++i) {
+					auto a=(*poly)[i], b=(*poly)[(i+1)%poly->size()];
+					double dx=b.x-a.x, dy=b.y-a.y, len=dx*dx+dy*dy;
+					auto t=len ? (std::max)(0.0, (std::min)(1.0, ((x-a.x)*dx+(y-a.y)*dy)/len)) : 0.0;
+					if (std::hypot(x-a.x-t*dx,y-a.y-t*dy) <= tolerance) contains = true;
+				}
+			}
+			if (contains) { if (!hit.empty()) return {}; hit=entry.first.second; }
+		}
+		return hit;
+	}
 	void BindNavigation(int mapId, const std::string &id, DoorNavigationGeometry geometry) {
 		if (!Find(mapId, id)) throw std::invalid_argument("register door before binding navigation");
 		ValidateDoorNavigation(geometry.closed); ValidateDoorNavigation(geometry.open);
@@ -182,11 +201,11 @@ public:
 		auto door = Find(mapId, id);
 		return door && HasNavigation(mapId, id) && door->open;
 	}
-	const std::vector<DoorNavigationTile> &NavigationTiles(int mapId) const {
-		if (mapId == mNavigationCacheMap && mNavigationCacheRevision == mNavigationRevision) return mNavigationCache;
+	const std::vector<DoorNavigationTile> &NavigationTiles(int mapId, const std::string &excluded = {}) const {
+		if (mapId == mNavigationCacheMap && excluded == mNavigationCacheExcluded && mNavigationCacheRevision == mNavigationRevision) return mNavigationCache;
 		std::map<std::pair<int, int>, uint32_t> combined;
 		for (const auto &entry : mNavigation) {
-			if (entry.first.first != mapId) continue;
+			if (entry.first.first != mapId || entry.first.second == excluded) continue;
 			auto door = Find(mapId, entry.first.second);
 			if (!door) continue;
 			for (const auto &tile : door->open ? entry.second.open : entry.second.closed)
@@ -194,7 +213,7 @@ public:
 		}
 		mNavigationCache.clear();
 		for (const auto &tile : combined) mNavigationCache.push_back({tile.first.first, tile.first.second, tile.second});
-		mNavigationCacheMap = mapId; mNavigationCacheRevision = mNavigationRevision;
+		mNavigationCacheExcluded = excluded; mNavigationCacheMap = mapId; mNavigationCacheRevision = mNavigationRevision;
 		return mNavigationCache;
 	}
 	void Clear() { mPatches.clear(); mOutlines.clear(); mNavigation.clear(); ++mNavigationRevision; }
@@ -212,6 +231,7 @@ private:
 	uint64_t mNavigationRevision = 0;
 	mutable uint64_t mNavigationCacheRevision = 0;
 	mutable int mNavigationCacheMap = -1;
+	mutable std::string mNavigationCacheExcluded;
 	mutable std::vector<DoorNavigationTile> mNavigationCache;
 };
 
@@ -223,7 +243,7 @@ public:
 	enum class Event { Down, Move, Up };
 	struct Result { bool consumed; std::string toggle; };
 	void Cancel() { mId.clear(); mDragged = false; }
-	Result Process(int mapId, const std::string &hit, Event event, int x, int y) {
+	Result Process(int mapId, const std::string &hit, Event event, int x, int y, int tolerance = 4) {
 		if (event == Event::Down) {
 			Cancel();
 			if (hit.empty()) return { false, {} };
@@ -233,7 +253,7 @@ public:
 		if (mId.empty()) return { false, {} };
 		if (mMap != mapId) { Cancel(); return { true, {} }; }
 		auto dx = static_cast<int64_t>(x) - mX, dy = static_cast<int64_t>(y) - mY;
-		if (dx < -4 || dx > 4 || dy < -4 || dy > 4) mDragged = true;
+		if (dx < -tolerance || dx > tolerance || dy < -tolerance || dy > tolerance) mDragged = true;
 		if (event == Event::Up) {
 			auto id = (!mDragged && hit == mId) ? mId : std::string();
 			Cancel();
