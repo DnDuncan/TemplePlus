@@ -8,7 +8,8 @@ on:
 jobs:
   build:
     name: Build TemplePlus
-    runs-on: windows-latest
+    # v143 and the vcvars32 path below require the VS 2022 runner.
+    runs-on: windows-2022
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       release: ${{ steps.get_version.outputs.release }}
@@ -36,6 +37,13 @@ jobs:
         Add-Content -Path $env:GITHUB_OUTPUT -Value "release=$release"
       shell: pwsh
     - uses: actions/checkout@v4
+    - name: Test original door state registry
+      shell: cmd
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+        cl /nologo /std:c++17 /EHsc /W4 /WX Tests\OriginalDoorTests\originaldoorstate_test.cpp /Fe:originaldoorstate-tests.exe
+        if errorlevel 1 exit /b 1
+        originaldoorstate-tests.exe
     - uses: nuget/setup-nuget@v1
     - name: Set up Python 3.9
       uses: actions/setup-python@v4
@@ -57,7 +65,16 @@ jobs:
       shell: cmd
       env:
         TEMPLEPLUS_VERSION: ${{ steps.get_version.outputs.version }}
-        COMMIT_ID: ${GITHUB_SHA::8}
+        COMMIT_ID: ${{ github.sha }}
+    - name: Record engine build provenance
+      shell: pwsh
+      run: |
+        @{
+          repository = '${{ github.repository }}'
+          commit = '${{ github.sha }}'
+          run_id = '${{ github.run_id }}'
+          executable_sha256 = (Get-FileHash Release/TemplePlus.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        } | ConvertTo-Json | Set-Content engine-build.json
     - name: Pack Release
       run: .\PackRelease.ps1
       shell: pwsh
@@ -88,6 +105,11 @@ jobs:
       with:
         name: TemplePlus
         path: TemplePlus-*.zip
+    - name: Upload engine build provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: TemplePlusBuild
+        path: engine-build.json
     - name: Upload PDB
       uses: actions/upload-artifact@v4
       with:

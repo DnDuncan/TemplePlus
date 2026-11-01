@@ -84,6 +84,73 @@ void TerrainSystem::Render() {
 		}
 	}
 
+	// Source-art patches are part of terrain: draw before actors, never as a
+	// substituted 3D portal and never by rewriting the terrain JPEG files.
+	RenderOriginalDoors(terrainOriginX, terrainOriginY);
+}
+
+void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
+	OriginalDoorState::Validate(patch);
+	if (patch.mapId != maps.GetCurrentMapId()) {
+		throw std::invalid_argument("register original doors only on the current map");
+	}
+	// Resolve every state before changing the registry, so a missing asset does
+	// not replace a previously valid patch or silently hide the background.
+	for (const auto &path : patch.textures) {
+		auto texture = mDevice.GetTextures().Resolve(path, false);
+		if (!texture || !texture->IsValid() || texture->GetSize().width != patch.width ||
+			texture->GetSize().height != patch.height) {
+			throw std::invalid_argument("original door texture missing or dimensions differ from its pixel rectangle");
+		}
+	}
+	mOriginalDoors.Register(std::move(patch));
+}
+
+void TerrainSystem::SetOriginalDoorOpen(const std::string &id, bool open) {
+	mOriginalDoors.SetOpen(maps.GetCurrentMapId(), id, open);
+}
+
+bool TerrainSystem::GetOriginalDoorOpen(const std::string &id) const {
+	auto patch = mOriginalDoors.Find(maps.GetCurrentMapId(), id);
+	if (!patch) throw std::invalid_argument("original door is not registered on this map");
+	return patch->open;
+}
+
+void TerrainSystem::ClearOriginalDoors() {
+	mOriginalDoors.ClearMap(maps.GetCurrentMapId());
+}
+
+void TerrainSystem::Reset() {
+	mOriginalDoors.Clear();
+}
+
+void TerrainSystem::UnloadModule() {
+	mOriginalDoors.Clear();
+	mTerrainDirs.clear();
+	mMapArtId = 0;
+}
+
+void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) {
+	auto mapId = maps.GetCurrentMapId();
+	for (const auto &entry : mOriginalDoors.Patches()) {
+		const auto &patch = entry.second;
+		if (patch.mapId != mapId) continue;
+		auto x = terrainOriginX + patch.x;
+		auto y = terrainOriginY + patch.y;
+		if (x + patch.width <= 0 || y + patch.height <= 0 ||
+			x >= config.renderWidth || y >= config.renderHeight) continue;
+		auto draw = [&](bool night, float alpha) {
+			auto index = OriginalDoorState::TextureIndex(patch.open, night);
+			auto texture = mDevice.GetTextures().Resolve(patch.textures[index], false);
+			if (!texture || !texture->IsValid()) return;
+			XMCOLOR color(mTerrainTintRed, mTerrainTintGreen, mTerrainTintBlue, alpha);
+			mShapeRenderer.DrawRectangle(static_cast<float>(x), static_cast<float>(y),
+				static_cast<float>(patch.width), static_cast<float>(patch.height),
+				*texture, color, gfx::SamplerType2d::POINT);
+		};
+		draw(mIsTransitioning ? !mIsNightTime : mIsNightTime, 1.0f);
+		if (mIsTransitioning) draw(mIsNightTime, mTransitionProgress);
+	}
 }
 
 void TerrainSystem::RenderTile(int x, int y, const TigRect& destRect) {
