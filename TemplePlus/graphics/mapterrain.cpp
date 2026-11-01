@@ -10,6 +10,7 @@
 #include <util/fixes.h>
 #include <gamesystems/gamesystems.h>
 #include <gamesystems/timeevents.h>
+#include "gameview.h"
 
 TerrainSystem::TerrainSystem(gfx::RenderingDevice& device, gfx::ShapeRenderer2d& shapeRenderer)
 	: mDevice(device),mShapeRenderer(shapeRenderer) {
@@ -40,8 +41,7 @@ void TerrainSystem::Render() {
 		mTransitionProgress = timeSinceMapEntered / (float)TransitionTime;
 	}
 
-	auto viewportWidth = config.renderWidth;
-	auto viewportHeight = config.renderHeight;
+	auto viewport = gameView->GetWorldViewport();
 
 	// The terrain is centered on the center tile of the map
 	// This is 480,480 for all vanilla maps, but theoretically it 
@@ -50,8 +50,8 @@ void TerrainSystem::Render() {
 	int terrainOriginX, terrainOriginY;
 	GetTerrainOrigin(terrainOriginX, terrainOriginY);
 
-	auto startX = - terrainOriginX / TileSize;
-	auto startY = - terrainOriginY / TileSize;
+	auto startX = (std::max)(0, int(std::floor((viewport.left - terrainOriginX) / TileSize)));
+	auto startY = (std::max)(0, int(std::floor((viewport.top - terrainOriginY) / TileSize)));
 
 	for (auto y = startY; y < MapHeightTiles; ++y) {
 		TigRect destRect;
@@ -65,13 +65,13 @@ void TerrainSystem::Render() {
 			RenderTile(x, y, destRect);
 
 			// The next column would be out of view
-			if (destRect.x + TileSize >= viewportWidth) {
+			if (destRect.x + TileSize >= viewport.right) {
 				break;
 			}
 		}
 
 		// The next column would be out of view
-		if (destRect.y + TileSize >= viewportHeight) {
+		if (destRect.y + TileSize >= viewport.bottom) {
 			break;
 		}
 	}
@@ -157,13 +157,14 @@ void TerrainSystem::UnloadModule() {
 
 void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) {
 	auto mapId = maps.GetCurrentMapId();
+	auto viewport = gameView->GetWorldViewport();
 	for (const auto &entry : mOriginalDoors.Patches()) {
 		const auto &patch = entry.second;
 		if (patch.mapId != mapId) continue;
 		auto x = terrainOriginX + patch.x;
 		auto y = terrainOriginY + patch.y;
-		if (x + patch.width <= 0 || y + patch.height <= 0 ||
-			x >= config.renderWidth || y >= config.renderHeight) continue;
+		if (x + patch.width <= viewport.left || y + patch.height <= viewport.top ||
+			x >= viewport.right || y >= viewport.bottom) continue;
 		auto draw = [&](bool night, float alpha) {
 			auto index = OriginalDoorState::TextureIndex(patch.open, night);
 			auto texture = mDevice.GetTextures().Resolve(patch.textures[index], false);

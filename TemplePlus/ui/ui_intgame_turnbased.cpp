@@ -610,6 +610,7 @@ BOOL UiIntegameTurnbasedRepl::UiIntgameLocIsFarFromDesignatedLoc(LocAndOffsets l
 }
 
 int UiIntegameTurnbasedRepl::UiIntgameMsgHandler(int widId, TigMsg* msg) {
+	ScopedWorldInput worldInput(msg);
 
 	if (dmSys.IsActive() && !dmSys.IsMinimized()){
 		if (msg->type == TigMsgType::MOUSE)
@@ -645,8 +646,8 @@ int UiIntegameTurnbasedRepl::UiIntgameMsgHandler(int widId, TigMsg* msg) {
 	auto& intgameActor = temple::GetRef<objHndl>(0x10C04118);
 
 	if (msg->type == TigMsgType::MOUSE) {
-		*intgameAddresses.screenXfromMouseEvent = ((TigMsgMouse*)msg)->x;
-		*intgameAddresses.screenYfromMouseEvent = ((TigMsgMouse*)msg)->y;
+		*intgameAddresses.screenXfromMouseEvent = static_cast<int32_t>(((TigMsgMouse*)msg)->x);
+		*intgameAddresses.screenYfromMouseEvent = static_cast<int32_t>(((TigMsgMouse*)msg)->y);
 	}
 
 	if (!combatSys.isCombatActive() || radialMenus.ActiveRadialMenuHasActiveNode()) {

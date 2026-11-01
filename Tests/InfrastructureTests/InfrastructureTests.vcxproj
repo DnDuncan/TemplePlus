@@ -156,6 +156,7 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="images_test.cpp" />
+    <ClCompile Include="camera_zoom_test.cpp" />
     <ClCompile Include="tokenizer_test.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

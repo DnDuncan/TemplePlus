@@ -4,6 +4,7 @@
 
 #include "config/config.h"
 #include "tig/tig_mouse.h"
+#include "tig/tig_msg.h"
 
 GameView::GameView(MainWindow &mainWindow, gfx::RenderingDevice &device, int width, int height)
     : mMainWindow(mainWindow), mDevice(device), mWidth(width), mHeight(height),
@@ -122,6 +123,7 @@ void GameView::Resize(int width, int height)
 // TODO: See if this can just be replaced by the proper version used below
 // This is equivalent to 10029570
 XMFLOAT2 GameView::ScreenToTileLegacy(int x, int y) {
+	if (!IsWorldInputActive()) { auto p = ToWorldScreen(x, y); x = int(std::round(p.x)); y = int(std::round(p.y)); }
 
 	auto translation = mCamera->GetTranslation();
 
@@ -136,6 +138,7 @@ XMFLOAT2 GameView::ScreenToTileLegacy(int x, int y) {
 }
 
 LocAndOffsets GameView::ScreenToTile(int screenX, int screenY) {
+	if (!IsWorldInputActive()) { auto p = ToWorldScreen(screenX, screenY); screenX = int(std::round(p.x)); screenY = int(std::round(p.y)); }
 
 	auto translation = mCamera->GetTranslation();
 
@@ -169,3 +172,26 @@ XMFLOAT3 GameView::TileToWorld(locXY tilePos)
 }
 
 GameView *gameView;
+
+ScopedWorldInput::ScopedWorldInput(TigMsg *message) : mView(gameView), mMessage(message) {
+	if (!mView) return;
+	if (mView->mWorldInputDepth++ > 0) return;
+	mApplied = true;
+	mX = mouseState->x; mY = mouseState->y;
+	auto p = mView->ToWorldScreen(mX, mY);
+	mouseState->x = int(std::round(p.x)); mouseState->y = int(std::round(p.y));
+	if (message && message->type == TigMsgType::MOUSE) {
+		mMsgX = message->arg1; mMsgY = message->arg2;
+		p = mView->ToWorldScreen(static_cast<int>(mMsgX), static_cast<int>(mMsgY));
+		message->arg1 = static_cast<uint32_t>(int(std::round(p.x)));
+		message->arg2 = static_cast<uint32_t>(int(std::round(p.y)));
+	}
+}
+
+ScopedWorldInput::~ScopedWorldInput() {
+	if (!mView) return;
+	--mView->mWorldInputDepth;
+	if (!mApplied) return;
+	mouseState->x = mX; mouseState->y = mY;
+	if (mMessage && mMessage->type == TigMsgType::MOUSE) { mMessage->arg1 = mMsgX; mMessage->arg2 = mMsgY; }
+}
