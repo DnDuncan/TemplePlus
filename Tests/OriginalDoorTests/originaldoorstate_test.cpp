@@ -279,7 +279,26 @@ static void TestContextAndScenes() {
 	security.searchDc=10;security.found=true;Reject([&](){ValidateDoorSecurity(security);});
 }
 
+static void TestSelectedArrivalPlanning() {
+	std::vector<SceneArrivalActor> actors{{10,25},{20,20},{30,25},{40,25},{50,25}};
+	std::vector<SceneArrivalSpot> plan;
+	assert(PlanSceneArrival(actors,{1000,1000},[](auto,auto){return true;},plan));
+	assert(plan.size()==actors.size());
+	for (size_t i=0;i<plan.size();++i) {
+		assert(plan[i].id==actors[i].id); // same selected IDs; no unselected/copy IDs
+		for (size_t j=0;j<i;++j) assert(OriginalDoorUseDistance(plan[i].point,plan[j].point)>=plan[i].radius+plan[j].radius);
+	}
+	auto before=plan;
+	assert(!PlanSceneArrival(actors,{1000,1000},[](auto actor,auto){return actor.id!=30;},plan));
+	assert(plan.size()==before.size() && plan[0].point.x==before[0].point.x); // no partial result when third actor cannot fit
+	assert(!PlanSceneArrival(std::vector<SceneArrivalActor>{},{1000,1000},[](auto,auto){return true;},plan));
+	assert(!PlanSceneArrival(std::vector<SceneArrivalActor>{{10,25},{10,25}},{1000,1000},[](auto,auto){return true;},plan));
+	assert(PlanSceneArrival(actors,{1000,1000},[](auto,auto p){return p.x>=1000 && p.y>=1000;},plan));
+	for (const auto &spot:plan) assert(spot.point.x>=1000 && spot.point.y>=1000);
+}
+
 int main() {
+	TestSelectedArrivalPlanning();
 	TestContextAndScenes();
 	TestClickTravel();
 	TestUse();

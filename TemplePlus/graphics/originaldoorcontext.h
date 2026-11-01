@@ -65,3 +65,27 @@ struct OriginalSceneRoute {int source,destination; OriginalDoorUsePoint arrival;
 inline bool SameDoorSelection(std::vector<uint64_t> a,std::vector<uint64_t> b) {
 	std::sort(a.begin(),a.end());std::sort(b.begin(),b.end());return !a.empty() && a==b;
 }
+
+struct SceneArrivalActor {uint64_t id;double radius;};
+struct SceneArrivalSpot {uint64_t id;double radius;OriginalDoorUsePoint point;};
+// Shared by native movement and standalone tests. The caller supplies the real
+// native collision query. On failure, even the output plan remains untouched.
+template<class CanStand> bool PlanSceneArrival(const std::vector<SceneArrivalActor> &actors,
+	OriginalDoorUsePoint target,CanStand canStand,std::vector<SceneArrivalSpot> &output) {
+	if (actors.empty() || actors.size()>8 || !std::isfinite(target.x) || !std::isfinite(target.y)) return false;
+	std::vector<SceneArrivalSpot> plan;
+	for (const auto &actor:actors) {
+		if (!actor.id || !std::isfinite(actor.radius) || actor.radius<0) return false;
+		for (const auto &placed:plan) if (placed.id==actor.id) return false;
+		bool found=false;
+		for (int ring=0;ring<19 && !found;++ring) for (int dx=-ring;dx<=ring && !found;++dx) for (int dy=-ring;dy<=ring && !found;++dy) {
+			if (ring && std::abs(dx)!=ring && std::abs(dy)!=ring) continue;
+			OriginalDoorUsePoint point{target.x+dx*28.2842712474619/3,target.y+dy*28.2842712474619/3};
+			bool overlap=false;
+			for (const auto &placed:plan) if (OriginalDoorUseDistance(point,placed.point)<actor.radius+placed.radius) {overlap=true;break;}
+			if (!overlap && canStand(actor,point)) {plan.push_back({actor.id,actor.radius,point});found=true;}
+		}
+		if (!found) return false;
+	}
+	output=std::move(plan);return true;
+}

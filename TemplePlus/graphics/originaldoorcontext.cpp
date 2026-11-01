@@ -261,25 +261,27 @@ bool TerrainSystem::TravelSelectedInScene(uint32_t serial) {
 	if (!SameDoorSelection(mTravelSelection,ContextSelection()) || combatSys.isCombatActive()) {CancelOriginalDoorUse();return false;}
 	auto selection=mTravelSelection;auto target=route->second.arrival;
 	struct Move {objHndl actor;LocAndOffsets before,after;float radius;};std::vector<Move> plan;
+	std::vector<SceneArrivalActor> actors;
 	for (auto handle:selection) {
-		objHndl actor{handle};if (SceneAreaForActor(handle)!=route->second.source) {CancelOriginalDoorUse();return false;}
-		bool found=false;auto radius=objects.GetRadius(actor);
-		for (int ring=0;ring<19 && !found;++ring) for (int dx=-ring;dx<=ring && !found;++dx) for (int dy=-ring;dy<=ring && !found;++dy) {
-			if (ring && std::abs(dx)!=ring && std::abs(dy)!=ring) continue;
-			OriginalDoorUsePoint p{target.x+dx*28.2842712474619/3,target.y+dy*28.2842712474619/3};
-			if (SceneAreaAt(p)!=route->second.destination) continue;
-			bool overlap=false;for (const auto &placed:plan) {
-				auto q=placed.after.ToInches2D();if (OriginalDoorUseDistance(p,{q.x,q.y})<radius+placed.radius) {overlap=true;break;}
-			}
-			if (overlap) continue;
-			auto loc=LocAndOffsets::FromInches(float(p.x),float(p.y));RaycastPacket ray;
-			ray.flags=static_cast<RaycastFlags>(StopAfterFirstBlockerFound|StopAfterFirstFlyoverFound|HasRadius|HasSourceObj|ExcludeItemObjects);
-			ray.origin=loc;ray.targetLoc=loc;ray.sourceObj=actor;ray.radius=radius;
-			if (ray.RaycastShortRange()!=0) continue;
-			plan.push_back({actor,objects.GetLocationFull(actor),loc,radius});found=true;
-		}
-		if (!found) {ContextMessage(actor,"Not enough free space for the selected group");CancelOriginalDoorUse();return false;}
+		if (SceneAreaForActor(handle)!=route->second.source) {CancelOriginalDoorUse();return false;}
+		actors.push_back({handle,objects.GetRadius(objHndl{handle})});
 	}
+	std::vector<SceneArrivalSpot> spots;
+	auto canStand=[&](const SceneArrivalActor &actor,OriginalDoorUsePoint point) {
+		if (SceneAreaAt(point)!=route->second.destination) return false;
+		auto loc=LocAndOffsets::FromInches(float(point.x),float(point.y));RaycastPacket ray;
+		ray.flags=static_cast<RaycastFlags>(StopAfterFirstBlockerFound|StopAfterFirstFlyoverFound|HasRadius|HasSourceObj|ExcludeItemObjects);
+		ray.origin=loc;ray.targetLoc=loc;ray.sourceObj=objHndl{actor.id};ray.radius=float(actor.radius);
+		return ray.RaycastShortRange()==0;
+	};
+	if (!PlanSceneArrival(actors,target,canStand,spots)) {
+		ContextMessage(objHndl{intent->actor},"Not enough free space for the selected group");CancelOriginalDoorUse();return false;
+	}
+	for (const auto &spot:spots) {
+		objHndl actor{spot.id};
+		plan.push_back({actor,objects.GetLocationFull(actor),LocAndOffsets::FromInches(float(spot.point.x),float(spot.point.y)),float(spot.radius)});
+	}
+
 	// No object is moved before every arrival position has been checked.
 	for (const auto &move:plan) StopDoorMovement(move.actor.handle);
 	if (!mTravelReady.Ack(serial)) return false;
