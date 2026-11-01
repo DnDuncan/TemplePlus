@@ -3,6 +3,7 @@
 #include "../gamesystems/gamesystem.h"
 #include <temple/dll.h>
 #include "originaldoorstate.h"
+#include "originaldooruse.h"
 
 struct TigRect;
 
@@ -11,7 +12,7 @@ namespace gfx {
 	class ShapeRenderer2d;
 }
 
-class TerrainSystem : public GameSystem, public ModuleAwareGameSystem, public ResetAwareGameSystem {
+class TerrainSystem : public GameSystem, public ModuleAwareGameSystem, public ResetAwareGameSystem, public TimeAwareGameSystem {
 public:
 	static constexpr auto Name = "Terrain";
 
@@ -72,6 +73,12 @@ public:
 	void SaveOriginalDoorSession(const std::string &metadata) const;
 	std::string LoadOriginalDoorSession();
 	bool GetOriginalDoorOpenOnMap(int mapId, const std::string &id) const;
+	void BindOriginalDoorUse(int mapId, const std::string &id, OriginalDoorUseGeometry geometry);
+	void UnbindOriginalDoorUse(int mapId, const std::string &id);
+	bool HasOriginalDoorUse(int mapId, const std::string &id) const;
+	void RequestOriginalDoorUse(const std::string &id, uint64_t actor);
+	void CancelOriginalDoorUse() { mDoorUseQueue.Cancel(); }
+	void AdvanceTime(uint32_t time) override;
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -98,6 +105,9 @@ private:
 
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
+	std::map<OriginalDoorState::Key, OriginalDoorUseGeometry> mDoorUse;
+	OriginalDoorUseQueue mDoorUseQueue;
+	uint64_t mDoorUseRevision = 0;
 	std::string mHoveredOriginalDoor;
 	void RenderOriginalDoors(int terrainOriginX, int terrainOriginY);
 	void CheckNewDoorBlockers(const OriginalDoorState &candidate) const;

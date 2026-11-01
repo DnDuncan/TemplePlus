@@ -1604,6 +1604,44 @@ static PyObject* PyGame_BgDoorSessionLoad(PyObject*, PyObject* args) {
 	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
 }
 
+static PyObject* PyGame_BgDoorUseVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_use_version")) return nullptr;
+	return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgDoorUseBind(PyObject*, PyObject* args) {
+	int mapId; const char *id; PyObject *points; double reach = 12;
+	if (!PyArg_ParseTuple(args, "isO|d:bg_door_use_bind", &mapId, &id, &points, &reach)) return nullptr;
+	OriginalDoorUseGeometry geometry; geometry.reach = reach;
+	auto seq = PySequence_Fast(points, "approach requires (world_x_inches, world_y_inches) pairs");
+	if (!seq) return nullptr;
+	auto count = PySequence_Fast_GET_SIZE(seq);
+	if (count < 1 || count > 2) {
+		Py_DECREF(seq); PyErr_SetString(PyExc_ValueError, "door approach requires 1..2 points"); return nullptr;
+	}
+	for (Py_ssize_t i = 0; i < count; ++i) {
+		auto pair = PySequence_Tuple(PySequence_Fast_GET_ITEM(seq, i));
+		if (!pair) { Py_DECREF(seq); return nullptr; }
+		double x, y; auto valid = PyArg_ParseTuple(pair, "dd:door approach point", &x, &y); Py_DECREF(pair);
+		if (!valid) { Py_DECREF(seq); return nullptr; }
+		geometry.points.push_back({x, y});
+	}
+	Py_DECREF(seq);
+	try { gameSystems->GetTerrain().BindOriginalDoorUse(mapId, id, std::move(geometry)); Py_RETURN_NONE; }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+static PyObject* PyGame_BgDoorUseUnbind(PyObject*, PyObject* args) {
+	int mapId; const char *id;
+	if (!PyArg_ParseTuple(args, "is:bg_door_use_unbind", &mapId, &id)) return nullptr;
+	try { gameSystems->GetTerrain().UnbindOriginalDoorUse(mapId, id); Py_RETURN_NONE; }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+static PyObject* PyGame_BgDoorUseIsBound(PyObject*, PyObject* args) {
+	int mapId; const char *id;
+	if (!PyArg_ParseTuple(args, "is:bg_door_use_is_bound", &mapId, &id)) return nullptr;
+	try { return PyBool_FromLong(gameSystems->GetTerrain().HasOriginalDoorUse(mapId, id)); }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1747,6 +1785,10 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_session_version", PyGame_BgDoorSessionVersion, METH_VARARGS, NULL},
 	{"bg_door_session_save", PyGame_BgDoorSessionSave, METH_VARARGS, NULL},
 	{"bg_door_session_load", PyGame_BgDoorSessionLoad, METH_VARARGS, NULL},
+	{"bg_door_use_version", PyGame_BgDoorUseVersion, METH_VARARGS, NULL},
+	{"bg_door_use_bind", PyGame_BgDoorUseBind, METH_VARARGS, NULL},
+	{"bg_door_use_unbind", PyGame_BgDoorUseUnbind, METH_VARARGS, NULL},
+	{"bg_door_use_is_bound", PyGame_BgDoorUseIsBound, METH_VARARGS, NULL},
 
 	{"damage_type_match", PyGame_DamageTypeMatch, METH_VARARGS, NULL },
 	{"vlist", PyGame_Vlist, METH_VARARGS, NULL },
