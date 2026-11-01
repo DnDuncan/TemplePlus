@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "float_line.h"
 
 #include <temple/dll.h>
 
@@ -261,6 +262,7 @@ void UiInGame::CancelOriginalDoorInput() {
 	if (gameSystems) {
 		gameSystems->GetTerrain().SetHoveredOriginalDoor({});
 		gameSystems->GetTerrain().SetHoveredOriginalTravel({});
+		gameSystems->GetTerrain().ClearDoorContextHover();
 		gameSystems->GetTerrain().CancelOriginalDoorUse();
 	}
 }
@@ -288,6 +290,23 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	auto visible = gameView->GetWorldViewport();
 	if (x < visible.left || y < visible.top || x >= visible.right || y >= visible.bottom) {
 		CancelOriginalDoorInput(); return false;
+	}
+	if (terrain.HasDoorContext()) {
+		auto hit=terrain.UpdateDoorContextHover(x,y);
+		int ox,oy;terrain.GetTerrainOrigin(ox,oy);using Event=OriginalDoorMousePress::Event;
+		auto event=(flags&MSF_LMB_CLICK) ? Event::Down : (flags&MSF_LMB_RELEASED) ? Event::Up : Event::Move;
+		auto result=mOriginalDoorPress.Process(maps.GetCurrentMapId(),hit,event,x-ox,y-oy,
+			(std::max)(4,int(std::ceil(6/gameView->GetWorldZoom()))));
+		if (!result.toggle.empty() && result.toggle[0]=='!' && result.toggle.size()>3) {
+			try {terrain.RequestDoorContextAction(result.toggle.substr(3),result.toggle[1]-'0');}
+			catch (const std::exception &e) {
+				logger->info("Door context refused: {}",e.what());
+				auto actor=party.GetConsciousPartyLeader();
+				if (actor) floatSys.floatMesLine(actor,1,FloatLineColor::Yellow,e.what());
+			}
+		}
+		if (!hit.empty()) {ResetFocusObject();ClearGroupArray();}
+		return result.consumed;
 	}
 	// Explicit markers and the stable door frame must remain clickable even
 	// when the approaching actor stands in front of them.

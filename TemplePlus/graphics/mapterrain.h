@@ -5,6 +5,7 @@
 #include "originaldoorstate.h"
 #include "originaldooruse.h"
 #include "originaltravel.h"
+#include "originaldoorcontext.h"
 
 struct TigRect;
 
@@ -78,7 +79,7 @@ public:
 	void UnbindOriginalDoorUse(int mapId, const std::string &id);
 	bool HasOriginalDoorUse(int mapId, const std::string &id) const;
 	void RequestOriginalDoorUse(const std::string &id, uint64_t actor);
-	void CancelOriginalDoorUse() { mDoorUseQueue.Cancel(); mTravelQueue.Cancel(); mTravelReady.Cancel(); }
+	void CancelOriginalDoorUse() { mDoorUseQueue.Cancel(); mTravelQueue.Cancel(); mTravelReady.Cancel(); mContextRequest.reset(); mTravelSelection.clear(); }
 	void BindOriginalTravel(OriginalTravelMarker marker);
 	void ClearOriginalTravel();
 	bool HasOriginalTravel() const;
@@ -88,6 +89,19 @@ public:
 	std::optional<OriginalTravelReady::Intent> PeekOriginalTravel();
 	bool AckOriginalTravel(uint32_t serial);
 	void RenderOriginalTravel();
+	void BindDoorContext(int mapId,const std::string &id,DoorContextDefinition definition);
+	DoorSecurity GetDoorSecurity(int mapId,const std::string &id) const;
+	void BindContextOutline(int mapId,const std::string &route,OriginalDoorPolygon outline);
+	void ClearDoorContext();
+	bool HasDoorContext() const;
+	std::string UpdateDoorContextHover(int x,int y);
+	void ClearDoorContextHover() {mContextHover.Clear();mHoveredContextAction=-1;}
+	void RequestDoorContextAction(const std::string &route,int action);
+	void BindSceneArea(OriginalSceneArea area);
+	void BindSceneRoute(const std::string &route,OriginalSceneRoute definition);
+	int SceneAreaForActor(uint64_t actor) const;
+	int FocusedSceneArea() const {return mFocusedScene;}
+	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
 
 	TerrainSystem(TerrainSystem&) = delete;
@@ -119,6 +133,23 @@ private:
 	OriginalDoorUseQueue mDoorUseQueue, mTravelQueue;
 	std::map<OriginalDoorState::Key, OriginalTravelMarker> mTravelMarkers;
 	OriginalTravelReady mTravelReady;
+	std::map<OriginalDoorState::Key,DoorContextDefinition> mDoorContexts;
+	std::map<OriginalDoorState::Key,OriginalDoorPolygon> mContextOutlines;
+	DoorContextHover mContextHover;
+	int mHoveredContextAction=-1;
+	struct ContextRequest { int gateMap;std::string gate,route;DoorContextAction action;std::vector<uint64_t> selection; };
+	std::optional<ContextRequest> mContextRequest;
+	std::vector<uint64_t> mTravelSelection;
+	std::map<int,OriginalSceneArea> mSceneAreas;
+	std::map<std::string,OriginalSceneRoute> mSceneRoutes;
+	int mFocusedScene=0;
+	std::optional<std::array<int64_t,4>> mSavedSceneLimits;
+	std::vector<uint64_t> ContextSelection() const;
+	std::vector<OriginalDoorUsePoint> ContextLayout(const OriginalTravelMarker &marker,size_t count) const;
+	void RenderDoorContext();
+	void ApplyDoorContext(const ContextRequest &request,uint64_t actor);
+	void UpdateSceneFocus();
+	int SceneAreaAt(OriginalDoorUsePoint point) const;
 	std::string mHoveredTravel, mDoorLineExclusion;
 	bool DoorUseReachable(uint64_t actor, OriginalDoorUsePoint target, double reach, const std::string &excluded);
 	void StopDoorMovement(uint64_t actor);
