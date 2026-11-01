@@ -201,6 +201,8 @@ public:
 	using Key = std::pair<int, std::string>;
 	using Entry = std::pair<const Key, OriginalDoorPatch>;
 	const std::map<Key, OriginalDoorPatch> &Patches() const { return mPatches; }
+	const std::map<Key, OriginalDoorOutline> &Outlines() const { return mOutlines; }
+	const std::map<Key, DoorNavigationGeometry> &NavigationBindings() const { return mNavigation; }
 	static std::size_t TextureIndex(bool open, bool night) { return (night ? 2u : 0u) + (open ? 1u : 0u); }
 
 private:

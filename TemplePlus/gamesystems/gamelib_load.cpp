@@ -13,6 +13,7 @@
 #include <mod_support.h>
 #include "ui/ui_systems.h"
 #include "ui/ui_legacysystems.h"
+#include "graphics/mapterrain.h"
 
 static struct GameLibLoadAddresses : temple::AddressTable {
 	/*
@@ -52,6 +53,12 @@ bool GameSystems::LoadGame(const string& filename) {
 	logger->debug("Loading savegame from {}", filename);
 
 	InLoadGame inLoadGame; // Sets the global flag that indicates we're loading a save; destructor unsets it
+	// Invalidate the previous Python probe before native timers/maps are restored.
+	// Terrain is not part of data.sav; old saves must never inherit live doors.
+	auto beforeLoadArgs = Py_BuildValue("(s)", filename.c_str());
+	auto beforeLoadResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "pre_load", beforeLoadArgs);
+	Py_DECREF(beforeLoadResult); Py_DECREF(beforeLoadArgs);
+	GetTerrain().Reset();
 	
 	addresses.UiMmRelated(63);
 

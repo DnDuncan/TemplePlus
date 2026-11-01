@@ -214,8 +214,14 @@ bool GameSystems::SaveGame(const string& filename, const string& displayName) {
 	{
 		// user savehook
 		auto saveHookArgs = Py_BuildValue("(s)", filename.c_str());
-		pythonObjIntegration.ExecuteScript("templeplus.savehook", "save", saveHookArgs);
+		auto saveHookResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "save", saveHookArgs);
+		auto hookFailed = saveHookResult == Py_False; // legacy hooks returning None remain compatible
+		Py_DECREF(saveHookResult);
 		Py_DECREF(saveHookArgs);
+		if (hookFailed) {
+			logger->error("Save hook refused the save; archive was not replaced.");
+			return false;
+		}
 	}
 
 

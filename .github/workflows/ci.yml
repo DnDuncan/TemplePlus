@@ -49,6 +49,8 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: 3.9
+    - name: Test optional save hooks and Co8 dispatch
+      run: python -B -m unittest discover -s Tests/Python -q
     - name: Download and Extract Dependencies
       run: |
         curl -L -o dependencies.7z https://github.com/GrognardsFromHell/Dependencies/releases/download/v1.19/dependencies.7z

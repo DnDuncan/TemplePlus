@@ -1,4 +1,5 @@
 #include "../../TemplePlus/graphics/originaldoorstate.h"
+#include "../../TemplePlus/graphics/originaldoorsave.h"
 #include <cassert>
 #include <iostream>
 
@@ -135,7 +136,37 @@ static void TestNavigation() {
 	assert(state.NavigationTiles(5136).empty());
 }
 
+static void TestSave() {
+	OriginalDoorState state;
+	state.Register(MakePatch()); state.Register(MakePatch(5190));
+	state.Bind(5136, "DOOR2616", {{{10,10},{40,10},{40,40}}, {{50,10},{55,10},{55,40}}});
+	state.BindNavigation(5136, "DOOR2616", {{{10,20,0x200}}, {{11,20,0x400}}});
+	state.SetOpen(5136, "DOOR2616", true);
+	auto bytes = originaldoorsave::Encode(state, "{\"transition\":true}");
+	auto restored = originaldoorsave::Decode(bytes);
+	assert(restored.metadata == "{\"transition\":true}");
+	assert(restored.doors.Patches().size() == 2);
+	assert(restored.doors.CanTravel(5136, "door2616"));
+	assert(!restored.doors.CanTravel(5190, "door2616"));
+	assert(restored.doors.Outline(5136, "door2616")->front().x == 50);
+	assert(restored.doors.NavigationTiles(5136).front().x == 11);
+	restored.doors.SetOpen(5136, "door2616", false);
+	assert(restored.doors.NavigationTiles(5136).front().x == 10);
+	assert(originaldoorsave::Encode(originaldoorsave::Decode(bytes).doors, restored.metadata) == bytes);
+	for (size_t i = 0; i < bytes.size(); ++i) {
+		std::vector<uint8_t> truncated(bytes.begin(), bytes.begin() + i);
+		Reject([&]() { originaldoorsave::Decode(truncated); });
+	}
+	auto bad = bytes; bad.push_back(0); Reject([&]() { originaldoorsave::Decode(bad); });
+	bad = bytes; bad[4] = 2; Reject([&]() { originaldoorsave::Decode(bad); });
+	bad = bytes; bad[8] = 255; bad[9] = 255; Reject([&]() { originaldoorsave::Decode(bad); });
+	Reject([&]() { originaldoorsave::Encode(state, std::string(4097, 'x')); });
+	OriginalDoorState empty;
+	assert(originaldoorsave::Decode(originaldoorsave::Encode(empty, "")).doors.Patches().empty());
+}
+
 int main() {
+	TestSave();
 	TestNavigation();
 	TestOutlines();
 	TestMousePress();
