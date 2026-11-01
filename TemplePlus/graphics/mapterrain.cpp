@@ -27,6 +27,7 @@
 #include "tig/tig_mouse.h"
 #include "gamesystems/legacymapsystems.h"
 #include "gamesystems/legacysystems.h"
+#include "python/python_integration_obj.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -290,7 +291,20 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 	}
 }
 
+void TerrainSystem::DispatchMapReady() {
+	// 0x103072D4: temple.dll "loading a savegame" flag (see gamelib_load.cpp).
+	if (gameSystems->GetMap().IsClearingMap() || !gameSystems->GetMap().IsMapOpen()
+		|| temple::GetRef<int>(0x103072D4) || !party.GetLeader()) return;
+	mMapReadyPending=false;
+	auto mapId=maps.GetCurrentMapId();
+	logger->info("Map ready script: map={}",mapId);
+	auto args=Py_BuildValue("(i)",mapId);
+	auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","map_ready",args);
+	Py_XDECREF(result);Py_DECREF(args);
+}
+
 void TerrainSystem::AdvanceTime(uint32_t time) {
+	if (mMapReadyPending) DispatchMapReady();
 	UpdateSceneFocus();
 	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;

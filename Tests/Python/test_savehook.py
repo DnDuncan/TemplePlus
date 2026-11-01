@@ -46,6 +46,24 @@ class SaveHookTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'corrupt session'):
                 self.hook.load('bad')
 
+    def test_map_ready_and_door_trap_dispatch_or_ignore_old_adapter(self):
+        adapter = SimpleNamespace(map_ready=Mock(), door_trap=Mock())
+        with patch.dict(sys.modules, {'bg2toee_lifecycle': adapter}):
+            self.hook.map_ready(5136)
+            self.hook.door_trap(5136, 'DOOR2607', 'actor')
+        adapter.map_ready.assert_called_once_with(5136)
+        adapter.door_trap.assert_called_once_with((5136, 'DOOR2607', 'actor'))
+        old = SimpleNamespace(load=Mock())
+        with patch.dict(sys.modules, {'bg2toee_lifecycle': old}):
+            self.hook.map_ready(5136)
+            self.hook.door_trap(5136, 'DOOR2607', 'actor')
+        self.hook.map_ready(5001)  # no adapter installed
+
+    def test_map_ready_failure_is_logged_not_raised(self):
+        adapter = SimpleNamespace(map_ready=Mock(side_effect=ValueError('stale data')))
+        with patch.dict(sys.modules, {'bg2toee_lifecycle': adapter}):
+            self.hook.map_ready(5136)
+
 
 if __name__ == '__main__':
     unittest.main()

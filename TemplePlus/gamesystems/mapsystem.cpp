@@ -1129,6 +1129,7 @@ bool MapSystem::OpenMap(int mapId, bool preloadSectors, bool dontSaveCurrentMap)
 		throw TempleException("Object system validate failed post-load.");
 	}
 
+	gameSystems->GetTerrain().RequestMapReadyScript();
 	return true;
 }
 

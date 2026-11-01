@@ -110,6 +110,9 @@ public:
 	uint64_t PickSourceContainer(int x,int y) const;
 	const SourceContainerRegion* HitSourceContainer(int x,int y,objHndl &handle) const;
 	WorldViewZoom::Point SourceContainerPoint(int x,int y) const;
+	// Ask the mod's Python layer to (re)bind map-specific objects once the
+	// current map and party are fully restored (teleport or savegame load).
+	void RequestMapReadyScript() {mMapReadyPending=true;}
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -157,6 +160,11 @@ private:
 	std::vector<OriginalDoorUsePoint> ContextLayout(const OriginalTravelMarker &marker,size_t count) const;
 	void RenderDoorContext();
 	void ApplyDoorContext(const ContextRequest &request,uint64_t actor);
+	bool ContextTravel(const OriginalTravelMarker &marker) const;
+	std::vector<DoorContextAction> ContextActions(const OriginalTravelMarker &marker) const;
+	void SpringDoorTrap(int mapId,const std::string &id,objHndl actor);
+	bool mMapReadyPending=false;
+	void DispatchMapReady();
 	void UpdateSceneFocus();
 	int SceneAreaAt(OriginalDoorUsePoint point) const;
 	std::string mHoveredTravel, mDoorLineExclusion;

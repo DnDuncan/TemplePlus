@@ -196,8 +196,10 @@ bool GameSystems::LoadGame(const string& filename) {
 	{
 		// user savehook
 		auto saveHookArgs = Py_BuildValue("(s)", filename.c_str());
-		pythonObjIntegration.ExecuteScript("templeplus.savehook", "load", saveHookArgs);
+		auto loadHookResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "load", saveHookArgs);
+		Py_XDECREF(loadHookResult);
 		Py_DECREF(saveHookArgs);
+		GetTerrain().RequestMapReadyScript(); // after native objects and the mod session are restored
 	}
 
 	addresses.UiMmRelated2(63);
