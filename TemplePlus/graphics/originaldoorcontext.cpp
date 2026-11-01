@@ -251,7 +251,7 @@ void TerrainSystem::UpdateSceneFocus() {
 	auto dw=(std::max)(0.0,(config.renderWidth+100-(left-right))/2),dh=(std::max)(0.0,(config.renderHeight+100-(top-bottom))/2);
 	temple::GetRef<int64_t>(0x10307340)=int64_t(left+dw);temple::GetRef<int64_t>(0x103072F0)=int64_t(right-dw);
 	temple::GetRef<int64_t>(0x10307368)=int64_t(top+dh);temple::GetRef<int64_t>(0x10307358)=int64_t(bottom-dh);
-	mFocusedScene=areaId;auto loc=objects.GetLocationFull(objHndl{selected.front()}).location;
+	ClearDoorContextHover();mFocusedScene=areaId;auto loc=objects.GetLocationFull(objHndl{selected.front()}).location;
 	gameSystems->GetLocation().CenterOn(loc.locx,loc.locy);
 	logger->info("Isolated scene focus: area={} actor={}",areaId,selected.front());
 }
