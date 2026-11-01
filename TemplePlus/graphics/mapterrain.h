@@ -56,6 +56,13 @@ public:
 	void SetOriginalDoorOpen(const std::string &id, bool open);
 	bool GetOriginalDoorOpen(const std::string &id) const;
 	void ClearOriginalDoors();
+	void BindOriginalDoor(const std::string &id, OriginalDoorOutline outline);
+	void UnbindOriginalDoor(const std::string &id);
+	bool IsOriginalDoorBound(const std::string &id) const;
+	bool HasOriginalDoorInput() const;
+	std::string HitTestOriginalDoor(int screenX, int screenY) const;
+	void GetTerrainOrigin(int &x, int &y) const;
+	void SetHoveredOriginalDoor(const std::string &id) { mHoveredOriginalDoor = id; }
 
 	TerrainSystem(TerrainSystem&) = delete;
 	TerrainSystem(TerrainSystem&&) = delete;
@@ -82,6 +89,7 @@ private:
 
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
+	std::string mHoveredOriginalDoor;
 	void RenderOriginalDoors(int terrainOriginX, int terrainOriginY);
 
 	std::string GetTileTexture(int mapArtId, int x, int y);

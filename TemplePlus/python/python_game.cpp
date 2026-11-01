@@ -1472,6 +1472,58 @@ static PyObject* PyGame_BgDoorClear(PyObject*, PyObject* args) {
 	Py_RETURN_NONE;
 }
 
+static PyObject* PyGame_BgDoorInputVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_input_version")) return nullptr;
+	return PyInt_FromLong(1); // optional non-combat mouse switching; no navigation
+}
+
+static bool ReadDoorOutline(PyObject *value, OriginalDoorPolygon &out) {
+	auto seq = PySequence_Fast(value, "door outline must be a sequence of (x,y) pairs");
+	if (!seq) return false;
+	auto count = PySequence_Fast_GET_SIZE(seq);
+	if (count < 3 || count > 256) {
+		Py_DECREF(seq); PyErr_SetString(PyExc_ValueError, "door outline requires 3..256 vertices"); return false;
+	}
+	for (Py_ssize_t i = 0; i < count; ++i) {
+		auto pair = PySequence_Tuple(PySequence_Fast_GET_ITEM(seq, i));
+		if (!pair) { Py_DECREF(seq); return false; }
+		int x, y;
+		auto valid = PyArg_ParseTuple(pair, "ii:door vertex", &x, &y);
+		Py_DECREF(pair);
+		if (!valid) { Py_DECREF(seq); return false; }
+		out.push_back({ x, y });
+	}
+	Py_DECREF(seq); return true;
+}
+
+static PyObject* PyGame_BgDoorBind(PyObject*, PyObject* args) {
+	const char *id; PyObject *closed, *open;
+	if (!PyArg_ParseTuple(args, "sOO:bg_door_bind", &id, &closed, &open)) return nullptr;
+	OriginalDoorOutline outline;
+	if (!ReadDoorOutline(closed, outline.closed) || !ReadDoorOutline(open, outline.open)) return nullptr;
+	try {
+		gameSystems->GetTerrain().BindOriginalDoor(id, std::move(outline));
+		Py_RETURN_NONE;
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorUnbind(PyObject*, PyObject* args) {
+	const char *id;
+	if (!PyArg_ParseTuple(args, "s:bg_door_unbind", &id)) return nullptr;
+	try {
+		gameSystems->GetTerrain().UnbindOriginalDoor(id);
+		Py_RETURN_NONE;
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorIsBound(PyObject*, PyObject* args) {
+	const char *id;
+	if (!PyArg_ParseTuple(args, "s:bg_door_is_bound", &id)) return nullptr;
+	try {
+		return PyBool_FromLong(gameSystems->GetTerrain().IsOriginalDoorBound(id));
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1602,6 +1654,10 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_set_state", PyGame_BgDoorSetState, METH_VARARGS, NULL},
 	{"bg_door_get_state", PyGame_BgDoorGetState, METH_VARARGS, NULL},
 	{"bg_door_clear", PyGame_BgDoorClear, METH_VARARGS, NULL},
+	{"bg_door_input_version", PyGame_BgDoorInputVersion, METH_VARARGS, NULL},
+	{"bg_door_bind", PyGame_BgDoorBind, METH_VARARGS, NULL},
+	{"bg_door_unbind", PyGame_BgDoorUnbind, METH_VARARGS, NULL},
+	{"bg_door_is_bound", PyGame_BgDoorIsBound, METH_VARARGS, NULL},
 
 	{"damage_type_match", PyGame_DamageTypeMatch, METH_VARARGS, NULL },
 	{"vlist", PyGame_Vlist, METH_VARARGS, NULL },

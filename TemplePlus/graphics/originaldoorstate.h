@@ -8,6 +8,40 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
+#include <cstdint>
+
+struct OriginalDoorPoint { int x, y; };
+using OriginalDoorPolygon = std::vector<OriginalDoorPoint>;
+struct OriginalDoorOutline { OriginalDoorPolygon closed, open; };
+
+inline void ValidateDoorPolygon(const OriginalDoorPolygon &polygon) {
+	if (polygon.size() < 3 || polygon.size() > 256) throw std::invalid_argument("door outline requires 3..256 vertices");
+	int64_t area = 0;
+	for (size_t i = 0; i < polygon.size(); ++i) {
+		const auto &a = polygon[i];
+		const auto &b = polygon[(i + 1) % polygon.size()];
+		if (a.x < 0 || a.x >= 66 * 256 || a.y < 0 || a.y >= 71 * 256)
+			throw std::invalid_argument("door outline is outside terrain canvas");
+		area += static_cast<int64_t>(a.x) * b.y - static_cast<int64_t>(b.x) * a.y;
+	}
+	if (!area) throw std::invalid_argument("door outline has zero area");
+}
+
+inline bool DoorPolygonContains(const OriginalDoorPolygon &polygon, int x, int y) {
+	bool inside = false;
+	for (size_t i = 0; i < polygon.size(); ++i) {
+		const auto &a = polygon[i];
+		const auto &b = polygon[(i + 1) % polygon.size()];
+		auto cross = (static_cast<int64_t>(x) - a.x) * (b.y - a.y)
+			- (static_cast<int64_t>(y) - a.y) * (b.x - a.x);
+		if (!cross && x >= (std::min)(a.x, b.x) && x <= (std::max)(a.x, b.x)
+			&& y >= (std::min)(a.y, b.y) && y <= (std::max)(a.y, b.y)) return true;
+		if ((a.y > y) != (b.y > y) && x < a.x + (static_cast<double>(b.x) - a.x) * (y - a.y) / (b.y - a.y))
+			inside = !inside;
+	}
+	return inside;
+}
 
 // Pixel-aligned source-art patches, independent of ToEE portal meshes and
 // independent of day/night. No resources are bundled with this feature.
@@ -85,13 +119,46 @@ public:
 	}
 
 	void ClearMap(int mapId) {
+		for (auto it = mOutlines.begin(); it != mOutlines.end();) {
+			if (it->first.first == mapId) it = mOutlines.erase(it);
+			else ++it;
+		}
 		for (auto it = mPatches.begin(); it != mPatches.end();) {
 			if (it->first.first == mapId) it = mPatches.erase(it);
 			else ++it;
 		}
 	}
 
-	void Clear() { mPatches.clear(); }
+	void Bind(int mapId, const std::string &id, OriginalDoorOutline outline) {
+		if (!Find(mapId, id)) throw std::invalid_argument("register door textures before binding outlines");
+		ValidateDoorPolygon(outline.closed);
+		ValidateDoorPolygon(outline.open);
+		mOutlines[std::make_pair(mapId, NormalizeId(id))] = std::move(outline);
+	}
+	void Unbind(int mapId, const std::string &id) { mOutlines.erase(std::make_pair(mapId, NormalizeId(id))); }
+	bool HasBindings(int mapId) const {
+		for (const auto &entry : mOutlines) if (entry.first.first == mapId) return true;
+		return false;
+	}
+	const OriginalDoorPolygon *Outline(int mapId, const std::string &id) const {
+		auto patch = Find(mapId, id);
+		auto found = mOutlines.find(std::make_pair(mapId, NormalizeId(id)));
+		if (!patch || found == mOutlines.end()) return nullptr;
+		return patch->open ? &found->second.open : &found->second.closed;
+	}
+	std::string HitTest(int mapId, int x, int y) const {
+		std::string hit;
+		for (const auto &entry : mOutlines) {
+			if (entry.first.first != mapId) continue;
+			auto polygon = Outline(mapId, entry.first.second);
+			if (polygon && DoorPolygonContains(*polygon, x, y)) {
+				if (!hit.empty()) return {}; // Ambiguous overlap must not pick an arbitrary door.
+				hit = entry.first.second;
+			}
+		}
+		return hit;
+	}
+	void Clear() { mPatches.clear(); mOutlines.clear(); }
 	using Key = std::pair<int, std::string>;
 	using Entry = std::pair<const Key, OriginalDoorPatch>;
 	const std::map<Key, OriginalDoorPatch> &Patches() const { return mPatches; }
@@ -99,4 +166,37 @@ public:
 
 private:
 	std::map<Key, OriginalDoorPatch> mPatches;
+	std::map<Key, OriginalDoorOutline> mOutlines;
+};
+
+// Capture only a press that starts on a door; never turn a ground/party press
+// into a door click on release. Coordinates are terrain-canvas pixels so a
+// camera shift during the gesture also cancels it. Threshold: 4 native pixels.
+class OriginalDoorMousePress {
+public:
+	enum class Event { Down, Move, Up };
+	struct Result { bool consumed; std::string toggle; };
+	void Cancel() { mId.clear(); mDragged = false; }
+	Result Process(int mapId, const std::string &hit, Event event, int x, int y) {
+		if (event == Event::Down) {
+			Cancel();
+			if (hit.empty()) return { false, {} };
+			mId = hit; mMap = mapId; mX = x; mY = y;
+			return { true, {} };
+		}
+		if (mId.empty()) return { false, {} };
+		if (mMap != mapId) { Cancel(); return { true, {} }; }
+		auto dx = static_cast<int64_t>(x) - mX, dy = static_cast<int64_t>(y) - mY;
+		if (dx < -4 || dx > 4 || dy < -4 || dy > 4) mDragged = true;
+		if (event == Event::Up) {
+			auto id = (!mDragged && hit == mId) ? mId : std::string();
+			Cancel();
+			return { true, id };
+		}
+		return { true, {} };
+	}
+private:
+	std::string mId;
+	int mMap = 0, mX = 0, mY = 0;
+	bool mDragged = false;
 };
