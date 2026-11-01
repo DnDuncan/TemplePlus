@@ -26,6 +26,7 @@
 #include "float_line.h"
 #include "tig/tig_mouse.h"
 #include "gamesystems/legacymapsystems.h"
+#include "gamesystems/legacysystems.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
