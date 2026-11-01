@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 #include <cstdint>
+#include "originaldoornavigation.h"
 
 struct OriginalDoorPoint { int x, y; };
 using OriginalDoorPolygon = std::vector<OriginalDoorPoint>;
@@ -116,9 +117,15 @@ public:
 			throw std::invalid_argument("original door is not registered on this map");
 		}
 		it->second.open = open;
+		++mNavigationRevision;
 	}
 
 	void ClearMap(int mapId) {
+		for (auto it = mNavigation.begin(); it != mNavigation.end();) {
+			if (it->first.first == mapId) it = mNavigation.erase(it);
+			else ++it;
+		}
+		++mNavigationRevision;
 		for (auto it = mOutlines.begin(); it != mOutlines.end();) {
 			if (it->first.first == mapId) it = mOutlines.erase(it);
 			else ++it;
@@ -158,7 +165,39 @@ public:
 		}
 		return hit;
 	}
-	void Clear() { mPatches.clear(); mOutlines.clear(); }
+	void BindNavigation(int mapId, const std::string &id, DoorNavigationGeometry geometry) {
+		if (!Find(mapId, id)) throw std::invalid_argument("register door before binding navigation");
+		ValidateDoorNavigation(geometry.closed); ValidateDoorNavigation(geometry.open);
+		if (geometry.closed.empty()) throw std::invalid_argument("closed door requires navigation blockers");
+		mNavigation[std::make_pair(mapId, NormalizeId(id))] = std::move(geometry);
+		++mNavigationRevision;
+	}
+	void UnbindNavigation(int mapId, const std::string &id) {
+		mNavigation.erase(std::make_pair(mapId, NormalizeId(id))); ++mNavigationRevision;
+	}
+	bool HasNavigation(int mapId, const std::string &id) const {
+		return mNavigation.count(std::make_pair(mapId, NormalizeId(id))) != 0;
+	}
+	bool CanTravel(int mapId, const std::string &id) const {
+		auto door = Find(mapId, id);
+		return door && HasNavigation(mapId, id) && door->open;
+	}
+	const std::vector<DoorNavigationTile> &NavigationTiles(int mapId) const {
+		if (mapId == mNavigationCacheMap && mNavigationCacheRevision == mNavigationRevision) return mNavigationCache;
+		std::map<std::pair<int, int>, uint32_t> combined;
+		for (const auto &entry : mNavigation) {
+			if (entry.first.first != mapId) continue;
+			auto door = Find(mapId, entry.first.second);
+			if (!door) continue;
+			for (const auto &tile : door->open ? entry.second.open : entry.second.closed)
+				combined[std::make_pair(tile.x, tile.y)] |= tile.mask;
+		}
+		mNavigationCache.clear();
+		for (const auto &tile : combined) mNavigationCache.push_back({tile.first.first, tile.first.second, tile.second});
+		mNavigationCacheMap = mapId; mNavigationCacheRevision = mNavigationRevision;
+		return mNavigationCache;
+	}
+	void Clear() { mPatches.clear(); mOutlines.clear(); mNavigation.clear(); ++mNavigationRevision; }
 	using Key = std::pair<int, std::string>;
 	using Entry = std::pair<const Key, OriginalDoorPatch>;
 	const std::map<Key, OriginalDoorPatch> &Patches() const { return mPatches; }
@@ -167,6 +206,11 @@ public:
 private:
 	std::map<Key, OriginalDoorPatch> mPatches;
 	std::map<Key, OriginalDoorOutline> mOutlines;
+	std::map<Key, DoorNavigationGeometry> mNavigation;
+	uint64_t mNavigationRevision = 0;
+	mutable uint64_t mNavigationCacheRevision = 0;
+	mutable int mNavigationCacheMap = -1;
+	mutable std::vector<DoorNavigationTile> mNavigationCache;
 };
 
 // Capture only a press that starts on a door; never turn a ground/party press

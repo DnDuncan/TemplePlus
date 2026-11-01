@@ -419,6 +419,7 @@
     <ClInclude Include="graphics\loadingscreen.h" />
     <ClInclude Include="graphics\mapterrain.h" />
     <ClInclude Include="graphics\originaldoorstate.h" />
+    <ClInclude Include="graphics\originaldoornavigation.h" />
     <ClInclude Include="graphics\materials_hooks.h" />
     <ClInclude Include="graphics\rectangle.h" />
     <ClInclude Include="graphics\renderstates_hooks.h" />

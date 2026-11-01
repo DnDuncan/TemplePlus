@@ -1533,6 +1533,60 @@ static PyObject* PyGame_BgDoorIsBound(PyObject*, PyObject* args) {
 	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
 }
 
+static PyObject* PyGame_BgDoorNavigationVersion(PyObject*, PyObject* args) {
+	if (!PyArg_ParseTuple(args, ":bg_door_navigation_version")) return nullptr;
+	return PyInt_FromLong(1);
+}
+
+static bool ReadDoorNavigation(PyObject *value, std::vector<DoorNavigationTile> &out) {
+	auto seq = PySequence_Fast(value, "navigation requires (tile_x,tile_y,mask) triples");
+	if (!seq) return false;
+	auto count = PySequence_Fast_GET_SIZE(seq);
+	if (count > 256) { Py_DECREF(seq); PyErr_SetString(PyExc_ValueError, "navigation exceeds 256 tiles"); return false; }
+	for (Py_ssize_t i = 0; i < count; ++i) {
+		auto tuple = PySequence_Tuple(PySequence_Fast_GET_ITEM(seq, i));
+		if (!tuple) { Py_DECREF(seq); return false; }
+		int x, y, mask;
+		auto valid = PyArg_ParseTuple(tuple, "iii:door navigation tile", &x, &y, &mask);
+		Py_DECREF(tuple);
+		if (!valid) { Py_DECREF(seq); return false; }
+		out.push_back({x, y, static_cast<uint32_t>(mask)});
+	}
+	Py_DECREF(seq); return true;
+}
+
+static PyObject* PyGame_BgDoorNavigationBind(PyObject*, PyObject* args) {
+	const char *id; PyObject *closed, *open;
+	if (!PyArg_ParseTuple(args, "sOO:bg_door_navigation_bind", &id, &closed, &open)) return nullptr;
+	DoorNavigationGeometry geometry;
+	if (!ReadDoorNavigation(closed, geometry.closed) || !ReadDoorNavigation(open, geometry.open)) return nullptr;
+	try {
+		gameSystems->GetTerrain().BindOriginalDoorNavigation(id, std::move(geometry));
+		Py_RETURN_NONE;
+	} catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorNavigationUnbind(PyObject*, PyObject* args) {
+	const char *id; int mapId = 0;
+	if (!PyArg_ParseTuple(args, "s|i:bg_door_navigation_unbind", &id, &mapId)) return nullptr;
+	try { gameSystems->GetTerrain().UnbindOriginalDoorNavigation(id, mapId); Py_RETURN_NONE; }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorNavigationIsBound(PyObject*, PyObject* args) {
+	const char *id;
+	if (!PyArg_ParseTuple(args, "s:bg_door_navigation_is_bound", &id)) return nullptr;
+	try { return PyBool_FromLong(gameSystems->GetTerrain().HasOriginalDoorNavigation(id)); }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
+static PyObject* PyGame_BgDoorCanTravel(PyObject*, PyObject* args) {
+	const char *id; int mapId;
+	if (!PyArg_ParseTuple(args, "is:bg_door_can_travel", &mapId, &id)) return nullptr;
+	try { return PyBool_FromLong(gameSystems->GetTerrain().CanTravelThroughOriginalDoor(mapId, id)); }
+	catch (const std::exception &e) { PyErr_SetString(PyExc_ValueError, e.what()); return nullptr; }
+}
+
 PyObject* PyGame_IsAlertPopupActive(PyObject*, PyObject* args) {
 	
 	return PyInt_FromLong(uiSystems->GetHelp().AlertIsActive());
@@ -1668,6 +1722,11 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_door_bind", PyGame_BgDoorBind, METH_VARARGS, NULL},
 	{"bg_door_unbind", PyGame_BgDoorUnbind, METH_VARARGS, NULL},
 	{"bg_door_is_bound", PyGame_BgDoorIsBound, METH_VARARGS, NULL},
+	{"bg_door_navigation_version", PyGame_BgDoorNavigationVersion, METH_VARARGS, NULL},
+	{"bg_door_navigation_bind", PyGame_BgDoorNavigationBind, METH_VARARGS, NULL},
+	{"bg_door_navigation_unbind", PyGame_BgDoorNavigationUnbind, METH_VARARGS, NULL},
+	{"bg_door_navigation_is_bound", PyGame_BgDoorNavigationIsBound, METH_VARARGS, NULL},
+	{"bg_door_can_travel", PyGame_BgDoorCanTravel, METH_VARARGS, NULL},
 
 	{"damage_type_match", PyGame_DamageTypeMatch, METH_VARARGS, NULL },
 	{"vlist", PyGame_Vlist, METH_VARARGS, NULL },

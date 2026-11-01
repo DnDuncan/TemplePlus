@@ -294,8 +294,12 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	auto result = mOriginalDoorPress.Process(maps.GetCurrentMapId(), hit, event, x - originX, y - originY);
 	if (!result.toggle.empty()) {
 		auto open = !terrain.GetOriginalDoorOpen(result.toggle);
-		terrain.SetOriginalDoorOpen(result.toggle, open);
-		logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
+		try {
+			terrain.SetOriginalDoorOpen(result.toggle, open);
+			logger->info("Original door click: map={} id={} open={}", maps.GetCurrentMapId(), result.toggle, open);
+		} catch (const std::exception &e) {
+			logger->info("Original door refused: {}", e.what());
+		}
 	}
 	if (!hit.empty()) { ResetFocusObject(); ClearGroupArray(); }
 	return result.consumed;
