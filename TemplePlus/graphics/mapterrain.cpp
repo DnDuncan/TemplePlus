@@ -24,6 +24,8 @@
 #include "party.h"
 #include "raycast.h"
 #include "float_line.h"
+#include "tig/tig_mouse.h"
+#include "gamesystems/legacymapsystems.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -97,6 +99,51 @@ void TerrainSystem::Render() {
 	// Source-art patches are part of terrain: draw before actors, never as a
 	// substituted 3D portal and never by rewriting the terrain JPEG files.
 	RenderOriginalDoors(terrainOriginX, terrainOriginY);
+	RenderSourceContainers();
+}
+
+bool IsSourceContainerProxy(objHndl handle) {
+	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return false;
+	auto obj=objSystem->GetObject(handle);
+	return obj->type==obj_t_container && obj->GetInt32(obj_f_container_pad_i_4)==SourceContainerProxyMarker;
+}
+void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
+	// Validate everything before changing the backing object's presentation.
+	SourceContainerRegions candidate=mSourceContainers;candidate.Bind(region);
+	auto handle=objSystem->FindObjectByIdStr(region.objectId);
+	if (handle) {
+		auto obj=objSystem->GetObject(handle);
+		if (obj->type!=obj_t_container || obj->GetInt32(obj_f_container_pad_i_1)!=0x42474301
+			|| obj->GetInt32(obj_f_container_pad_i_2)!=1)
+			throw std::invalid_argument("source container GUID is not the initialized project chest");
+		obj->SetInt32(obj_f_container_pad_i_4,SourceContainerProxyMarker);
+		objects.SetFlag(handle,static_cast<ObjectFlag>(OF_NO_BLOCK|OF_SEE_THROUGH|OF_SHOOT_THROUGH));
+	}
+	mSourceContainers=std::move(candidate);
+}
+uint64_t TerrainSystem::PickSourceContainer(int x,int y) const {
+	if (!gameView || !gameSystems || gameSystems->GetMap().IsClearingMap()) return 0;
+	auto p=gameView->IsWorldInputActive() ? WorldViewZoom::Point{double(x),double(y)} : gameView->ToWorldScreen(x,y);
+	int ox,oy;GetTerrainOrigin(ox,oy);
+	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(p.x-ox)),int(std::floor(p.y-oy)));
+	if (!region) return 0;
+	auto handle=objSystem->FindObjectByIdStr(region->objectId);
+	if (!handle || !IsSourceContainerProxy(handle) || objects.IsUntargetable(handle)
+		|| (objects.GetFlags(handle)&OF_DESTROYED)) return 0;
+	if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(handle))&1)) return 0;
+	return handle.handle;
+}
+void TerrainSystem::RenderSourceContainers() {
+	auto mouse=mouseFuncs.GetPos();auto handle=PickSourceContainer(mouse.x,mouse.y);if (!handle) return;
+	auto point=gameView->ToWorldScreen(mouse.x,mouse.y);int ox,oy;GetTerrainOrigin(ox,oy);
+	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(point.x-ox)),int(std::floor(point.y-oy)));
+	if (!region) return;
+	std::vector<gfx::Line2d> lines;
+	for (size_t i=0;i<region->outline.size();++i) {
+		const auto &a=region->outline[i], &b=region->outline[(i+1)%region->outline.size()];
+		lines.emplace_back(XMFLOAT2(float(ox+a.x),float(oy+a.y)),XMFLOAT2(float(ox+b.x),float(oy+b.y)),XMCOLOR(0.2f,0.65f,1.0f,0.95f));
+	}
+	mShapeRenderer.DrawLines(lines);
 }
 
 void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
@@ -507,6 +554,7 @@ std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
 }
 
 void TerrainSystem::Reset() {
+	ClearSourceContainers();
 	ClearDoorContext();
 	mOriginalDoors.Clear();
 	mDoorUse.clear(); ClearOriginalTravel(); CancelOriginalDoorUse(); ++mDoorUseRevision;
@@ -514,6 +562,7 @@ void TerrainSystem::Reset() {
 }
 
 void TerrainSystem::UnloadModule() {
+	ClearSourceContainers();
 	ClearDoorContext();
 	mOriginalDoors.Clear();
 	mDoorUse.clear(); ClearOriginalTravel(); CancelOriginalDoorUse(); ++mDoorUseRevision;

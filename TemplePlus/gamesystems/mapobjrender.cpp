@@ -15,6 +15,7 @@
 #include <aas/aas_renderer.h>
 #include "../critter.h"
 #include "gameview.h"
+#include "graphics/sourcecontainers.h"
 #include <graphics/dynamictexture.h>
 
 #include "froggrapplecontroller.h"
@@ -137,6 +138,7 @@ void MapObjectRenderer::RenderMapObjects(int tileX1, int tileX2, int tileY1, int
 }
 
 void MapObjectRenderer::RenderObject(objHndl handle, bool showInvisible) {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
@@ -588,6 +590,7 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 
 void MapObjectRenderer::RenderObjectHighlight(objHndl handle, const gfx::MdfRenderMaterialPtr & material)
 {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
