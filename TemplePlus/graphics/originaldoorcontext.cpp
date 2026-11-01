@@ -5,6 +5,7 @@
 #include "party.h"
 #include "critter.h"
 #include "d20.h"
+#include "dispatcher.h"
 #include "combat.h"
 #include "float_line.h"
 #include "raycast.h"
@@ -149,7 +150,8 @@ void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAct
 			eligible=skillSys.IsEnabled(actualSkill) && (props.unskilledUseAllow || critterSys.SkillBaseGet(actor,actualSkill)>0);
 			if (props.stat==stat_intelligence && d20Sys.d20Query(actor,DK_QUE_CannotUseIntSkill)) eligible=false;
 			if (props.stat==stat_charisma && d20Sys.d20Query(actor,DK_QUE_CannotUseChaSkill)) eligible=false;
-			bonus=critterSys.SkillLevel(actor,actualSkill);
+			bonus=dispatch.dispatch1ESkillLevel(actor,actualSkill,nullptr,objHndl::null,
+				action==DoorContextAction::Search ? SRF_Trap_Search:SRF_Unk_1);
 		}
 		candidates.push_back({handle,bonus,OriginalDoorUseDistance({pos.x,pos.y},m.approach.points.front()),eligible});
 	}
