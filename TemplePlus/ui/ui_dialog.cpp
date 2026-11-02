@@ -137,6 +137,7 @@ protected:
 
 	void ShowDialogWidgets();
 	void UpdateWidgets();
+	void LayoutResponses(LgcyWidgetId responseWndId);
 
 
 
@@ -606,6 +607,43 @@ void UiDialogImpl::WidgetsFree(){
 	free(backdropMini3);
 }
 
+// Native replies have fixed 25 px slots (two lines of text). Translated
+// Baldur's Gate answers often need three lines, so the slots are stacked by
+// measured height; when five long answers do not fit, spacing is compacted.
+void UiDialogImpl::LayoutResponses(LgcyWidgetId responseWndId) {
+	auto wnd = uiManager->GetWindow(responseWndId);
+	if (!wnd) return;
+	const int REPLY_TEXT_W = 559, REPLY_HEIGHT = 23, TOP = 9;
+	const int bottom = static_cast<int>(wnd->height) - 2;
+	int heights[5];
+	if (config.enlargeDialogFonts) UiRenderer::PushFont(PredefinedFont::PRIORY_12);
+	else UiRenderer::PushFont(PredefinedFont::ARIAL_10);
+	for (int i = 0; i < 5; ++i) {
+		heights[i] = 0;
+		if (!mResponseTexts[i] || !mResponseTexts[i][0]) continue;
+		auto size = UiRenderer::MeasureTextSize(mResponseTexts[i], replyStyleNormal, REPLY_TEXT_W, 0);
+		heights[i] = static_cast<int>(size.height) + 2;
+	}
+	UiRenderer::PopFont();
+	auto total = [&](int minimum, int gap) {
+		int sum = 0, count = 0;
+		for (int i = 0; i < 5; ++i) if (heights[i]) { sum += (std::max)(minimum, heights[i]); ++count; }
+		return sum + (count > 1 ? gap * (count - 1) : 0);
+	};
+	int minimum = REPLY_HEIGHT, gap = 2;
+	if (TOP + total(minimum, gap) > bottom) { minimum = 0; gap = 1; }
+	int y = TOP;
+	for (int i = 0; i < 5; ++i) {
+		int h = heights[i] ? (std::max)(minimum, heights[i]) : REPLY_HEIGHT;
+		mResponseRects[i] = TigRect(37, y, REPLY_TEXT_W, h);
+		mResponseNumberRects[i] = TigRect(18, y, 18, h);
+		mSkillIconRects[i] = TigRect(wnd->x + 3, wnd->y + y + 1, 15, 15);
+		auto btn = uiManager->GetButton(mReplyBtnIds[i]);
+		if (btn) { btn->y = wnd->y + y; btn->yrelated = y; btn->height = h; }
+		y += h + gap;
+	}
+}
+
 /* 0x1014D5D0 */
 BOOL UiDialogImpl::ResponseWidgetsInit(int w, int h)
 {
@@ -613,6 +651,7 @@ BOOL UiDialogImpl::ResponseWidgetsInit(int w, int h)
 	static LgcyWindow responseWnd(16, h - 221, 611, 139);
 	responseWnd.flags = 1;
 	responseWnd.render = [](int id){
+		dlgImpl->LayoutResponses(id);
 		auto flags = dlgImpl->mFlags;
 		if (flags & UiDialogFlags::DialogHistoryShow){
 			auto wnd = uiManager->GetWindow(id);

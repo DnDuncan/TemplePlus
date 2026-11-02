@@ -443,16 +443,51 @@ public:
 			}
 		}
 
-		return orgPartySelectedFormationMoveToPosition(loc, isWalkOverride);
+		formationTarget = loc; formationActive = true;
+		auto result = orgPartySelectedFormationMoveToPosition(loc, isWalkOverride);
+		formationActive = false;
+		return result;
 	};
 
+	// A formation slot can land on a blocked subtile (narrow Baldur's Gate
+	// scenery) and that member would silently stay behind. Probe the slot; when
+	// no path exists, use the nearest reachable point around the slot, then
+	// around the clicked point.
+	static bool CanPathTo(objHndl handle, const LocAndOffsets &to) {
+		PathQuery pq; PathQueryResult pqr;
+		pq.critter = handle; pq.from = objects.GetLocationFull(handle); pq.to = to;
+		pq.flags = static_cast<PathQueryFlags>(PQF_HAS_CRITTER | PQF_IGNORE_CRITTERS | PQF_ALLOW_ALTERNATIVE_TARGET_TILE);
+		return pathfindingSys.FindPath(&pq, &pqr) > 0;
+	}
+	static bool ReachableNear(objHndl handle, const LocAndOffsets &center, LocAndOffsets &out) {
+		static const int ring[8][2] = { {1,0},{0,1},{-1,0},{0,-1},{1,1},{-1,1},{-1,-1},{1,-1} };
+		for (int radius = 1; radius <= 3; ++radius) for (const auto &d : ring) {
+			auto candidate = center;
+			candidate.location.locx = static_cast<uint32_t>(int64_t(center.location.locx) + d[0] * radius);
+			candidate.location.locy = static_cast<uint32_t>(int64_t(center.location.locy) + d[1] * radius);
+			if (CanPathTo(handle, candidate)) { out = candidate; return true; }
+		}
+		return false;
+	}
+	static LocAndOffsets FormationDestination(objHndl handle, const LocAndOffsets &slot) {
+		if (!formationActive || !handle || CanPathTo(handle, slot)) return slot;
+		LocAndOffsets alternative;
+		if (ReachableNear(handle, slot, alternative)) return alternative;
+		if (CanPathTo(handle, formationTarget)) return formationTarget;
+		if (ReachableNear(handle, formationTarget, alternative)) return alternative;
+		return slot;
+	}
+
 	static bool isWalkOverride;
+	static bool formationActive;
+	static LocAndOffsets formationTarget;
 
 		void apply() override
 		{
 			isWalkOverride = false;
 
 			redirectToLambda<BOOL(__cdecl)(objHndl, LocAndOffsets)>(0x10044995, [](objHndl handle, LocAndOffsets loc) {
+				loc = FormationDestination(handle, loc);
 				if (isWalkOverride)
 					return gameSystems->GetAnim().PushWalkToTile(handle, loc) ? TRUE : FALSE; 
 				else
@@ -468,6 +503,8 @@ public:
 		}
 } walkOnShortDistMod;
 bool WalkOnShortDistanceMod::isWalkOverride = false;
+bool WalkOnShortDistanceMod::formationActive = false;
+LocAndOffsets WalkOnShortDistanceMod::formationTarget = LocAndOffsets::null;
 int(__cdecl*WalkOnShortDistanceMod::orgPartySelectedFormationMoveToPosition)(LocAndOffsets loc, int walkFlag);
 
 // PartyPool UI Fix

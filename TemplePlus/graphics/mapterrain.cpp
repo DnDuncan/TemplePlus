@@ -221,7 +221,7 @@ void TerrainSystem::CheckNewDoorBlockers(const OriginalDoorState &candidate) con
 }
 
 void TerrainSystem::BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry) {
-	if (PathNodeSys::hasClearanceData) throw std::invalid_argument("door navigation probe requires a map without precomputed clearance");
+	// Precomputed clearance is supported: the clearance A* checks door masks itself (pathfinding.cpp).
 	ValidateDoorNavigation(geometry.closed); ValidateDoorNavigation(geometry.open);
 	for (const auto *state : {&geometry.closed, &geometry.open}) for (const auto &tile : *state) {
 		SectorLoc loc(locXY{ static_cast<uint32_t>(tile.x), static_cast<uint32_t>(tile.y) });
@@ -540,8 +540,6 @@ std::string TerrainSystem::LoadOriginalDoorSession() {
 	if (size > originaldoorsave::MaxBytes) throw std::invalid_argument("original door save exceeds size limit");
 	auto session = originaldoorsave::Decode(vfs->ReadAsBinary(path));
 	for (const auto &entry : session.doors.Patches()) ValidateOriginalDoorTextures(entry.second);
-	if (PathNodeSys::hasClearanceData && !session.doors.NavigationTiles(maps.GetCurrentMapId()).empty())
-		throw std::invalid_argument("saved door navigation requires a map without precomputed clearance");
 	CheckNewDoorBlockers(session.doors);
 	mOriginalDoors = std::move(session.doors);
 	pathfindingSys.PathCacheInit();
