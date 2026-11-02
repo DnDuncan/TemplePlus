@@ -257,9 +257,20 @@ static void TestClickTravel() {
 }
 
 static void TestContextAndScenes() {
-	DoorSecurity security;assert(DoorContextActions(false,security)==std::vector<DoorContextAction>{DoorContextAction::Open});
-	security.locked=true;auto actions=DoorContextActions(false,security);assert(actions.size()==2 && actions[0]==DoorContextAction::Search && actions[1]==DoorContextAction::PickLock);
-	assert(DoorContextActions(true,security).back()==DoorContextAction::Travel);
+	using A=DoorContextAction;
+	DoorSecurity security;assert((DoorContextActions(false,security)==std::vector<A>{A::Open,A::Search}));
+	security.locked=true;auto actions=DoorContextActions(false,security);assert((actions==std::vector<A>{A::Search,A::PickLock}));
+	assert(DoorContextActions(true,security).back()==A::Travel);
+	assert((DoorContextActions(true,security,false)==std::vector<A>{A::Close})); // no scene route, no travel icon
+	security.trapped=true;assert((DoorContextActions(false,security)==std::vector<A>{A::Search,A::PickLock})); // unknown trap stays hidden
+	security.found=true;assert((DoorContextActions(false,security)==std::vector<A>{A::Search,A::Disarm,A::PickLock}));
+	assert((DoorContextActions(false,security,true,false)==std::vector<A>{A::Search,A::PickLock})); // legacy five icons
+	security.locked=false;assert((DoorContextActions(false,security)==std::vector<A>{A::Open,A::Search,A::Disarm}));
+	auto sprung=DoorTrapSprung(security);assert(!sprung.trapped && !sprung.found && sprung.disarmDc==security.disarmDc);
+	assert(!DoorDisarmSpringsTrap(-4) && DoorDisarmSpringsTrap(-5) && !DoorDisarmSpringsTrap(0));
+	DoorSecurity badFound;badFound.found=true;Reject([&](){ValidateDoorSecurity(badFound);});
+	DoorSecurity badDisarm;badDisarm.disarmDc=61;Reject([&](){ValidateDoorSecurity(badDisarm);});
+	security=DoorSecurity{};
 	assert(BestDoorSkillCandidate({{1,8,10,true},{2,15,40,true},{3,99,5,false}})==2); // wizard wins on bonus, not class
 	assert(BestDoorSkillCandidate({{1,-5,10,true},{2,-2,40,true}})==2);
 	assert(BestDoorSkillCandidate({{1,10,40,true},{2,10,10,true}})==2);

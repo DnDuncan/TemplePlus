@@ -27,6 +27,7 @@
 #include "tig/tig_mouse.h"
 #include "gamesystems/legacymapsystems.h"
 #include "gamesystems/legacysystems.h"
+#include "python/python_integration_obj.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -114,7 +115,10 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 	auto handle=objSystem->FindObjectByIdStr(region.objectId);
 	if (handle) {
 		auto obj=objSystem->GetObject(handle);
-		if (obj->type!=obj_t_container || obj->GetInt32(obj_f_container_pad_i_1)!=0x42474301
+		// Project chests are tagged 'BGC' + index (0x42474301 is the first barrel,
+		// further Candlekeep containers count up from 0x42474302).
+		auto tag=static_cast<uint32_t>(obj->GetInt32(obj_f_container_pad_i_1));
+		if (obj->type!=obj_t_container || (tag&0xFFFFFF00u)!=0x42474300u || (tag&0xFFu)==0
 			|| obj->GetInt32(obj_f_container_pad_i_2)!=1)
 			throw std::invalid_argument("source container GUID is not the initialized project chest");
 		obj->SetInt32(obj_f_container_pad_i_4,SourceContainerProxyMarker);
@@ -290,7 +294,25 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 	}
 }
 
+void TerrainSystem::DispatchMapReady() {
+	// 0x103072D4: temple.dll "loading a savegame" flag (see gamelib_load.cpp).
+	if (gameSystems->GetMap().IsClearingMap() || !gameSystems->GetMap().IsMapOpen()
+		|| temple::GetRef<int>(0x103072D4)) return;
+	auto mapId=maps.GetCurrentMapId();
+	// Main menu (5000) and character creation run with an empty party. Do not call
+	// party.GetLeader() there: it dereferences group member 0 without a null check.
+	if (mapId==5000 || party.GroupPCsLen()==0) return;
+	auto first=party.GroupListGetMemberN(0);
+	if (!first || !gameSystems->GetObj().IsValidHandle(first)) return;
+	mMapReadyPending=false;
+	logger->info("Map ready script: map={}",mapId);
+	auto args=Py_BuildValue("(i)",mapId);
+	auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","map_ready",args);
+	Py_XDECREF(result);Py_DECREF(args);
+}
+
 void TerrainSystem::AdvanceTime(uint32_t time) {
+	if (mMapReadyPending) DispatchMapReady();
 	UpdateSceneFocus();
 	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;

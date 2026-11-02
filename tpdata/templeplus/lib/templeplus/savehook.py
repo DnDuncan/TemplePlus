@@ -9,7 +9,10 @@ def _original_doors(event, filename):
         if str(exc) in ('No module named bg2toee_lifecycle', "No module named 'bg2toee_lifecycle'"):
             return
         raise
-    getattr(bg2toee_lifecycle, event)(filename)
+    handler = getattr(bg2toee_lifecycle, event, None)
+    if handler is None and event in ('map_ready', 'door_trap'):
+        return  # older adapter without the optional event
+    handler(filename)
 
 def pre_load(filename):
     _original_doors('pre_load', filename)
@@ -24,6 +27,18 @@ def save(filename):
 
 def load(filename):
     _original_doors('load', filename)
+
+def map_ready(map_id):
+    # Called by the engine once a map and its party are fully present
+    # (after teleport or savegame load). Optional bg2toee adapter only.
+    try:
+        _original_doors('map_ready', map_id)
+    except Exception as exc:
+        print('bg2toee map_ready failed: ' + str(exc))
+
+def door_trap(map_id, door_id, actor):
+    # A source door trap was sprung by an engine context action.
+    _original_doors('door_trap', (map_id, door_id, actor))
 
 # Co8 python save hook - executes after the archive is done
 # save hook (default - Co8 hook; will silently fail for vanilla; feel free to change for your own custom mod!)

@@ -1676,7 +1676,7 @@ static PyObject* PyGame_BgTravelCancel(PyObject*, PyObject* args) {
 }
 
 static PyObject* PyGame_BgContextVersion(PyObject*,PyObject* args) {
-	if (!PyArg_ParseTuple(args,":bg_context_version")) return nullptr;return PyInt_FromLong(1);
+	if (!PyArg_ParseTuple(args,":bg_context_version")) return nullptr;return PyInt_FromLong(2); // 2: Disarm, door traps, non-travel doors
 }
 static PyObject* PyGame_BgSourceContainerVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_version")) return nullptr;return PyInt_FromLong(1);
@@ -1692,13 +1692,16 @@ static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
 	gameSystems->GetTerrain().ClearSourceContainers();Py_RETURN_NONE;
 }
 static PyObject* PyGame_BgContextBind(PyObject*,PyObject* args) {
-	int mapId,locked,trapped,found,pickable,lockDc,searchDc;const char *id;PyObject *icons;
-	if (!PyArg_ParseTuple(args,"isOiiiiii:bg_context_bind",&mapId,&id,&icons,&locked,&trapped,&found,&pickable,&lockDc,&searchDc)) return nullptr;
+	int mapId,locked,trapped,found,pickable,lockDc,searchDc,disarmDc=-1;const char *id;PyObject *icons;
+	if (!PyArg_ParseTuple(args,"isOiiiiii|i:bg_context_bind",&mapId,&id,&icons,&locked,&trapped,&found,&pickable,&lockDc,&searchDc,&disarmDc)) return nullptr;
 	if ((locked&~1) || (trapped&~1) || (found&~1) || (pickable&~1)) {PyErr_SetString(PyExc_ValueError,"security flags must be boolean");return nullptr;}
-	DoorContextDefinition definition;definition.security={locked!=0,trapped!=0,found!=0,pickable!=0,lockDc,searchDc};
-	auto seq=PySequence_Fast(icons,"expected five icon paths");if (!seq) return nullptr;
-	if (PySequence_Fast_GET_SIZE(seq)!=5) {Py_DECREF(seq);PyErr_SetString(PyExc_ValueError,"expected five icon paths");return nullptr;}
-	for (int i=0;i<5;++i) {
+	DoorContextDefinition definition;
+	definition.security={locked!=0,trapped!=0,found!=0,pickable!=0,lockDc,searchDc,disarmDc<0 ? searchDc:disarmDc};
+	// Five icons: legacy profile without Disable Device. Six: index 5 is Disarm.
+	auto seq=PySequence_Fast(icons,"expected five or six icon paths");if (!seq) return nullptr;
+	auto count=PySequence_Fast_GET_SIZE(seq);
+	if (count!=5 && count!=6) {Py_DECREF(seq);PyErr_SetString(PyExc_ValueError,"expected five or six icon paths");return nullptr;}
+	for (Py_ssize_t i=0;i<count;++i) {
 		auto text=PyString_AsString(PySequence_Fast_GET_ITEM(seq,i));if (!text) {Py_DECREF(seq);return nullptr;}definition.textures[i]=text;
 	}
 	Py_DECREF(seq);
@@ -1708,7 +1711,7 @@ static PyObject* PyGame_BgContextBind(PyObject*,PyObject* args) {
 static PyObject* PyGame_BgContextState(PyObject*,PyObject* args) {
 	int mapId;const char *id;if (!PyArg_ParseTuple(args,"is:bg_context_state",&mapId,&id)) return nullptr;
 	try {auto state=gameSystems->GetTerrain().GetDoorSecurity(mapId,id);
-		return Py_BuildValue("(NNNNii)",PyBool_FromLong(state.locked),PyBool_FromLong(state.trapped),PyBool_FromLong(state.found),PyBool_FromLong(state.pickable),state.lockDc,state.searchDc);}
+		return Py_BuildValue("(NNNNiii)",PyBool_FromLong(state.locked),PyBool_FromLong(state.trapped),PyBool_FromLong(state.found),PyBool_FromLong(state.pickable),state.lockDc,state.searchDc,state.disarmDc);}
 	catch (const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 static PyObject* PyGame_BgContextClear(PyObject*,PyObject* args) {

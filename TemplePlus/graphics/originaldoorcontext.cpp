@@ -17,6 +17,8 @@
 #include "config/config.h"
 #include <graphics/device.h>
 #include <graphics/shaperenderer2d.h>
+#include "python/python_integration_obj.h"
+#include "python/python_object.h"
 
 namespace {
 void ContextMessage(objHndl actor,const char *message) {
@@ -34,11 +36,32 @@ bool PolygonNear(const OriginalDoorPolygon &polygon,int x,int y,double reach) {
 }
 }
 
+bool TerrainSystem::ContextTravel(const OriginalTravelMarker &marker) const {
+	return mSceneRoutes.count(marker.id)!=0;
+}
+std::vector<DoorContextAction> TerrainSystem::ContextActions(const OriginalTravelMarker &marker) const {
+	auto definition=mDoorContexts.find({marker.gateMap,marker.gateId});
+	if (definition==mDoorContexts.end()) throw std::invalid_argument("door context is not bound");
+	return DoorContextActions(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId),definition->second.security,
+		ContextTravel(marker),!definition->second.textures[static_cast<size_t>(DoorContextAction::Disarm)].empty());
+}
+void TerrainSystem::SpringDoorTrap(int mapId,const std::string &id,objHndl actor) {
+	auto &security=mDoorContexts.at({mapId,OriginalDoorState::NormalizeId(id)}).security;
+	security=DoorTrapSprung(security);++mDoorUseRevision;
+	if (actor) floatSys.floatMesLine(actor,1,FloatLineColor::Red,"Trap triggered!");
+	logger->info("Door trap sprung: map={} id={} actor={}",mapId,id,actor.handle);
+	// The mod decides the effect with native D20 rules; no handler means no damage.
+	auto args=Py_BuildValue("(isN)",mapId,id.c_str(),PyObjHndl_Create(actor));
+	auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","door_trap",args);
+	Py_XDECREF(result);Py_DECREF(args);
+}
 void TerrainSystem::BindDoorContext(int mapId,const std::string &id,DoorContextDefinition definition) {
 	ValidateDoorSecurity(definition.security);
 	if (!mOriginalDoors.Find(mapId,id) || !mOriginalDoors.HasNavigation(mapId,id))
 		throw std::invalid_argument("bind door/navigation before context actions");
-	for (const auto &path:definition.textures) {
+	for (size_t index=0;index<definition.textures.size();++index) {
+		const auto &path=definition.textures[index];
+		if (path.empty() && index==static_cast<size_t>(DoorContextAction::Disarm)) continue; // legacy five-icon profile
 		if (path.compare(0,23,"art/bg2toee/ui/actions/") || path.find("..")!=std::string::npos
 			|| path.find(':')!=std::string::npos || path.size()>240 || path.size()<4 || path.substr(path.size()-4)!=".png")
 			throw std::invalid_argument("context icons must be PNG under art/bg2toee/ui/actions/");
@@ -100,8 +123,8 @@ std::string TerrainSystem::UpdateDoorContextHover(int screenX,int screenY) {
 	if (mContextHover.Visible(now)) {
 		auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),mContextHover.Target()});
 		if (entry!=mTravelMarkers.end()) {
-			const auto &m=entry->second;auto security=GetDoorSecurity(m.gateMap,m.gateId);
-			auto actions=DoorContextActions(GetOriginalDoorOpenOnMap(m.gateMap,m.gateId),security);
+			const auto &m=entry->second;
+			auto actions=ContextActions(m);
 			auto positions=ContextLayout(m,actions.size());
 			for (size_t i=0;i<positions.size();++i) if (std::abs(x-positions[i].x)*gameView->GetWorldZoom()<=25
 				&& std::abs(y-positions[i].y)*gameView->GetWorldZoom()<=25) {
@@ -125,12 +148,12 @@ std::string TerrainSystem::UpdateDoorContextHover(int screenX,int screenY) {
 	return target.empty() ? std::string():"#"+target;
 }
 void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAction) {
-	if (rawAction<0 || rawAction>4) throw std::invalid_argument("invalid context action");
+	if (rawAction<0 || rawAction>=static_cast<int>(DoorContextActionCount)) throw std::invalid_argument("invalid context action");
 	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),OriginalDoorState::NormalizeId(route)});
 	if (entry==mTravelMarkers.end()) throw std::invalid_argument("context route missing");
-	const auto &m=entry->second;auto security=GetDoorSecurity(m.gateMap,m.gateId);
+	const auto &m=entry->second;
 	auto action=static_cast<DoorContextAction>(rawAction);auto open=GetOriginalDoorOpenOnMap(m.gateMap,m.gateId);
-	auto allowed=DoorContextActions(open,security);
+	auto allowed=ContextActions(m);
 	if (std::find(allowed.begin(),allowed.end(),action)==allowed.end()) return; // stale state/icon cannot become a different action
 	auto selection=ContextSelection();
 	if (selection.empty()) throw std::invalid_argument("select at least one conscious party member");
@@ -138,8 +161,9 @@ void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAct
 	if (scene!=mSceneRoutes.end()) for (auto actor:selection) if (SceneAreaForActor(actor)!=scene->second.source)
 		throw std::invalid_argument("select characters in the same visible area");
 	std::vector<DoorSkillCandidate> candidates;
-	auto skill=action==DoorContextAction::PickLock ? skill_open_lock:skill_search;
-	auto skillAction=action==DoorContextAction::PickLock || action==DoorContextAction::Search;
+	auto skill=action==DoorContextAction::PickLock ? skill_open_lock
+		: action==DoorContextAction::Disarm ? skill_disable_device : skill_search;
+	auto skillAction=action==DoorContextAction::PickLock || action==DoorContextAction::Search || action==DoorContextAction::Disarm;
 	for (auto handle:selection) {
 		objHndl actor{handle};auto pos=objects.GetLocationFull(actor).ToInches2D();
 		auto actualSkill=skill;auto bonus=0;auto eligible=true;
@@ -175,7 +199,9 @@ void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t hand
 	auto &security=mDoorContexts.at({request.gateMap,request.gate}).security;objHndl actor{handle};
 	if (request.action==DoorContextAction::Open || request.action==DoorContextAction::Close) {
 		if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The door is locked");return;}
-		SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);return;
+		SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);
+		if (request.action==DoorContextAction::Open && security.trapped) SpringDoorTrap(request.gateMap,request.gate,actor);
+		return;
 	}
 	if (request.action==DoorContextAction::PickLock) {
 		if (!security.locked) return;
@@ -185,10 +211,19 @@ void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t hand
 		ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock");
 		logger->info("Door skill roll: actor={} skill=OpenLock dc={} delta={} success={}",handle,security.lockDc,delta,success);
 	} else if (request.action==DoorContextAction::Search) {
+		// 3.5: traps above DC 20 need trapfinding; the roll is still made and logged.
 		int delta=0;auto success=skillSys.SkillRoll(actor,skill_search,security.searchDc,&delta,SRF_Trap_Search)!=FALSE;
-		if (success && security.trapped) {security.found=true;++mDoorUseRevision;}
+		if (security.searchDc>20 && !d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)) success=false;
+		if (success && security.trapped && !security.found) {security.found=true;++mDoorUseRevision;}
 		ContextMessage(actor,success && security.trapped ? "A trap was found":"No trap was found");
 		logger->info("Door skill roll: actor={} skill=Search dc={} delta={} success={}",handle,security.searchDc,delta,success);
+	} else if (request.action==DoorContextAction::Disarm) {
+		if (!security.trapped || !security.found) return;
+		int delta=0;auto success=skillSys.SkillRoll(actor,skill_disable_device,security.disarmDc,&delta,SRF_Unk_1)!=FALSE;
+		logger->info("Door skill roll: actor={} skill=DisableDevice dc={} delta={} success={}",handle,security.disarmDc,delta,success);
+		if (success) {security.trapped=false;security.found=false;++mDoorUseRevision;ContextMessage(actor,"Trap disarmed");}
+		else if (DoorDisarmSpringsTrap(delta)) SpringDoorTrap(request.gateMap,request.gate,actor);
+		else ContextMessage(actor,"Failed to disarm the trap");
 	}
 }
 void TerrainSystem::RenderDoorContext() {
@@ -203,10 +238,11 @@ void TerrainSystem::RenderDoorContext() {
 		mShapeRenderer.DrawLines(lines);
 	}
 	if (!mContextHover.Visible(now)) return;
-	auto actions=DoorContextActions(GetOriginalDoorOpenOnMap(m.gateMap,m.gateId),definition->second.security);
+	auto actions=ContextActions(m);
 	auto layout=ContextLayout(m,actions.size());auto size=48/gameView->GetWorldZoom();
 	for (size_t i=0;i<actions.size();++i) {
-		auto action=static_cast<int>(actions[i]);auto texture=mDevice.GetTextures().Resolve(definition->second.textures[action],false);
+		auto action=static_cast<int>(actions[i]);const auto &path=definition->second.textures[action];
+		if (path.empty()) continue;auto texture=mDevice.GetTextures().Resolve(path,false);
 		if (!texture || !texture->IsValid()) continue;
 		auto alpha=mContextHover.Alpha(now)*(mHoveredContextAction==action ? 1.38f:1.0f);
 		if (actions[i]==DoorContextAction::PickLock && !definition->second.security.pickable) alpha*=0.4f;

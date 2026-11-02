@@ -2,20 +2,35 @@
 #include "originaltravel.h"
 #include <limits>
 
-enum class DoorContextAction { Open, Close, Search, PickLock, Travel };
+enum class DoorContextAction { Open, Close, Search, PickLock, Travel, Disarm };
+constexpr size_t DoorContextActionCount=6;
 struct DoorSecurity {
 	bool locked=false, trapped=false, found=false, pickable=true;
-	int lockDc=10, searchDc=10;
+	int lockDc=10, searchDc=10, disarmDc=10;
 };
 inline void ValidateDoorSecurity(const DoorSecurity &s) {
-	if (s.lockDc<0 || s.lockDc>60 || s.searchDc<0 || s.searchDc>60 || (s.found && !s.trapped))
+	if (s.lockDc<0 || s.lockDc>60 || s.searchDc<0 || s.searchDc>60 || s.disarmDc<0 || s.disarmDc>60
+		|| (s.found && !s.trapped))
 		throw std::invalid_argument("invalid door security");
 }
-inline std::vector<DoorContextAction> DoorContextActions(bool open,const DoorSecurity &s) {
-	if (open) return {DoorContextAction::Close,DoorContextAction::Travel};
-	if (s.locked) return {DoorContextAction::Search,DoorContextAction::PickLock};
-	return {DoorContextAction::Open};
+// Closed doors can always be inspected. A found trap adds Disable Device; an
+// open door offers travel only when a scene route belongs to its marker.
+inline std::vector<DoorContextAction> DoorContextActions(bool open,const DoorSecurity &s,bool travel=true,bool disarm=true) {
+	if (open) {
+		if (travel) return {DoorContextAction::Close,DoorContextAction::Travel};
+		return {DoorContextAction::Close};
+	}
+	std::vector<DoorContextAction> result;
+	if (!s.locked) result.push_back(DoorContextAction::Open);
+	result.push_back(DoorContextAction::Search);
+	if (disarm && s.trapped && s.found) result.push_back(DoorContextAction::Disarm);
+	if (s.locked) result.push_back(DoorContextAction::PickLock);
+	return result;
 }
+// 3.5 Disable Device: failing by five or more springs the trap.
+inline bool DoorDisarmSpringsTrap(int deltaFromDc) { return deltaFromDc<=-5; }
+// Opening a still armed door springs it once, whether or not it was found.
+inline DoorSecurity DoorTrapSprung(DoorSecurity s) { s.trapped=false; s.found=false; return s; }
 struct DoorSkillCandidate { uint64_t actor; int bonus; double distance; bool eligible; };
 inline uint64_t BestDoorSkillCandidate(const std::vector<DoorSkillCandidate> &candidates) {
 	uint64_t chosen=0; int bonus=(std::numeric_limits<int>::min)(); double distance=0;
@@ -41,7 +56,7 @@ public:
 private:
 	std::string mId; uint32_t mStarted=0,mLeft=0; bool mLeaving=false;
 };
-struct DoorContextDefinition { std::array<std::string,5> textures; DoorSecurity security; };
+struct DoorContextDefinition { std::array<std::string,DoorContextActionCount> textures; DoorSecurity security; };
 
 // Isolated source areas share one native map. Moving selected actors keeps the
 // native party, object IDs, inventory, dispatchers and normal save format intact.
