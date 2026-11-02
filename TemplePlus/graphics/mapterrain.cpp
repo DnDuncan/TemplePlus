@@ -294,9 +294,14 @@ void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actor
 void TerrainSystem::DispatchMapReady() {
 	// 0x103072D4: temple.dll "loading a savegame" flag (see gamelib_load.cpp).
 	if (gameSystems->GetMap().IsClearingMap() || !gameSystems->GetMap().IsMapOpen()
-		|| temple::GetRef<int>(0x103072D4) || !party.GetLeader()) return;
-	mMapReadyPending=false;
+		|| temple::GetRef<int>(0x103072D4)) return;
 	auto mapId=maps.GetCurrentMapId();
+	// Main menu (5000) and character creation run with an empty party. Do not call
+	// party.GetLeader() there: it dereferences group member 0 without a null check.
+	if (mapId==5000 || party.GroupPCsLen()==0) return;
+	auto first=party.GroupListGetMemberN(0);
+	if (!first || !gameSystems->GetObj().IsValidHandle(first)) return;
+	mMapReadyPending=false;
 	logger->info("Map ready script: map={}",mapId);
 	auto args=Py_BuildValue("(i)",mapId);
 	auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","map_ready",args);
