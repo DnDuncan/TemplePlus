@@ -115,7 +115,10 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 	auto handle=objSystem->FindObjectByIdStr(region.objectId);
 	if (handle) {
 		auto obj=objSystem->GetObject(handle);
-		if (obj->type!=obj_t_container || obj->GetInt32(obj_f_container_pad_i_1)!=0x42474301
+		// Project chests are tagged 'BGC' + index (0x42474301 is the first barrel,
+		// further Candlekeep containers count up from 0x42474302).
+		auto tag=static_cast<uint32_t>(obj->GetInt32(obj_f_container_pad_i_1));
+		if (obj->type!=obj_t_container || (tag&0xFFFFFF00u)!=0x42474300u || (tag&0xFFu)==0
 			|| obj->GetInt32(obj_f_container_pad_i_2)!=1)
 			throw std::invalid_argument("source container GUID is not the initialized project chest");
 		obj->SetInt32(obj_f_container_pad_i_4,SourceContainerProxyMarker);
