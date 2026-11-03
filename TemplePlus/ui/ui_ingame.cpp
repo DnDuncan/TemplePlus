@@ -376,7 +376,8 @@ void UiInGame::HandleNonCombatKeyStateChange(const TigMsg& msg){
 
 	// BG journal (bg2toee): J, as in Baldur's Gate. The mod's Python adapter
 	// decides what to show; without the mod the key keeps its ToEE meaning.
-	if (msga.key == DIK_J && !hotkeys.IsKeyPressed(VK_CONTROL) && !hotkeys.IsKeyPressed(VK_SHIFT)
+	constexpr uint32_t DikJ = 0x24; // DIK_J
+	if (msga.key == DikJ && !hotkeys.IsKeyPressed(VK_CONTROL) && !hotkeys.IsKeyPressed(VK_SHIFT)
 		&& !hotkeys.IsKeyPressed(VK_MENU)) {
 		auto args = Py_BuildValue("()");
 		auto result = pythonObjIntegration.ExecuteScript("templeplus.savehook", "journal_key", args);
