@@ -1693,6 +1693,11 @@ static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
 	try {gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+// BG scripts (BCS) must not start a conversation while one is on screen.
+static PyObject* PyGame_BgDialogActive(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_dialog_active")) return nullptr;
+	return PyInt_FromLong(uiDialog->IsActive() || uiDialog->IsDialogEngaged() ? 1 : 0);
+}
 static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_clear")) return nullptr;
 	gameSystems->GetTerrain().ClearSourceContainers();Py_RETURN_NONE;
@@ -1900,6 +1905,7 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
+	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
 	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
 	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},
