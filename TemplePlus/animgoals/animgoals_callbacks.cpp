@@ -14,6 +14,7 @@
 #include "location.h"
 #include "objlist.h"
 #include "graphics/mapterrain.h"
+#include "graphics/sourcecontainers.h"
 
 using GoalCallback = int(__cdecl *)(AnimSlot&);
 
@@ -529,6 +530,13 @@ int GoalHasDoorInPath(AnimSlot &slot) {
 	doorSearch.ListRadius(currentPos, radius + 150.0f, OLC_PORTAL);
 
 	for (auto doorObj : doorSearch) {
+
+		// BG doors backed by an invisible portal are opened only on request
+		// (Infinity Engine rule): walking past must not open them or spring
+		// their trap. Their closed leaf is blocked by the BG navigation.
+		if (IsSourceContainerProxy(doorObj)) {
+			continue;
+		}
 
 		auto doorModel = objects.GetAnimHandle(doorObj);
 		if (doorModel) {

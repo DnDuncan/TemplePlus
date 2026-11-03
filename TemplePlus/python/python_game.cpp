@@ -30,6 +30,7 @@
 #include "sound.h"
 #include "ui/ui.h"
 #include "ui/ui_dialog.h"
+#include "ui/ui_bgjournal.h"
 #include "ui/ui_tutorial.h"
 #include "ui/ui_picker.h"
 #include "particles.h"
@@ -1693,6 +1694,33 @@ static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
 	try {gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+// BG journal window: game.bg_journal_show(title, [(heading, text), ...]) with
+// cp1251 strings, game.bg_journal_hide(), game.bg_journal_visible().
+static PyObject* PyGame_BgJournalShow(PyObject*,PyObject* args) {
+	const char *title; PyObject *items;
+	if (!PyArg_ParseTuple(args,"sO:bg_journal_show",&title,&items)) return nullptr;
+	if (!PySequence_Check(items)) {PyErr_SetString(PyExc_TypeError,"entries must be a sequence");return nullptr;}
+	std::vector<bgjournal::Entry> entries;
+	auto count=PySequence_Size(items);
+	if (count<0 || count>5000) {PyErr_SetString(PyExc_ValueError,"too many journal entries");return nullptr;}
+	for (Py_ssize_t i=0;i<count;i++) {
+		auto item=PySequence_GetItem(items,i);
+		const char *heading,*text;
+		if (!item || !PyArg_ParseTuple(item,"ss:bg_journal_show entry",&heading,&text)) {Py_XDECREF(item);return nullptr;}
+		entries.push_back({heading,text});
+		Py_DECREF(item);
+	}
+	bgjournal::Show(title,entries);
+	Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgJournalHide(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_journal_hide")) return nullptr;
+	bgjournal::Hide();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgJournalVisible(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_journal_visible")) return nullptr;
+	return PyInt_FromLong(bgjournal::IsVisible() ? 1 : 0);
+}
 // BG scripts (BCS) must not start a conversation while one is on screen.
 static PyObject* PyGame_BgDialogActive(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_dialog_active")) return nullptr;
@@ -1906,6 +1934,9 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
+	{"bg_journal_show",PyGame_BgJournalShow,METH_VARARGS,NULL},
+	{"bg_journal_hide",PyGame_BgJournalHide,METH_VARARGS,NULL},
+	{"bg_journal_visible",PyGame_BgJournalVisible,METH_VARARGS,NULL},
 	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
 	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
 	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},
