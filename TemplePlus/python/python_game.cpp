@@ -1687,6 +1687,12 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)});Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
+	int mapId;const char *id,*guid;
+	if (!PyArg_ParseTuple(args,"iss:bg_source_door_bind",&mapId,&id,&guid)) return nullptr;
+	try {gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);Py_RETURN_NONE;}
+	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
 static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_clear")) return nullptr;
 	gameSystems->GetTerrain().ClearSourceContainers();Py_RETURN_NONE;
@@ -1893,6 +1899,7 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_version",PyGame_BgSourceContainerVersion,METH_VARARGS,NULL},
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
+	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
 	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
 	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},

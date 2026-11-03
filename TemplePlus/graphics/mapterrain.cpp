@@ -129,7 +129,44 @@ bool ContainerTrapFound(objHndl handle) {
 bool IsSourceContainerProxy(objHndl handle) {
 	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return false;
 	auto obj=objSystem->GetObject(handle);
+	if (obj->type==obj_t_portal) return obj->GetInt32(obj_f_portal_pad_i_4)==SourceContainerProxyMarker;
 	return obj->type==obj_t_container && obj->GetInt32(obj_f_container_pad_i_4)==SourceContainerProxyMarker;
+}
+void TerrainSystem::BindSourceDoor(int mapId,const std::string &doorId,const std::string &objectId) {
+	auto id=OriginalDoorState::NormalizeId(doorId);
+	if (mapId!=maps.GetCurrentMapId() || !mOriginalDoors.Find(mapId,id)) throw std::invalid_argument("register the source door before its portal");
+	auto handle=objSystem->FindObjectByIdStr(objectId);
+	if (!handle) throw std::invalid_argument("source door portal does not exist");
+	auto obj=objSystem->GetObject(handle);
+	// Project portals are tagged 'BGD' + index by the mod.
+	auto tag=static_cast<uint32_t>(obj->GetInt32(obj_f_portal_pad_i_1));
+	if (obj->type!=obj_t_portal || (tag&0xFFFFFF00u)!=0x42474400u || (tag&0xFFu)==0)
+		throw std::invalid_argument("source door object is not a tagged project portal");
+	obj->SetInt32(obj_f_portal_pad_i_4,SourceContainerProxyMarker);
+	objects.SetFlag(handle,static_cast<ObjectFlag>(OF_NO_BLOCK|OF_SEE_THROUGH|OF_SHOOT_THROUGH));
+	mSourceDoors[{mapId,id}]=objectId;
+	SyncSourceDoor(handle); // the portal (saved natively) decides the door state
+}
+bool TerrainSystem::HasSourceDoor(int mapId,const std::string &doorId) const {
+	return mSourceDoors.count({mapId,OriginalDoorState::NormalizeId(doorId)})!=0;
+}
+std::string TerrainSystem::SourceDoorFor(objHndl handle) const {
+	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return {};
+	auto obj=objSystem->GetObject(handle);
+	if (obj->type!=obj_t_portal) return {};
+	auto idStr=obj->id.ToString();
+	for (const auto &entry:mSourceDoors)
+		if (entry.first.first==maps.GetCurrentMapId() && entry.second==idStr) return entry.first.second;
+	return {};
+}
+void TerrainSystem::SyncSourceDoor(objHndl handle) {
+	auto door=SourceDoorFor(handle);
+	if (door.empty()) return;
+	auto open=objects.IsPortalOpen(handle);
+	if (GetOriginalDoorOpen(door)!=open) {
+		SetOriginalDoorOpen(door,open);
+		logger->info("Source door follows its portal: id={} open={}",door,open);
+	}
 }
 void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 	// Validate everything before changing the backing object's presentation.
@@ -158,7 +195,20 @@ const SourceContainerRegion* TerrainSystem::HitSourceContainer(int x,int y,objHn
 	if (!gameView || !gameSystems || gameSystems->GetMap().IsClearingMap()) return nullptr;
 	auto p=SourceContainerPoint(x,y);
 	int ox,oy;GetTerrainOrigin(ox,oy);
-	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(p.x-ox)),int(std::floor(p.y-oy)));
+	auto mapId=maps.GetCurrentMapId();
+	auto px=int(std::floor(p.x-ox)), py=int(std::floor(p.y-oy));
+	auto region=mSourceContainers.Hit(mapId,px,py);
+	if (!region) {
+		// Source doors: their current (open or closed) source outline.
+		for (const auto &entry:mSourceDoors) {
+			if (entry.first.first!=mapId) continue;
+			auto outline=mOriginalDoors.Outline(mapId,entry.first.second);
+			if (!outline || !DoorPolygonContains(*outline,px,py)) continue;
+			if (region) return nullptr; // ambiguous
+			mSourceDoorHit=SourceContainerRegion{mapId,entry.first.second,entry.second,*outline};
+			region=&mSourceDoorHit;
+		}
+	}
 	if (!region) return nullptr;
 	auto found=objSystem->FindObjectByIdStr(region->objectId);
 	if (!found || !IsSourceContainerProxy(found) || objects.IsUntargetable(found)
@@ -182,6 +232,13 @@ void TerrainSystem::RenderSourceContainers() {
 		if (!found || !IsSourceContainerProxy(found) || (objects.GetFlags(found)&OF_DESTROYED)) continue;
 		if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(found))&1)) continue;
 		if (ContainerTrapFound(found)) AppendOutline(lines,entry.second.outline,ox,oy,FoundTrapColor,true);
+	}
+	for (const auto &entry:mSourceDoors) {
+		if (entry.first.first!=mapId) continue;
+		auto found=objSystem->FindObjectByIdStr(entry.second);
+		auto outline=mOriginalDoors.Outline(mapId,entry.first.second);
+		if (found && outline && !(objects.GetFlags(found)&OF_DESTROYED) && ContainerTrapFound(found))
+			AppendOutline(lines,*outline,ox,oy,FoundTrapColor,true);
 	}
 	// Rendering runs inside ScopedWorldInput: the mouse position is already in
 	// world pixels, so the hover test and the drawn outline use the same point.

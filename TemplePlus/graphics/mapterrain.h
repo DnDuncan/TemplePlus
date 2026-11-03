@@ -106,7 +106,14 @@ public:
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
 	void BindSourceContainer(SourceContainerRegion region);
-	void ClearSourceContainers() {mSourceContainers.Clear();}
+	void ClearSourceContainers() {mSourceContainers.Clear();mSourceDoors.clear();}
+	// Baldur's Gate doors backed by an invisible native portal: native lock,
+	// trap, Search / Open Lock / Disable Device and opening; the source door
+	// art and navigation follow the portal's open state.
+	void BindSourceDoor(int mapId,const std::string &doorId,const std::string &objectId);
+	bool HasSourceDoor(int mapId,const std::string &doorId) const;
+	std::string SourceDoorFor(objHndl handle) const;
+	void SyncSourceDoor(objHndl handle);
 	uint64_t PickSourceContainer(int x,int y) const;
 	const SourceContainerRegion* HitSourceContainer(int x,int y,objHndl &handle) const;
 	WorldViewZoom::Point SourceContainerPoint(int x,int y) const;
@@ -140,6 +147,8 @@ private:
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
 	SourceContainerRegions mSourceContainers;
+	std::map<OriginalDoorState::Key,std::string> mSourceDoors; // door -> portal object id
+	mutable SourceContainerRegion mSourceDoorHit;
 	void RenderSourceContainers();
 	std::map<OriginalDoorState::Key, OriginalDoorUseGeometry> mDoorUse;
 	OriginalDoorUseQueue mDoorUseQueue, mTravelQueue;

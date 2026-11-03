@@ -20,6 +20,7 @@
 #include <gamesystems\objects\objsystem.h>
 #include <location.h>
 #include "gamesystems/gamesystems.h"
+#include "graphics/mapterrain.h"
 
 struct TigTextStyle;
 
@@ -46,6 +47,21 @@ public:
 		writeHex(0x102CDF56, "1E B4 1E"); // FloatLineColor::Green
 	}
 } floatColorFix;
+
+// Source doors (Baldur's Gate art) are backed by an invisible native portal:
+// whenever the portal opens or closes (use, AI, scripts), the source door art
+// and navigation follow.
+class SourceDoorToggleFix : public TempleFix {
+public:
+	static void (__cdecl *orgToggle)(objHndl);
+	void apply() override {
+		orgToggle = replaceFunction<void(__cdecl)(objHndl)>(0x100B4700, [](objHndl handle) {
+			orgToggle(handle);
+			if (originalDoorTerrain) originalDoorTerrain->SyncSourceDoor(handle);
+		});
+	}
+} sourceDoorToggleFix;
+void (__cdecl *SourceDoorToggleFix::orgToggle)(objHndl);
 
 // Makes Kukri Proficiency Martial
 class KukriFix : public TempleFix {
