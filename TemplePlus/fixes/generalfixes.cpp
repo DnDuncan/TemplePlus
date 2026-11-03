@@ -37,6 +37,16 @@ public:
 	}
 } hexFixes;
 
+// Text floater palette (3 bytes per FloatLineColor at 0x102CDF50). Pure
+// 00 FF 00 green is hard to read over bright terrain; use a darker green so
+// success messages stand apart from red failures.
+class FloatColorFix : public TempleFix {
+public:
+	void apply() override {
+		writeHex(0x102CDF56, "1E B4 1E"); // FloatLineColor::Green
+	}
+} floatColorFix;
+
 // Makes Kukri Proficiency Martial
 class KukriFix : public TempleFix {
 public:

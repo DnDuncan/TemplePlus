@@ -21,8 +21,9 @@
 #include "python/python_object.h"
 
 namespace {
-void ContextMessage(objHndl actor,const char *message) {
-	if (actor) floatSys.floatMesLine(actor,1,FloatLineColor::LightBlue,message);
+// Outcome colours: green for success, red for failure, white for plain notices.
+void ContextMessage(objHndl actor,const char *message,FloatLineColor color=FloatLineColor::White) {
+	if (actor) floatSys.floatMesLine(actor,1,color,message);
 }
 bool PolygonNear(const OriginalDoorPolygon &polygon,int x,int y,double reach) {
 	if (DoorPolygonContains(polygon,x,y)) return true;
@@ -198,32 +199,33 @@ void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t hand
 	if (!SameDoorSelection(request.selection,ContextSelection())) throw std::invalid_argument("selection changed; door action cancelled");
 	auto &security=mDoorContexts.at({request.gateMap,request.gate}).security;objHndl actor{handle};
 	if (request.action==DoorContextAction::Open || request.action==DoorContextAction::Close) {
-		if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The door is locked");return;}
+		if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The door is locked",FloatLineColor::Red);return;}
 		SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);
 		if (request.action==DoorContextAction::Open && security.trapped) SpringDoorTrap(request.gateMap,request.gate,actor);
 		return;
 	}
 	if (request.action==DoorContextAction::PickLock) {
 		if (!security.locked) return;
-		if (!security.pickable) {ContextMessage(actor,"This lock requires a key");return;}
+		if (!security.pickable) {ContextMessage(actor,"This lock requires a key",FloatLineColor::Red);return;}
 		int delta=0;auto success=skillSys.SkillRoll(actor,skill_open_lock,security.lockDc,&delta,SRF_Unk_1)!=FALSE;
 		if (success) {security.locked=false;++mDoorUseRevision;}
-		ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock");
+		ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock",success ? FloatLineColor::Green:FloatLineColor::Red);
 		logger->info("Door skill roll: actor={} skill=OpenLock dc={} delta={} success={}",handle,security.lockDc,delta,success);
 	} else if (request.action==DoorContextAction::Search) {
 		// 3.5: traps above DC 20 need trapfinding; the roll is still made and logged.
 		int delta=0;auto success=skillSys.SkillRoll(actor,skill_search,security.searchDc,&delta,SRF_Trap_Search)!=FALSE;
 		if (security.searchDc>20 && !d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)) success=false;
 		if (success && security.trapped && !security.found) {security.found=true;++mDoorUseRevision;}
-		ContextMessage(actor,success && security.trapped ? "A trap was found":"No trap was found");
+		ContextMessage(actor,success && security.trapped ? "A trap was found":"No trap was found",
+			success && security.trapped ? FloatLineColor::Green:FloatLineColor::White);
 		logger->info("Door skill roll: actor={} skill=Search dc={} delta={} success={}",handle,security.searchDc,delta,success);
 	} else if (request.action==DoorContextAction::Disarm) {
 		if (!security.trapped || !security.found) return;
 		int delta=0;auto success=skillSys.SkillRoll(actor,skill_disable_device,security.disarmDc,&delta,SRF_Unk_1)!=FALSE;
 		logger->info("Door skill roll: actor={} skill=DisableDevice dc={} delta={} success={}",handle,security.disarmDc,delta,success);
-		if (success) {security.trapped=false;security.found=false;++mDoorUseRevision;ContextMessage(actor,"Trap disarmed");}
+		if (success) {security.trapped=false;security.found=false;++mDoorUseRevision;ContextMessage(actor,"Trap disarmed",FloatLineColor::Green);}
 		else if (DoorDisarmSpringsTrap(delta)) SpringDoorTrap(request.gateMap,request.gate,actor);
-		else ContextMessage(actor,"Failed to disarm the trap");
+		else ContextMessage(actor,"Failed to disarm the trap",FloatLineColor::Red);
 	}
 }
 void TerrainSystem::RenderDoorContext() {

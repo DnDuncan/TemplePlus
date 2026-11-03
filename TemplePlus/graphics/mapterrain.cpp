@@ -117,10 +117,12 @@ void AppendOutline(std::vector<gfx::Line2d> &lines,const OriginalDoorPolygon &po
 				XMFLOAT2(float(ox+b.x)+offsets[k][0],float(oy+b.y)+offsets[k][1]),color);
 		}
 }
-// Native Search marks a found trap with OF_TRAP_SPOTTED; Disable Device and
-// springing the trap remove its san_trap script.
+// Native Search (0x100509C0) marks a found trap by setting bit 4 in the first
+// word of the object's san_trap script entry; Disable Device and springing the
+// trap clear the script.
 bool ContainerTrapFound(objHndl handle) {
-	return (objects.GetFlags(handle)&OF_TRAP_SPOTTED) && objects.GetScript(handle,0x27)!=0;
+	auto script=objSystem->GetObject(handle)->GetScript(obj_f_scripts_idx,0x27);
+	return script.scriptId!=0 && (script.unk1&4)!=0;
 }
 }
 
