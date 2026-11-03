@@ -533,9 +533,19 @@ int GoalHasDoorInPath(AnimSlot &slot) {
 
 		// BG doors backed by an invisible portal are opened only on request
 		// (Infinity Engine rule): walking past must not open them or spring
-		// their trap. Their closed leaf is blocked by the BG navigation.
+		// their trap. A door the actor was sent to use (it is the target of
+		// a goal on the stack, e.g. ag_use_object) keeps the native opening.
 		if (IsSourceContainerProxy(doorObj)) {
-			continue;
+			bool requested = false;
+			for (auto i = 0; i <= slot.currentGoal && i < 8; i++) {
+				if (slot.goals[i].target.obj == doorObj) {
+					requested = true;
+					break;
+				}
+			}
+			if (!requested) {
+				continue;
+			}
 		}
 
 		auto doorModel = objects.GetAnimHandle(doorObj);

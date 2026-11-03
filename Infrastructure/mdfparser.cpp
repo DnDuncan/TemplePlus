@@ -382,6 +382,11 @@ namespace gfx {
 				continue;
 			}
 
+			if (tokenizer.IsIdentifier("zgreater")) {
+				result->depthGreater = true;
+				continue;
+			}
+
 			if (mStrict) {
 				throw CreateError("Unrecognized token: {}", tokenizer.GetTokenText());
 			}
