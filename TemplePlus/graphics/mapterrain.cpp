@@ -104,6 +104,26 @@ void TerrainSystem::Render() {
 	RenderSourceContainers();
 }
 
+namespace {
+// Infinity Engine convention: a detected, still armed trap keeps its polygon
+// outlined in red until it is disarmed or sprung.
+const XMCOLOR FoundTrapColor(1.0f,0.12f,0.08f,1.0f);
+void AppendOutline(std::vector<gfx::Line2d> &lines,const OriginalDoorPolygon &polygon,int ox,int oy,XMCOLOR color,bool thick) {
+	static const float offsets[5][2]={{0,0},{1,0},{0,1},{-1,0},{0,-1}};
+	for (int k=0;k<(thick ? 5 : 1);++k)
+		for (size_t i=0;i<polygon.size();++i) {
+			const auto &a=polygon[i], &b=polygon[(i+1)%polygon.size()];
+			lines.emplace_back(XMFLOAT2(float(ox+a.x)+offsets[k][0],float(oy+a.y)+offsets[k][1]),
+				XMFLOAT2(float(ox+b.x)+offsets[k][0],float(oy+b.y)+offsets[k][1]),color);
+		}
+}
+// Native Search marks a found trap with OF_TRAP_SPOTTED; Disable Device and
+// springing the trap remove its san_trap script.
+bool ContainerTrapFound(objHndl handle) {
+	return (objects.GetFlags(handle)&OF_TRAP_SPOTTED) && objects.GetScript(handle,0x27)!=0;
+}
+}
+
 bool IsSourceContainerProxy(objHndl handle) {
 	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return false;
 	auto obj=objSystem->GetObject(handle);
@@ -150,18 +170,24 @@ uint64_t TerrainSystem::PickSourceContainer(int x,int y) const {
 	return HitSourceContainer(x,y,handle) ? handle.handle : 0;
 }
 void TerrainSystem::RenderSourceContainers() {
+	if (!gameSystems || gameSystems->GetMap().IsClearingMap()) return;
+	auto mapId=maps.GetCurrentMapId();
+	int ox,oy;GetTerrainOrigin(ox,oy);
+	std::vector<gfx::Line2d> lines;
+	for (const auto &entry:mSourceContainers.Regions()) {
+		if (entry.first.first!=mapId) continue;
+		auto found=objSystem->FindObjectByIdStr(entry.second.objectId);
+		if (!found || !IsSourceContainerProxy(found) || (objects.GetFlags(found)&OF_DESTROYED)) continue;
+		if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(found))&1)) continue;
+		if (ContainerTrapFound(found)) AppendOutline(lines,entry.second.outline,ox,oy,FoundTrapColor,true);
+	}
 	// Rendering runs inside ScopedWorldInput: the mouse position is already in
 	// world pixels, so the hover test and the drawn outline use the same point.
 	auto mouse=mouseFuncs.GetPos();objHndl handle;
 	auto region=HitSourceContainer(mouse.x,mouse.y,handle);
-	if (!region) return;
-	int ox,oy;GetTerrainOrigin(ox,oy);
-	std::vector<gfx::Line2d> lines;
-	for (size_t i=0;i<region->outline.size();++i) {
-		const auto &a=region->outline[i], &b=region->outline[(i+1)%region->outline.size()];
-		lines.emplace_back(XMFLOAT2(float(ox+a.x),float(oy+a.y)),XMFLOAT2(float(ox+b.x),float(oy+b.y)),XMCOLOR(0.2f,0.65f,1.0f,0.95f));
-	}
-	mShapeRenderer.DrawLines(lines);
+	if (region && !ContainerTrapFound(handle))
+		AppendOutline(lines,region->outline,ox,oy,XMCOLOR(0.2f,0.65f,1.0f,0.95f),false);
+	if (!lines.empty()) mShapeRenderer.DrawLines(lines);
 }
 
 void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
@@ -644,6 +670,15 @@ void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) 
 			mShapeRenderer.DrawLines(lines);
 		}
 	}
+	std::vector<gfx::Line2d> traps;
+	for (const auto &entry : mOriginalDoors.Outlines()) {
+		if (entry.first.first != mapId) continue;
+		auto context = mDoorContexts.find(entry.first);
+		if (context == mDoorContexts.end() || !context->second.security.trapped || !context->second.security.found) continue;
+		if (GetOriginalDoorOpenOnMap(mapId, entry.first.second)) continue;
+		AppendOutline(traps, entry.second.closed, terrainOriginX, terrainOriginY, FoundTrapColor, true);
+	}
+	if (!traps.empty()) mShapeRenderer.DrawLines(traps);
 }
 
 void TerrainSystem::RenderTile(int x, int y, const TigRect& destRect) {
