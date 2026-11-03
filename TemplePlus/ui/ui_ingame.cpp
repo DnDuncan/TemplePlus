@@ -94,6 +94,8 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 	auto msg = source;
 	DoKeyboardScrolling();
 	if (HandleWorldZoomWheel(msg)) return;
+	if (msg.type == TigMsgType::MOUSE && (msg.arg4 & MSF_RMB_CLICK))
+		RadialMenuNoteRmbPress(static_cast<int>(msg.arg1), static_cast<int>(msg.arg2));
 	ScopedWorldInput worldInput(&msg);
 	if (msg.type == TigMsgType::KEYSTATECHANGE || msg.type == TigMsgType::KEYDOWN
 		|| msg.type == TigMsgType::CHAR || msg.type == TigMsgType::EXIT

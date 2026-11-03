@@ -10,6 +10,7 @@
 #include <infrastructure/keyboard.h>
 #define DIRECTINPUT_VERSION 0x800
 #include "tig/tig_keyboard.h"
+#include "gameview.h"
 #include "ui/ui.h"
 #include "gamesystems/d20/d20_help.h"
 #include "hotkeys.h"
@@ -201,8 +202,32 @@ class RadialMenuReplacements : public TempleFix
 	}
 };
 
+namespace {
+bool rmbPressValid = false;
+int rmbPressX = 0, rmbPressY = 0;
+}
+void RadialMenuNoteRmbPress(int physicalX, int physicalY) {
+	rmbPressValid = true; rmbPressX = physicalX; rmbPressY = physicalY;
+}
+
 int RadialMenuReplacements::RmbReleasedHandler(TigMsg* msg)
 {
+	// A right click (press and release in place) must leave the menu open; only
+	// press-drag-release selects. The native test compares positions that can
+	// be in different spaces once the world is zoomed (world handlers see
+	// unzoomed logical pixels, widgets physical ones), so it closed the menu
+	// on a plain click. Decide on physical display pixels instead.
+	if (rmbPressValid && msg && msg->type == TigMsgType::MOUSE) {
+		double x = static_cast<int>(msg->arg1), y = static_cast<int>(msg->arg2);
+		if (gameView && gameView->IsWorldInputActive()) {
+			auto p = gameView->ToDisplayScreen(x, y); x = p.x; y = p.y;
+		}
+		if (std::abs(x - rmbPressX) <= 6 && std::abs(y - rmbPressY) <= 6) {
+			temple::GetRef<BOOL>(0x10BE6D80) = TRUE;  // intgame_radialmenu ignore_close
+		}
+	}
+	rmbPressValid = false;
+
 	float radX, radY;
 	radialMenus.GetRadialMenuXY(radX, radY);
 
