@@ -10,9 +10,9 @@ def _original_doors(event, filename):
             return
         raise
     handler = getattr(bg2toee_lifecycle, event, None)
-    if handler is None and event in ('map_ready', 'door_trap'):
+    if handler is None and event in ('map_ready', 'door_trap', 'journal_key'):
         return  # older adapter without the optional event
-    handler(filename)
+    return handler(filename)
 
 def pre_load(filename):
     _original_doors('pre_load', filename)
@@ -35,6 +35,14 @@ def map_ready(map_id):
         _original_doors('map_ready', map_id)
     except Exception as exc:
         print('bg2toee map_ready failed: ' + str(exc))
+
+def journal_key():
+    # J key in the game (bg2toee: BG journal). True when the key was used.
+    try:
+        return bool(_original_doors('journal_key', None))
+    except Exception as exc:
+        print('bg2toee journal_key failed: ' + str(exc))
+        return False
 
 def door_trap(map_id, door_id, actor):
     # A source door trap was sprung by an engine context action.

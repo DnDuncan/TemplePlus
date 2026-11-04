@@ -82,6 +82,7 @@ public:
 	void ResetWorldZoom() { mWorldZoom.Reset(); }
 	bool ZoomWorldByWheel(int delta) { return mWorldZoom.Wheel(delta); }
 	WorldViewZoom::Point ToWorldScreen(double x, double y) const { return mWorldZoom.ToWorld(x, y, mWidth, mHeight); }
+	WorldViewZoom::Point ToDisplayScreen(double x, double y) const { return mWorldZoom.ToDisplay(x, y, mWidth, mHeight); }
 	WorldViewZoom::Bounds GetWorldViewport() const { return mWorldZoom.Visible(mWidth, mHeight); }
 	bool IsWorldInputActive() const { return mWorldInputDepth > 0; }
 

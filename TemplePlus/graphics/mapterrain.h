@@ -8,6 +8,7 @@
 #include "originaldoorcontext.h"
 #include "sourcecontainers.h"
 #include "../worldviewzoom.h"
+#include <infrastructure/location.h>
 
 struct TigRect;
 
@@ -106,7 +107,14 @@ public:
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
 	void BindSourceContainer(SourceContainerRegion region);
-	void ClearSourceContainers() {mSourceContainers.Clear();}
+	void ClearSourceContainers() {mSourceContainers.Clear();mSourceDoors.clear();}
+	// Baldur's Gate doors backed by an invisible native portal: native lock,
+	// trap, Search / Open Lock / Disable Device and opening; the source door
+	// art and navigation follow the portal's open state.
+	void BindSourceDoor(int mapId,const std::string &doorId,const std::string &objectId);
+	bool HasSourceDoor(int mapId,const std::string &doorId) const;
+	std::string SourceDoorFor(objHndl handle) const;
+	void SyncSourceDoor(objHndl handle);
 	uint64_t PickSourceContainer(int x,int y) const;
 	const SourceContainerRegion* HitSourceContainer(int x,int y,objHndl &handle) const;
 	WorldViewZoom::Point SourceContainerPoint(int x,int y) const;
@@ -120,7 +128,13 @@ public:
 	TerrainSystem& operator=(TerrainSystem&&) = delete;
 	
 	void UpdateDayNight();
+	// bg2toee Search: a ground template (radius in inches) shown until untilMs (timeGetTime).
+	void AddSearchTemplate(LocAndOffsets center, float radiusInches, uint32_t untilMs);
+
 private:
+	struct SearchTemplate { int mapId; float x, z, radius; uint32_t until; };
+	std::vector<SearchTemplate> mSearchTemplates;
+	void RenderSearchTemplates();
 	gfx::RenderingDevice& mDevice;
 	gfx::ShapeRenderer2d& mShapeRenderer;
 
@@ -140,6 +154,8 @@ private:
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
 	SourceContainerRegions mSourceContainers;
+	std::map<OriginalDoorState::Key,std::string> mSourceDoors; // door -> portal object id
+	mutable SourceContainerRegion mSourceDoorHit;
 	void RenderSourceContainers();
 	std::map<OriginalDoorState::Key, OriginalDoorUseGeometry> mDoorUse;
 	OriginalDoorUseQueue mDoorUseQueue, mTravelQueue;

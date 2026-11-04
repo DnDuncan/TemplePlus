@@ -102,12 +102,117 @@ void TerrainSystem::Render() {
 	// substituted 3D portal and never by rewriting the terrain JPEG files.
 	RenderOriginalDoors(terrainOriginX, terrainOriginY);
 	RenderSourceContainers();
+	RenderSearchTemplates();
+}
+
+void TerrainSystem::AddSearchTemplate(LocAndOffsets center, float radiusInches, uint32_t untilMs) {
+	auto world = center.ToInches2D();
+	mSearchTemplates.erase(std::remove_if(mSearchTemplates.begin(), mSearchTemplates.end(),
+		[&](const SearchTemplate &t) { return fabs(t.x - world.x) < 1 && fabs(t.z - world.y) < 1; }), mSearchTemplates.end());
+	mSearchTemplates.push_back({ maps.GetCurrentMapId(), world.x, world.y, radiusInches, untilMs });
+}
+
+// A circle on the ground: world (x, z) inches -> viewport pixels of the 20 x 14 tile diamond.
+void TerrainSystem::RenderSearchTemplates() {
+	auto now = timeGetTime();
+	mSearchTemplates.erase(std::remove_if(mSearchTemplates.begin(), mSearchTemplates.end(),
+		[&](const SearchTemplate &t) { return (int32_t)(now - t.until) >= 0; }), mSearchTemplates.end());
+	if (mSearchTemplates.empty()) return;
+	int trX, trY;
+	locSys.GetScrollTranslation(trX, trY);
+	auto screen = [&](float x, float z) {
+		auto u = x / INCH_PER_TILE, v = z / INCH_PER_TILE;
+		return XMFLOAT2(float(trX + (v - u) * 20.0), float(trY + (u + v) * 14.0));
+	};
+	for (const auto &t : mSearchTemplates) {
+		if (t.mapId != maps.GetCurrentMapId()) continue;
+		auto left = (t.until - now) / 1000.0f;
+		auto fade = left < 2.0f ? left / 2.0f : 1.0f;
+		XMCOLOR fill(0.95f, 0.80f, 0.35f, 0.16f * fade), ring(1.0f, 0.86f, 0.42f, 0.85f * fade);
+		auto centre = screen(t.x, t.z);
+		std::vector<gfx::Line2d> lines;
+		constexpr int Segments = 64;
+		for (int i = 0; i < Segments; ++i) {
+			auto a = i * 6.2831853f / Segments, b = (i + 1) * 6.2831853f / Segments;
+			auto p = screen(t.x + t.radius * cosf(a), t.z + t.radius * sinf(a));
+			auto q = screen(t.x + t.radius * cosf(b), t.z + t.radius * sinf(b));
+			gfx::Vertex2d vertices[4]{};
+			XMFLOAT2 points[4] = { centre, p, q, q };
+			for (int k = 0; k < 4; ++k) {
+				vertices[k].pos = XMFLOAT4(points[k].x, points[k].y, 0, 1);
+				vertices[k].diffuse = fill;
+			}
+			mShapeRenderer.DrawRectangle(vertices, static_cast<gfx::Texture*>(nullptr));
+			lines.emplace_back(p, q, ring);
+			lines.emplace_back(XMFLOAT2(p.x, p.y + 1), XMFLOAT2(q.x, q.y + 1), ring);
+		}
+		mShapeRenderer.DrawLines(lines);
+	}
+}
+
+namespace {
+// Infinity Engine convention: a detected, still armed trap keeps its polygon
+// outlined in red until it is disarmed or sprung.
+const XMCOLOR FoundTrapColor(1.0f,0.12f,0.08f,1.0f);
+void AppendOutline(std::vector<gfx::Line2d> &lines,const OriginalDoorPolygon &polygon,int ox,int oy,XMCOLOR color,bool thick) {
+	static const float offsets[5][2]={{0,0},{1,0},{0,1},{-1,0},{0,-1}};
+	for (int k=0;k<(thick ? 5 : 1);++k)
+		for (size_t i=0;i<polygon.size();++i) {
+			const auto &a=polygon[i], &b=polygon[(i+1)%polygon.size()];
+			lines.emplace_back(XMFLOAT2(float(ox+a.x)+offsets[k][0],float(oy+a.y)+offsets[k][1]),
+				XMFLOAT2(float(ox+b.x)+offsets[k][0],float(oy+b.y)+offsets[k][1]),color);
+		}
+}
+// Native Search (0x100509C0) marks a found trap by setting bit 4 in the first
+// word of the object's san_trap script entry; Disable Device and springing the
+// trap clear the script.
+bool ContainerTrapFound(objHndl handle) {
+	auto script=objSystem->GetObject(handle)->GetScript(obj_f_scripts_idx,0x27);
+	return script.scriptId!=0 && (script.unk1&4)!=0;
+}
 }
 
 bool IsSourceContainerProxy(objHndl handle) {
 	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return false;
 	auto obj=objSystem->GetObject(handle);
+	if (obj->type==obj_t_portal) return obj->GetInt32(obj_f_portal_pad_i_4)==SourceContainerProxyMarker;
 	return obj->type==obj_t_container && obj->GetInt32(obj_f_container_pad_i_4)==SourceContainerProxyMarker;
+}
+void TerrainSystem::BindSourceDoor(int mapId,const std::string &doorId,const std::string &objectId) {
+	auto id=OriginalDoorState::NormalizeId(doorId);
+	if (mapId!=maps.GetCurrentMapId() || !mOriginalDoors.Find(mapId,id)) throw std::invalid_argument("register the source door before its portal");
+	auto handle=objSystem->FindObjectByIdStr(objectId);
+	if (!handle) throw std::invalid_argument("source door portal does not exist");
+	auto obj=objSystem->GetObject(handle);
+	// Project portals are tagged 'BGD' + index by the mod.
+	auto tag=static_cast<uint32_t>(obj->GetInt32(obj_f_portal_pad_i_1));
+	if (obj->type!=obj_t_portal || (tag&0xFFFFFF00u)!=0x42474400u || (tag&0xFFu)==0)
+		throw std::invalid_argument("source door object is not a tagged project portal");
+	obj->SetInt32(obj_f_portal_pad_i_4,SourceContainerProxyMarker);
+	objects.SetFlag(handle,static_cast<ObjectFlag>(OF_NO_BLOCK|OF_SEE_THROUGH|OF_SHOOT_THROUGH));
+	mSourceDoors[{mapId,id}]=objectId;
+	SyncSourceDoor(handle); // the portal (saved natively) decides the door state
+}
+bool TerrainSystem::HasSourceDoor(int mapId,const std::string &doorId) const {
+	return mSourceDoors.count({mapId,OriginalDoorState::NormalizeId(doorId)})!=0;
+}
+std::string TerrainSystem::SourceDoorFor(objHndl handle) const {
+	if (!handle || !objSystem || !objSystem->IsValidHandle(handle)) return {};
+	auto obj=objSystem->GetObject(handle);
+	if (obj->type!=obj_t_portal) return {};
+	auto idStr=obj->id.ToString();
+	for (const auto &entry:mSourceDoors)
+		if (entry.first.first==maps.GetCurrentMapId() && entry.second==idStr) return entry.first.second;
+	return {};
+}
+void TerrainSystem::SyncSourceDoor(objHndl handle) {
+	auto door=SourceDoorFor(handle);
+	if (door.empty()) return;
+	auto open=objects.IsPortalOpen(handle);
+	if (GetOriginalDoorOpen(door)!=open) {
+		SetOriginalDoorOpen(door,open);
+		logger->info("Source door follows its portal: id={} open={}",door,open);
+	}
 }
 void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 	// Validate everything before changing the backing object's presentation.
@@ -136,7 +241,20 @@ const SourceContainerRegion* TerrainSystem::HitSourceContainer(int x,int y,objHn
 	if (!gameView || !gameSystems || gameSystems->GetMap().IsClearingMap()) return nullptr;
 	auto p=SourceContainerPoint(x,y);
 	int ox,oy;GetTerrainOrigin(ox,oy);
-	auto region=mSourceContainers.Hit(maps.GetCurrentMapId(),int(std::floor(p.x-ox)),int(std::floor(p.y-oy)));
+	auto mapId=maps.GetCurrentMapId();
+	auto px=int(std::floor(p.x-ox)), py=int(std::floor(p.y-oy));
+	auto region=mSourceContainers.Hit(mapId,px,py);
+	if (!region) {
+		// Source doors: their current (open or closed) source outline.
+		for (const auto &entry:mSourceDoors) {
+			if (entry.first.first!=mapId) continue;
+			auto outline=mOriginalDoors.Outline(mapId,entry.first.second);
+			if (!outline || !DoorPolygonContains(*outline,px,py)) continue;
+			if (region) return nullptr; // ambiguous
+			mSourceDoorHit=SourceContainerRegion{mapId,entry.first.second,entry.second,*outline};
+			region=&mSourceDoorHit;
+		}
+	}
 	if (!region) return nullptr;
 	auto found=objSystem->FindObjectByIdStr(region->objectId);
 	if (!found || !IsSourceContainerProxy(found) || objects.IsUntargetable(found)
@@ -150,18 +268,31 @@ uint64_t TerrainSystem::PickSourceContainer(int x,int y) const {
 	return HitSourceContainer(x,y,handle) ? handle.handle : 0;
 }
 void TerrainSystem::RenderSourceContainers() {
+	if (!gameSystems || gameSystems->GetMap().IsClearingMap()) return;
+	auto mapId=maps.GetCurrentMapId();
+	int ox,oy;GetTerrainOrigin(ox,oy);
+	std::vector<gfx::Line2d> lines;
+	for (const auto &entry:mSourceContainers.Regions()) {
+		if (entry.first.first!=mapId) continue;
+		auto found=objSystem->FindObjectByIdStr(entry.second.objectId);
+		if (!found || !IsSourceContainerProxy(found) || (objects.GetFlags(found)&OF_DESTROYED)) continue;
+		if (!(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(found))&1)) continue;
+		if (ContainerTrapFound(found)) AppendOutline(lines,entry.second.outline,ox,oy,FoundTrapColor,true);
+	}
+	for (const auto &entry:mSourceDoors) {
+		if (entry.first.first!=mapId) continue;
+		auto found=objSystem->FindObjectByIdStr(entry.second);
+		auto outline=mOriginalDoors.Outline(mapId,entry.first.second);
+		if (found && outline && !(objects.GetFlags(found)&OF_DESTROYED) && ContainerTrapFound(found))
+			AppendOutline(lines,*outline,ox,oy,FoundTrapColor,true);
+	}
 	// Rendering runs inside ScopedWorldInput: the mouse position is already in
 	// world pixels, so the hover test and the drawn outline use the same point.
 	auto mouse=mouseFuncs.GetPos();objHndl handle;
 	auto region=HitSourceContainer(mouse.x,mouse.y,handle);
-	if (!region) return;
-	int ox,oy;GetTerrainOrigin(ox,oy);
-	std::vector<gfx::Line2d> lines;
-	for (size_t i=0;i<region->outline.size();++i) {
-		const auto &a=region->outline[i], &b=region->outline[(i+1)%region->outline.size()];
-		lines.emplace_back(XMFLOAT2(float(ox+a.x),float(oy+a.y)),XMFLOAT2(float(ox+b.x),float(oy+b.y)),XMCOLOR(0.2f,0.65f,1.0f,0.95f));
-	}
-	mShapeRenderer.DrawLines(lines);
+	if (region && !ContainerTrapFound(handle))
+		AppendOutline(lines,region->outline,ox,oy,XMCOLOR(0.2f,0.65f,1.0f,0.95f),false);
+	if (!lines.empty()) mShapeRenderer.DrawLines(lines);
 }
 
 void TerrainSystem::RegisterOriginalDoor(OriginalDoorPatch patch) {
@@ -221,7 +352,7 @@ void TerrainSystem::CheckNewDoorBlockers(const OriginalDoorState &candidate) con
 }
 
 void TerrainSystem::BindOriginalDoorNavigation(const std::string &id, DoorNavigationGeometry geometry) {
-	if (PathNodeSys::hasClearanceData) throw std::invalid_argument("door navigation probe requires a map without precomputed clearance");
+	// Precomputed clearance is supported: the clearance A* checks door masks itself (pathfinding.cpp).
 	ValidateDoorNavigation(geometry.closed); ValidateDoorNavigation(geometry.open);
 	for (const auto *state : {&geometry.closed, &geometry.open}) for (const auto &tile : *state) {
 		SectorLoc loc(locXY{ static_cast<uint32_t>(tile.x), static_cast<uint32_t>(tile.y) });
@@ -540,8 +671,6 @@ std::string TerrainSystem::LoadOriginalDoorSession() {
 	if (size > originaldoorsave::MaxBytes) throw std::invalid_argument("original door save exceeds size limit");
 	auto session = originaldoorsave::Decode(vfs->ReadAsBinary(path));
 	for (const auto &entry : session.doors.Patches()) ValidateOriginalDoorTextures(entry.second);
-	if (PathNodeSys::hasClearanceData && !session.doors.NavigationTiles(maps.GetCurrentMapId()).empty())
-		throw std::invalid_argument("saved door navigation requires a map without precomputed clearance");
 	CheckNewDoorBlockers(session.doors);
 	mOriginalDoors = std::move(session.doors);
 	pathfindingSys.PathCacheInit();
@@ -646,6 +775,15 @@ void TerrainSystem::RenderOriginalDoors(int terrainOriginX, int terrainOriginY) 
 			mShapeRenderer.DrawLines(lines);
 		}
 	}
+	std::vector<gfx::Line2d> traps;
+	for (const auto &entry : mOriginalDoors.Outlines()) {
+		if (entry.first.first != mapId) continue;
+		auto context = mDoorContexts.find(entry.first);
+		if (context == mDoorContexts.end() || !context->second.security.trapped || !context->second.security.found) continue;
+		if (GetOriginalDoorOpenOnMap(mapId, entry.first.second)) continue;
+		AppendOutline(traps, entry.second.closed, terrainOriginX, terrainOriginY, FoundTrapColor, true);
+	}
+	if (!traps.empty()) mShapeRenderer.DrawLines(traps);
 }
 
 void TerrainSystem::RenderTile(int x, int y, const TigRect& destRect) {

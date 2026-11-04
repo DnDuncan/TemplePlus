@@ -9,6 +9,7 @@
 #include "gamesystems.h"
 #include <tig/tig_tabparser.h>
 #include "objects/objsystem.h"
+#include "gameview.h"
 
 //*****************************************************************************
 //* Scroll
@@ -32,7 +33,36 @@ void ScrollSystem::Reset() {
 	auto reset = temple::GetPointer<void()>(0x10005700);
 	reset();
 }
+namespace {
+// Scroll limits (MapLimits.mes) are written for the unzoomed viewport. With the
+// world zoomed in (bg_camera_zoom / wheel) the visible area shrinks around the
+// screen centre, so the translation may go further by the hidden margin or the
+// map edges can never be reached.
+int64_t sZoomExpandX = 0, sZoomExpandY = 0;
+
+void ApplyZoomToScrollLimits() {
+	auto &leftLim = temple::GetRef<int64_t>(0x10307340);
+	auto &rightLim = temple::GetRef<int64_t>(0x103072F0);
+	auto &topLim = temple::GetRef<int64_t>(0x10307368);
+	auto &botLim = temple::GetRef<int64_t>(0x10307358);
+	auto zoom = gameView ? (double)gameView->GetWorldZoom() : 1.0;
+	int64_t expandX = 0, expandY = 0;
+	if (zoom > 1.0) {
+		expandX = (int64_t)(config.renderWidth * 0.5 * (1.0 - 1.0 / zoom));
+		expandY = (int64_t)(config.renderHeight * 0.5 * (1.0 - 1.0 / zoom));
+	}
+	if (expandX == sZoomExpandX && expandY == sZoomExpandY) return;
+	leftLim += expandX - sZoomExpandX;
+	rightLim -= expandX - sZoomExpandX;
+	topLim += expandY - sZoomExpandY;
+	botLim -= expandY - sZoomExpandY;
+	sZoomExpandX = expandX;
+	sZoomExpandY = expandY;
+}
+}
+
 void ScrollSystem::AdvanceTime(uint32_t time) {
+	ApplyZoomToScrollLimits();
 	auto advanceTime = temple::GetPointer<void(uint32_t)>(0x10006000);
 	advanceTime(time);
 }
@@ -45,6 +75,8 @@ void ScrollSystem::SetMapId(int mapId)
 {
 	static auto map_scroll_set_map_id = temple::GetPointer<void(int mapId)>(0x10005720);
 	map_scroll_set_map_id(mapId);
+	// The limits were just reloaded: the zoom margin is applied again next frame.
+	sZoomExpandX = sZoomExpandY = 0;
 
 	/*struct MapLimits{
 		int left = 9000;

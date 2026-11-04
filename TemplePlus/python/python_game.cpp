@@ -30,6 +30,8 @@
 #include "sound.h"
 #include "ui/ui.h"
 #include "ui/ui_dialog.h"
+#include "ui/ui_bgjournal.h"
+#include "quest.h"
 #include "ui/ui_tutorial.h"
 #include "ui/ui_picker.h"
 #include "particles.h"
@@ -1687,6 +1689,82 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)});Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
+	int mapId;const char *id,*guid;
+	if (!PyArg_ParseTuple(args,"iss:bg_source_door_bind",&mapId,&id,&guid)) return nullptr;
+	try {gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);Py_RETURN_NONE;}
+	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+// BG journal in the ToEE logbook (Quests tab): game.bg_quest_set(id, title,
+// description, state). The quest table (temple.dll @ 0x10AA73DC, 200 entries of
+// 0x20 bytes: +0 CR, +4 title, +8 description) caches mes text pointers at
+// startup; BG entries replace them at run time with cp1251 strings kept here.
+// Accepted/mentioned go through the native setter (logbook date, "new quest"
+// notice). Completed is written directly: BG awards its own experience, the
+// native completion would add quest XP from the CR field.
+static PyObject* PyGame_BgQuestSet(PyObject*,PyObject* args) {
+	int id, state;
+	const char *title, *description;
+	if (!PyArg_ParseTuple(args,"issi:bg_quest_set",&id,&title,&description,&state)) return nullptr;
+	if (id < 0 || id >= 200 || state < 0 || state > 6) {PyErr_SetString(PyExc_ValueError,"quest id 0..199, state 0..6");return nullptr;}
+	static std::map<int, std::pair<std::string, std::string>> sTexts;
+	auto &texts = sTexts[id];
+	texts.first = title;
+	texts.second = description;
+	auto table = temple::GetRef<char*>(0x10AA73DC);
+	auto states = temple::GetRef<uint32_t*>(0x10AA73D8);
+	if (!table || !states) {PyErr_SetString(PyExc_RuntimeError,"quest system not initialized");return nullptr;}
+	auto entry = table + id * 0x20;
+	*reinterpret_cast<const char**>(entry + 4) = texts.first.c_str();
+	*reinterpret_cast<const char**>(entry + 8) = texts.second.c_str();
+	*reinterpret_cast<int*>(entry) = 0;
+	auto current = (int)quests.GetState(id);
+	if (state == (int)QuestState::Completed || state == (int)QuestState::Botched) {
+		if (current == (int)QuestState::Unknown) quests.SetState(id, QuestState::Accepted);
+		states[id] = state;
+	} else if (state != current && state != 0) {
+		quests.SetState(id, (QuestState)state);
+	}
+	Py_RETURN_NONE;
+}
+// Opens/closes the ToEE logbook like the L key (BG journal key J).
+static PyObject* PyGame_BgLogbookToggle(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_logbook_toggle")) return nullptr;
+	auto result = temple::GetRef<int(__cdecl)()>(0x101438C0)();
+	return PyInt_FromLong(result ? 1 : 0);
+}
+// BG journal window: game.bg_journal_show(title, [(heading, text), ...]) with
+// cp1251 strings, game.bg_journal_hide(), game.bg_journal_visible().
+static PyObject* PyGame_BgJournalShow(PyObject*,PyObject* args) {
+	const char *title; PyObject *items;
+	if (!PyArg_ParseTuple(args,"sO:bg_journal_show",&title,&items)) return nullptr;
+	if (!PySequence_Check(items)) {PyErr_SetString(PyExc_TypeError,"entries must be a sequence");return nullptr;}
+	std::vector<bgjournal::Entry> entries;
+	auto count=PySequence_Size(items);
+	if (count<0 || count>5000) {PyErr_SetString(PyExc_ValueError,"too many journal entries");return nullptr;}
+	for (Py_ssize_t i=0;i<count;i++) {
+		auto item=PySequence_GetItem(items,i);
+		const char *heading,*text;
+		if (!item || !PyArg_ParseTuple(item,"ss:bg_journal_show entry",&heading,&text)) {Py_XDECREF(item);return nullptr;}
+		entries.push_back({heading,text});
+		Py_DECREF(item);
+	}
+	bgjournal::Show(title,entries);
+	Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgJournalHide(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_journal_hide")) return nullptr;
+	bgjournal::Hide();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgJournalVisible(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_journal_visible")) return nullptr;
+	return PyInt_FromLong(bgjournal::IsVisible() ? 1 : 0);
+}
+// BG scripts (BCS) must not start a conversation while one is on screen.
+static PyObject* PyGame_BgDialogActive(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_dialog_active")) return nullptr;
+	return PyInt_FromLong(uiDialog->IsActive() || uiDialog->IsDialogEngaged() ? 1 : 0);
+}
 static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_clear")) return nullptr;
 	gameSystems->GetTerrain().ClearSourceContainers();Py_RETURN_NONE;
@@ -1893,6 +1971,13 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_version",PyGame_BgSourceContainerVersion,METH_VARARGS,NULL},
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
+	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
+	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
+	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},
+	{"bg_logbook_toggle",PyGame_BgLogbookToggle,METH_VARARGS,NULL},
+	{"bg_journal_show",PyGame_BgJournalShow,METH_VARARGS,NULL},
+	{"bg_journal_hide",PyGame_BgJournalHide,METH_VARARGS,NULL},
+	{"bg_journal_visible",PyGame_BgJournalVisible,METH_VARARGS,NULL},
 	{"bg_context_bind",PyGame_BgContextBind,METH_VARARGS,NULL},
 	{"bg_context_state",PyGame_BgContextState,METH_VARARGS,NULL},
 	{"bg_context_clear",PyGame_BgContextClear,METH_VARARGS,NULL},

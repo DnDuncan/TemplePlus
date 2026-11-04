@@ -22,6 +22,7 @@ public:
 		return result;
 	}
 	void Clear() {mRegions.clear();}
+	const std::map<OriginalDoorState::Key,SourceContainerRegion> &Regions() const {return mRegions;}
 private:
 	std::map<OriginalDoorState::Key,SourceContainerRegion> mRegions;
 };

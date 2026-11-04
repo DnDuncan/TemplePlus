@@ -34,6 +34,7 @@
 #include "config/config.h"
 #include "maps.h"
 #include "ui_picker.h"
+#include "python/python_integration_obj.h"
 
 UiInGame::UiInGame(const UiSystemConf &config) {
 	auto startup = temple::GetPointer<int(const UiSystemConf*)>(0x10112e70);
@@ -94,6 +95,8 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 	auto msg = source;
 	DoKeyboardScrolling();
 	if (HandleWorldZoomWheel(msg)) return;
+	if (msg.type == TigMsgType::MOUSE && (msg.arg4 & MSF_RMB_CLICK))
+		RadialMenuNoteRmbPress(static_cast<int>(msg.arg1), static_cast<int>(msg.arg2));
 	ScopedWorldInput worldInput(&msg);
 	if (msg.type == TigMsgType::KEYSTATECHANGE || msg.type == TigMsgType::KEYDOWN
 		|| msg.type == TigMsgType::CHAR || msg.type == TigMsgType::EXIT
@@ -369,6 +372,19 @@ void UiInGame::HandleNonCombatKeyStateChange(const TigMsg& msg){
 	auto msga = reinterpret_cast<const TigKeyStateChangeMsg&>(msg);
 	if (msga.down){
 		return;
+	}
+
+	// BG journal (bg2toee): J, as in Baldur's Gate. The mod's Python adapter
+	// decides what to show; without the mod the key keeps its ToEE meaning.
+	constexpr uint32_t DikJ = 0x24; // DIK_J
+	if (msga.key == DikJ && !hotkeys.IsKeyPressed(VK_CONTROL) && !hotkeys.IsKeyPressed(VK_SHIFT)
+		&& !hotkeys.IsKeyPressed(VK_MENU)) {
+		auto args = Py_BuildValue("()");
+		auto result = pythonObjIntegration.ExecuteScript("templeplus.savehook", "journal_key", args);
+		Py_DECREF(args);
+		bool handled = result && PyObject_IsTrue(result) == 1;
+		Py_XDECREF(result);
+		if (handled) return;
 	}
 
 	auto leader = party.GetConsciousPartyLeader();
