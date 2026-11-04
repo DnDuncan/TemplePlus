@@ -115,6 +115,8 @@ public:
 	bool HasSourceDoor(int mapId,const std::string &doorId) const;
 	std::string SourceDoorFor(objHndl handle) const;
 	void SyncSourceDoor(objHndl handle);
+	bool SourceDoorReachable(objHndl actor,objHndl portal);
+	bool PrepareSourceDoorToggle(objHndl portal);
 	uint64_t PickSourceContainer(int x,int y) const;
 	const SourceContainerRegion* HitSourceContainer(int x,int y,objHndl &handle) const;
 	WorldViewZoom::Point SourceContainerPoint(int x,int y) const;

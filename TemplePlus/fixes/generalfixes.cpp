@@ -56,6 +56,7 @@ public:
 	static void (__cdecl *orgToggle)(objHndl);
 	void apply() override {
 		orgToggle = replaceFunction<void(__cdecl)(objHndl)>(0x100B4700, [](objHndl handle) {
+			if (originalDoorTerrain && !originalDoorTerrain->PrepareSourceDoorToggle(handle)) return;
 			orgToggle(handle);
 			if (originalDoorTerrain) originalDoorTerrain->SyncSourceDoor(handle);
 		});

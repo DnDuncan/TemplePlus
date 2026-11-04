@@ -1091,6 +1091,8 @@ int GoalPleaseMove(AnimSlot &slot) {
 
 // Originally @ 0x10017460
 int GoalIsTargetWithinRadius(AnimSlot &slot) {
+	if (originalDoorTerrain && !originalDoorTerrain->SourceDoorFor(slot.param2.obj).empty()
+		&& originalDoorTerrain->SourceDoorReachable(slot.param1.obj,slot.param2.obj)) return TRUE;
 	static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x10017460);
 	return org(slot);
 }

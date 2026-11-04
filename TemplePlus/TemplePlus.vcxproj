@@ -400,6 +400,7 @@
     <ClInclude Include="ui\ui_logbook.h" />
     <ClInclude Include="ui\ui_bgjournal.h" />
     <ClInclude Include="ui\ui_bgrolls.h" />
+    <ClInclude Include="ui\bgskillrules.h" />
     <ClInclude Include="ui\ui_popup.h" />
     <ClInclude Include="ui\ui_slider.h" />
     <ClInclude Include="ui\ui_sticky.h" />

@@ -28,6 +28,8 @@
 #include "gamesystems/legacymapsystems.h"
 #include "gamesystems/legacysystems.h"
 #include "python/python_integration_obj.h"
+#include "animgoals/animgoals_stackentry.h"
+#include "ui/ui_bgrolls.h"
 
 TerrainSystem *originalDoorTerrain = nullptr;
 
@@ -212,6 +214,27 @@ void TerrainSystem::SyncSourceDoor(objHndl handle) {
 	if (GetOriginalDoorOpen(door)!=open) {
 		SetOriginalDoorOpen(door,open);
 		logger->info("Source door follows its portal: id={} open={}",door,open);
+	}
+}
+bool TerrainSystem::SourceDoorReachable(objHndl actor,objHndl portal) {
+	auto id = SourceDoorFor(portal);
+	auto found = mDoorUse.find({maps.GetCurrentMapId(),id});
+	if (id.empty() || found == mDoorUse.end()) return false;
+	for (const auto &point : found->second.points)
+		if (DoorUseReachable(actor.handle,point,found->second.reach,id)) return true;
+	return false;
+}
+bool TerrainSystem::PrepareSourceDoorToggle(objHndl portal) {
+	auto id = SourceDoorFor(portal);
+	if (id.empty()) return true;
+	try {
+		auto candidate = mOriginalDoors;
+		candidate.SetOpen(maps.GetCurrentMapId(),id,!objects.IsPortalOpen(portal));
+		CheckNewDoorBlockers(candidate);
+		return true;
+	} catch (const std::exception &e) {
+		logger->info("Source door toggle refused before native mutation: {}",e.what());
+		return false;
 	}
 }
 void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
@@ -444,6 +467,7 @@ void TerrainSystem::DispatchMapReady() {
 
 void TerrainSystem::AdvanceTime(uint32_t time) {
 	if (mMapReadyPending) DispatchMapReady();
+	bgrolls::AdvanceSearch();
 	UpdateSceneFocus();
 	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;
@@ -465,6 +489,15 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 			StopDoorMovement(request.actor);
 			if (mContextRequest) {
 				auto context=*mContextRequest;mContextRequest.reset();ApplyDoorContext(context,request.actor);
+			} else if (HasSourceDoor(request.mapId, request.id)) {
+				auto portal = objSystem->FindObjectByIdStr(mSourceDoors.at({request.mapId, request.id}));
+				if (!portal) throw std::invalid_argument("source door portal is missing");
+				// Approach the reviewed reachable point first, then let native use
+				// perform locks, traps and animation. Never toggle art past a lock.
+				AnimSlotGoalStackEntry goal(actor, ag_use_object, true);
+				goal.target.obj = portal;
+				AnimSlotId slot;
+				if (!goal.Push(&slot)) throw std::invalid_argument("cannot use source door");
 			} else SetOriginalDoorOpen(request.id, request.open);
 			logger->info("Original door approach applied: map={} id={} open={}", request.mapId, request.id, request.open);
 		} else if (action == OriginalDoorUseQueue::Action::Cancelled) {
@@ -719,6 +752,8 @@ std::string TerrainSystem::HitTestOriginalDoor(int screenX, int screenY) const {
 }
 
 void TerrainSystem::Reset() {
+	mSearchTemplates.clear();
+	bgrolls::Reset();
 	ClearSourceContainers();
 	ClearDoorContext();
 	mOriginalDoors.Clear();
@@ -727,6 +762,8 @@ void TerrainSystem::Reset() {
 }
 
 void TerrainSystem::UnloadModule() {
+	mSearchTemplates.clear();
+	bgrolls::Reset();
 	ClearSourceContainers();
 	ClearDoorContext();
 	mOriginalDoors.Clear();

@@ -28,6 +28,12 @@
 #include "graphics/mapterrain.h"
 #include "action_sequence.h"
 #include "d20.h"
+#include "bgskillrules.h"
+#include "ui/ui_picker.h"
+#include "dispatcher.h"
+#include "combat.h"
+#include "maps.h"
+#include "animgoals/anim.h"
 
 namespace bgrolls {
 namespace {
@@ -41,6 +47,7 @@ struct Captured {
 };
 Captured sCaptured;
 int sPassive = 0;
+bool sAreaRoll = false;
 
 using HistoryType2Fn = int(__cdecl)(objHndl, objHndl, int, int, int, int, BonusList*);
 HistoryType2Fn *sOrgHistoryType2 = nullptr;
@@ -222,43 +229,106 @@ void Show(RollEvent e) {
 
 // ------------------------------------------------------------- BG rules
 
-std::map<uint64_t, int> sLockFumbles;   // by object handle (party members stay loaded)
+// The streak belongs to the actual tools, and is saved by native inventory.
+// Never store handles across loads or damage the next tool after a swap.
 
 // Thieves' tools by quality: plain 0, masterwork 1, mithril 2.
 const std::pair<int, int> ToolProtos[] = { {12640, 2}, {12013, 1}, {12012, 0} };
 
-void OpenLockFumble(objHndl performer) {
-	auto &count = sLockFumbles[performer.handle];
-	count++;
+void RecordOpenLock(objHndl performer, bool criticalFailure) {
 	for (auto &tool : ToolProtos) {
 		auto item = inventory.FindItemByProtoId(performer, tool.first);
 		if (!item) continue;
-		if (count < 2 + tool.second) return;
+		auto obj = objSystem->GetObject(item);
+		auto saved = static_cast<uint32_t>(obj->GetInt32(obj_f_item_pad_i_6));
+		if (saved && (saved & 0xFFFFFF00u) != bgskillrules::ToolStamp) return;
+		saved = bgskillrules::RecordToolRoll(saved, criticalFailure);
+		obj->SetInt32(obj_f_item_pad_i_6, saved);
+		if (!bgskillrules::ToolBreaks(saved, tool.second)) return;
 		objects.Destroy(item);
-		count = 0;
 		floatSys.floatMesLine(performer, 1, FloatLineColor::Red,
-			"\xC2\xEE\xF0\xEE\xE2\xF1\xEA\xEE\xE9 \xED\xE0\xE1\xEE\xF0 \xF1\xEB\xEE\xEC\xE0\xED!");   // Воровской набор сломан!
+			"\xC2\xEE\xF0\xEE\xE2\xF1\xEA\xEE\xE9 \xED\xE0\xE1\xEE\xF0 \xF1\xEB\xEE\xEC\xE0\xED!");
 		return;
 	}
 }
 
-void AreaSearch(objHndl performer, int total) {
-	auto loc = objects.GetLocationFull(performer);
-	gameSystems->GetTerrain().AddSearchTemplate(loc, 360.0f, timeGetTime() + 30000);
-	ObjList list;
-	list.ListRadius(loc, 360.0f, OLC_PORTAL | OLC_CONTAINER);
-	for (auto i = 0; i < list.size(); i++) {
-		auto handle = list[i];
-		auto obj = objSystem->GetObject(handle);
-		auto script = obj->GetScript(obj_f_scripts_idx, 0x27);
-		if (!script.scriptId || (script.unk1 & 4)) continue;
-		auto trap = traps.GetByObj(handle);
-		if (!trap || total < trap->searchDC) continue;
-		script.unk1 |= 4;   // the native "spotted" bit: red outline, Disable Device available
-		obj->SetScript(obj_f_scripts_idx, 0x27, script);
-		floatSys.floatMesLine(handle, 1, FloatLineColor::Red,
-			"\xCB\xEE\xE2\xF3\xF8\xEA\xE0 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xE0!");   // Ловушка обнаружена!
+bool Enabled() {
+	return gameSystems && gameSystems->GetTerrain().HasOriginalDoorInput();
+}
+
+struct SearchSession {
+	objHndl performer;
+	int mapId = 0, total = 0;
+	LocAndOffsets center;
+	uint32_t until = 0, next = 0;
+};
+SearchSession sSearch;
+objHndl sSearchPickerActor;
+int sSearchPickerMap = 0;
+
+bool EligibleTrap(objHndl performer, objHndl handle, LocAndOffsets center) {
+	auto obj = objSystem->GetObject(handle);
+	if (obj->GetFlags() & OF_DESTROYED) return false;
+	auto script = obj->GetScript(obj_f_scripts_idx, 0x27);
+	auto trap = traps.GetByObj(handle);
+	if (!script.scriptId || (script.unk1 & 4) || !trap) return false;
+	if (trap->searchDC > 20 && !d20Sys.d20Query(performer, DK_QUE_Critter_Can_Find_Traps)) return false;
+	auto a = center.ToInches2D(), b = obj->GetLocationFull().ToInches2D();
+	// ListRadius includes object radii. The template checks the anchor exactly.
+	if (!bgskillrules::InSearchArea(a.x, a.y, b.x, b.y)) return false;
+	return gameSystems->GetTerrain().SceneAreaForActor(performer.handle)
+		== gameSystems->GetTerrain().SceneAreaForActor(handle.handle);
+}
+
+objHndl BestSearcher(objHndl fallback) {
+	std::vector<DoorSkillCandidate> candidates;
+	auto area = gameSystems->GetTerrain().SceneAreaForActor(fallback.handle);
+	for (uint32_t i=0; i<party.CurrentlySelectedNum(); ++i) {
+		auto actor = party.GetCurrentlySelected(i);
+		if (!actor || critterSys.IsDeadOrUnconscious(actor)
+			|| gameSystems->GetTerrain().SceneAreaForActor(actor.handle) != area) continue;
+		auto swap = d20Sys.D20QueryPython(actor, "Skill Swap", skill_search);
+		auto skill = swap > 0 && swap <= 42 ? static_cast<SkillEnum>(swap-1) : skill_search;
+		auto props = skillSys.skillPropsTable[skill];
+		auto eligible = skillSys.IsEnabled(skill) && (props.unskilledUseAllow || critterSys.SkillBaseGet(actor,skill)>0);
+		if (props.stat == stat_intelligence && d20Sys.d20Query(actor,DK_QUE_CannotUseIntSkill)) eligible=false;
+		auto bonus = dispatch.dispatch1ESkillLevel(actor,skill,nullptr,objHndl::null,SRF_Trap_Search);
+		candidates.push_back({actor.handle,bonus,0,eligible});
 	}
+	return objHndl{BestDoorSkillCandidate(candidates)};
+}
+
+void __cdecl SearchPicked(const PickerResult &result, void*) {
+	auto performer = sSearchPickerActor;
+	auto mapId = sSearchPickerMap;
+	auto flags = result.flags;
+	auto center = result.location;
+	sSearchPickerActor = objHndl::null;
+	uiPicker.FreeCurrentPicker();
+	if ((flags & PRF_CANCELLED) || !(flags & PRF_HAS_LOCATION)
+		|| !Enabled() || maps.GetCurrentMapId() != mapId || combatSys.isCombatActive()
+		|| !objSystem->IsValidHandle(performer) || !party.IsInParty(performer)
+		|| critterSys.IsDeadOrUnconscious(performer)) return;
+	auto a = objects.GetLocationFull(performer).ToInches2D(), b = center.ToInches2D();
+	if (!bgskillrules::InSearchArea(a.x,a.y,b.x,b.y)) return;
+	ObjList list;
+	list.ListRadius(center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
+	int dc = 0;
+	for (auto handle : list) if (EligibleTrap(performer,handle,center)) {
+		auto value = traps.GetByObj(handle)->searchDC;
+		dc = dc ? (std::min)(dc,value) : value;
+	}
+	if (!dc) dc = 10;
+	gameSystems->GetAnim().Interrupt(performer,AnimGoalPriority::AGP_3,true);
+	gameSystems->GetAnim().PushAnimate(performer,112);
+	int delta = 0;
+	sAreaRoll = true;
+	skillSys.SkillRoll(performer,skill_search,dc,&delta,SRF_Trap_Search);
+	sAreaRoll = false;
+	auto now = timeGetTime();
+	sSearch = {performer,mapId,dc+delta,center,now+bgskillrules::SearchDuration,0};
+	gameSystems->GetTerrain().AddSearchTemplate(center,bgskillrules::SearchRadius,sSearch.until);
+	AdvanceSearch();
 }
 
 // Search also runs automatically (moving near traps, secret doors): only the
@@ -273,6 +343,55 @@ bool ExplicitSearch(objHndl performer) {
 
 }
 
+bool BeginAreaSearch(objHndl performer) {
+	if (!Enabled()) return false;
+	if (combatSys.isCombatActive() || uiPicker.PickerActiveCheck()) return true;
+	performer = BestSearcher(performer);
+	if (!performer) return true;
+	PickerArgs picker;
+	picker.flagsTarget = static_cast<UiPickerFlagsTarget>(Radius | Range | LosNotRequired);
+	picker.modeTarget = UiPickerType::Area;
+	picker.radiusTarget = 30;
+	picker.range = 30;
+	picker.incFlags = UIPI_None;
+	picker.caster = performer;
+	picker.callback = SearchPicked;
+	sSearchPickerActor = performer;
+	sSearchPickerMap = maps.GetCurrentMapId();
+	if (!uiPicker.ShowPicker(picker,nullptr)) sSearchPickerActor = objHndl::null;
+	return true;
+}
+
+void AdvanceSearch() {
+	if (!sSearch.performer) return;
+	auto now = timeGetTime();
+	if (!Enabled() || maps.GetCurrentMapId() != sSearch.mapId
+		|| int32_t(now-sSearch.until) >= 0 || !objSystem->IsValidHandle(sSearch.performer)
+		|| critterSys.IsDeadOrUnconscious(sSearch.performer)) { sSearch = {}; return; }
+	if (sSearch.next && int32_t(now-sSearch.next) < 0) return;
+	sSearch.next = now + 1000;
+	ObjList list;
+	list.ListRadius(sSearch.center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
+	for (auto handle : list) {
+		if (!EligibleTrap(sSearch.performer,handle,sSearch.center)
+			|| sSearch.total < traps.GetByObj(handle)->searchDC) continue;
+		auto obj = objSystem->GetObject(handle);
+		auto script = obj->GetScript(obj_f_scripts_idx,0x27);
+		script.unk1 |= 4;
+		obj->SetScript(obj_f_scripts_idx,0x27,script);
+		floatSys.floatMesLine(handle,1,FloatLineColor::Red,
+			"\xCB\xEE\xE2\xF3\xF8\xEA\xE0 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xE0!");
+	}
+}
+
+void Reset() {
+	sCaptured.valid = false;
+	sSearch = {};
+	sSearchPickerActor = objHndl::null;
+	sQueue.clear();
+	if (sWindow) sWindow->Hide();
+}
+
 void BeginSkillRoll() {
 	sCaptured.valid = false;
 }
@@ -280,21 +399,26 @@ void BeginSkillRoll() {
 BOOL EndSkillRoll(objHndl performer, SkillEnum skill, int dc, int *delta, int flags, BOOL success) {
 	auto rec = sCaptured;
 	sCaptured.valid = false;
-	if (sPassive || !rec.valid || !performer || !party.IsInParty(performer)) return success;
-	if (skill == skill_search && ((flags & SRF_Hide_Failed_Search) || !ExplicitSearch(performer))) return success;
+	if (!Enabled() || sPassive || !rec.valid || !performer || !party.IsInParty(performer)
+		|| rec.obj != performer || rec.skill != skill || rec.natural < 1 || rec.natural > 20) return success;
+	if (skill == skill_search && ((flags & SRF_Hide_Failed_Search) || (!sAreaRoll && !ExplicitSearch(performer)))) return success;
 	auto natural = rec.natural;
-	auto total = natural + rec.bonus;
+	// Explicit house rule requested for these two skills: a natural 1 is
+	// critical failure even when a large skill bonus would meet the DC.
+	if (natural == 1 && (skill == skill_open_lock || skill == skill_disable_device)) {
+		success = FALSE;
+		if (delta) *delta = (std::min)(*delta,-1);
+	}
 	auto outcome = success ? Outcome::Success : Outcome::Failure;
 	if (natural == 20 && success) outcome = Outcome::CriticalSuccess;
 	if (skill == skill_disable_device && !success) {
 		// Only a natural 1 springs the trap; the native rule is "fail by 5 or more".
-		if (natural == 1) { outcome = Outcome::CriticalFailure; if (delta) *delta = (std::min)(*delta, -10); }
-		else if (delta) *delta = (std::max)(*delta, -3);   // temple.dll 0x10051606: springs when delta <= -4
+		if (natural == 1) outcome = Outcome::CriticalFailure;
+		if (delta) *delta = bgskillrules::DisableFailureDelta(natural,*delta);   // temple.dll 0x10051606: springs when delta <= -4
 	} else if (skill == skill_open_lock) {
-		if (!success && natural == 1) { outcome = Outcome::CriticalFailure; OpenLockFumble(performer); }
-		else sLockFumbles.erase(performer.handle);
-	} else if (skill == skill_search) {
-		AreaSearch(performer, total);
+		auto criticalFailure = !success && natural == 1;
+		if (criticalFailure) outcome = Outcome::CriticalFailure;
+		RecordOpenLock(performer,criticalFailure);
 	}
 	RollEvent e;
 	auto actor = description.getDisplayName(performer);

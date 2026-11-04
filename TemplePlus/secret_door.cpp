@@ -145,6 +145,7 @@ uint32_t SecretDoorSys::secretDoorIsRevealed(objHndl secDoor)
 
 int SecretDoorSys::SearchConcentratedPerformFunc(D20Actn* d20a)
 {
+	if (bgrolls::BeginAreaSearch(d20a->d20APerformer)) return 0;
 	objHndl foundObject = objHndl::null;
 	int found = secretdoorSys.SecretDoorSkillCheck(d20a->d20APerformer, &foundObject);
 	int lineId = 1300;

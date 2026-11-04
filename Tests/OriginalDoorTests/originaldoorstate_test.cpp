@@ -5,6 +5,7 @@
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
 #include "../../TemplePlus/graphics/sourcecontainers.h"
 #include "../../TemplePlus/worldviewzoom.h"
+#include "../../TemplePlus/ui/bgskillrules.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -333,6 +334,20 @@ static void TestSourceContainerRegions() {
 }
 
 int main() {
+	assert(bgskillrules::InSearchArea(0,0,360,0));
+	assert(!bgskillrules::InSearchArea(0,0,360.01f,0));
+	assert(!bgskillrules::InSearchArea(0,0,300,300));
+	assert(bgskillrules::DisableFailureDelta(1,-1) == -10);
+	assert(bgskillrules::DisableFailureDelta(2,-20) == -3);
+	for (int quality=0; quality<5; ++quality) {
+		uint32_t saved=0;
+		for (int n=1; n<=quality+2; ++n) {
+			saved=bgskillrules::RecordToolRoll(saved,true);
+			assert(bgskillrules::ToolBreaks(saved,quality) == (n==quality+2));
+		}
+		assert(!bgskillrules::ToolBreaks(bgskillrules::RecordToolRoll(saved,false),quality));
+	}
+	assert(bgskillrules::ToolStreak(1234) == 0);
 	TestSourceContainerRegions();
 	TestSelectedArrivalPlanning();
 	TestContextAndScenes();
