@@ -259,14 +259,14 @@ static void TestClickTravel() {
 
 static void TestContextAndScenes() {
 	using A=DoorContextAction;
-	DoorSecurity security;assert((DoorContextActions(false,security)==std::vector<A>{A::Open,A::Search}));
+	DoorSecurity security;assert((DoorContextActions(false,security)==std::vector<A>{A::Open}));
 	security.locked=true;auto actions=DoorContextActions(false,security);assert((actions==std::vector<A>{A::Search,A::PickLock}));
 	assert(DoorContextActions(true,security).back()==A::Travel);
 	assert((DoorContextActions(true,security,false)==std::vector<A>{A::Close})); // no scene route, no travel icon
 	security.trapped=true;assert((DoorContextActions(false,security)==std::vector<A>{A::Search,A::PickLock})); // unknown trap stays hidden
 	security.found=true;assert((DoorContextActions(false,security)==std::vector<A>{A::Search,A::Disarm,A::PickLock}));
 	assert((DoorContextActions(false,security,true,false)==std::vector<A>{A::Search,A::PickLock})); // legacy five icons
-	security.locked=false;assert((DoorContextActions(false,security)==std::vector<A>{A::Open,A::Search,A::Disarm}));
+	security.locked=false;assert((DoorContextActions(false,security)==std::vector<A>{A::Open,A::Disarm}));
 	auto sprung=DoorTrapSprung(security);assert(!sprung.trapped && !sprung.found && sprung.disarmDc==security.disarmDc);
 	assert(!DoorDisarmSpringsTrap(-4) && DoorDisarmSpringsTrap(-5) && !DoorDisarmSpringsTrap(0));
 	DoorSecurity badFound;badFound.found=true;Reject([&](){ValidateDoorSecurity(badFound);});
@@ -334,8 +334,13 @@ static void TestSourceContainerRegions() {
 }
 
 int main() {
-	assert(bgskillrules::InSearchArea(0,0,360,0));
-	assert(!bgskillrules::InSearchArea(0,0,360.01f,0));
+	bgskillrules::SearchAttempt attempt;
+	attempt.Start(1000);assert(!attempt.Poll(3999));assert(attempt.Poll(4000));assert(!attempt.Poll(5000));
+	attempt.Start(0);assert(!attempt.Poll(6000));
+	attempt.Start(10);attempt.Cancel();assert(!attempt.Poll(3010));
+	attempt.Start(0xFFFFFF00);assert(attempt.Poll(uint32_t(0xFFFFFF00u+3000)));
+	assert(bgskillrules::InSearchArea(0,0,240,0));
+	assert(!bgskillrules::InSearchArea(0,0,240.01f,0));
 	assert(!bgskillrules::InSearchArea(0,0,300,300));
 	assert(bgskillrules::DisableFailureDelta(1,-1) == -10);
 	assert(bgskillrules::DisableFailureDelta(2,-20) == -3);

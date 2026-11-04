@@ -11,7 +11,7 @@
 	- Disable Device: only a natural 1 springs the trap (a plain failure
 	  just fails); Open Lock: consecutive natural 1s break the thieves' tools
 	  (2 for plain tools, one more per tool quality step);
-	- Search covers a 30 ft template around the searcher for 30 seconds: every
+	- Search places a 20 ft template for six seconds, with one roll: every
 	  trap in it whose search DC the roll beats is found.
 */
 namespace bgrolls {

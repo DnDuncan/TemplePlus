@@ -20,5 +20,10 @@ float4 main( float3 posIn : POSITION ) : SV_POSITION
 	pos.x = objPos.x + rot3 - rot4;
 	pos.y = objPos.y + pos.z * objScale.z;
 	pos.z = objPos.z + rot4 + rot3;
-	return mul(projMat, pos);
+	float4 projected=mul(projMat,pos);
+#ifdef BG_ALWAYS_COVER
+	// Source polygon is a foreground mask, independent of actor foot depth.
+	projected.z=0.00001f*projected.w;
+#endif
+	return projected;
 }

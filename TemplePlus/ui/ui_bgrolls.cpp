@@ -14,6 +14,7 @@
 #include "ui/ui_render.h"
 #include "ui/widgets/widgets.h"
 #include "bonus.h"
+#include "history.h"
 #include "critter.h"
 #include "float_line.h"
 #include "inventory.h"
@@ -260,7 +261,8 @@ struct SearchSession {
 	objHndl performer;
 	int mapId = 0, total = 0;
 	LocAndOffsets center;
-	uint32_t until = 0, next = 0;
+	uint32_t until = 0;
+	bgskillrules::SearchAttempt attempt;
 };
 SearchSession sSearch;
 objHndl sSearchPickerActor;
@@ -268,7 +270,7 @@ int sSearchPickerMap = 0;
 
 bool EligibleTrap(objHndl performer, objHndl handle, LocAndOffsets center) {
 	auto obj = objSystem->GetObject(handle);
-	if (obj->GetFlags() & OF_DESTROYED) return false;
+	if (obj->GetFlags() & (OF_DESTROYED | OF_OFF)) return false;
 	auto script = obj->GetScript(obj_f_scripts_idx, 0x27);
 	auto trap = traps.GetByObj(handle);
 	if (!script.scriptId || (script.unk1 & 4) || !trap) return false;
@@ -311,24 +313,13 @@ void __cdecl SearchPicked(const PickerResult &result, void*) {
 		|| critterSys.IsDeadOrUnconscious(performer)) return;
 	auto a = objects.GetLocationFull(performer).ToInches2D(), b = center.ToInches2D();
 	if (!bgskillrules::InSearchArea(a.x,a.y,b.x,b.y)) return;
-	ObjList list;
-	list.ListRadius(center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
-	int dc = 0;
-	for (auto handle : list) if (EligibleTrap(performer,handle,center)) {
-		auto value = traps.GetByObj(handle)->searchDC;
-		dc = dc ? (std::min)(dc,value) : value;
-	}
-	if (!dc) dc = 10;
+	auto now=timeGetTime();
+	sSearch={};sSearch.performer=performer;sSearch.mapId=mapId;sSearch.center=center;
+	sSearch.until=now+bgskillrules::SearchDuration;sSearch.attempt.Start(now);
 	gameSystems->GetAnim().Interrupt(performer,AnimGoalPriority::AGP_3,true);
 	gameSystems->GetAnim().PushAnimate(performer,112);
-	int delta = 0;
-	sAreaRoll = true;
-	skillSys.SkillRoll(performer,skill_search,dc,&delta,SRF_Trap_Search);
-	sAreaRoll = false;
-	auto now = timeGetTime();
-	sSearch = {performer,mapId,dc+delta,center,now+bgskillrules::SearchDuration,0};
 	gameSystems->GetTerrain().AddSearchTemplate(center,bgskillrules::SearchRadius,sSearch.until);
-	AdvanceSearch();
+	logger->info("BG Search placed: actor={} radius=20 duration=6000",performer.handle);
 }
 
 // Search also runs automatically (moving near traps, secret doors): only the
@@ -351,8 +342,8 @@ bool BeginAreaSearch(objHndl performer) {
 	PickerArgs picker;
 	picker.flagsTarget = static_cast<UiPickerFlagsTarget>(Radius | Range | LosNotRequired);
 	picker.modeTarget = UiPickerType::Area;
-	picker.radiusTarget = 30;
-	picker.range = 30;
+	picker.radiusTarget = 20;
+	picker.range = 20;
 	picker.incFlags = UIPI_None;
 	picker.caster = performer;
 	picker.callback = SearchPicked;
@@ -368,20 +359,33 @@ void AdvanceSearch() {
 	if (!Enabled() || maps.GetCurrentMapId() != sSearch.mapId
 		|| int32_t(now-sSearch.until) >= 0 || !objSystem->IsValidHandle(sSearch.performer)
 		|| critterSys.IsDeadOrUnconscious(sSearch.performer)) { sSearch = {}; return; }
-	if (sSearch.next && int32_t(now-sSearch.next) < 0) return;
-	sSearch.next = now + 1000;
-	ObjList list;
-	list.ListRadius(sSearch.center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
-	for (auto handle : list) {
-		if (!EligibleTrap(sSearch.performer,handle,sSearch.center)
-			|| sSearch.total < traps.GetByObj(handle)->searchDC) continue;
-		auto obj = objSystem->GetObject(handle);
-		auto script = obj->GetScript(obj_f_scripts_idx,0x27);
-		script.unk1 |= 4;
-		obj->SetScript(obj_f_scripts_idx,0x27,script);
-		floatSys.floatMesLine(handle,1,FloatLineColor::Red,
-			"\xCB\xEE\xE2\xF3\xF8\xEA\xE0 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xE0!");
+	if (!sSearch.attempt.Poll(now)) return;
+	auto performer=sSearch.performer;
+	auto &terrain=gameSystems->GetTerrain();
+	ObjList list;list.ListRadius(sSearch.center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
+	int dc=terrain.SearchDoorTraps(performer,sSearch.center,bgskillrules::SearchRadius,0,false);
+	for (auto handle:list) if (EligibleTrap(performer,handle,sSearch.center)) {
+		auto value=traps.GetByObj(handle)->searchDC;dc=dc ? (std::min)(dc,value) : value;
 	}
+	if (!dc) dc=10;
+	BonusList bonuses;
+	auto bonus=dispatch.dispatch1ESkillLevel(performer,skill_search,&bonuses,objHndl::null,SRF_Trap_Search);
+	Dice die(1,20,0);auto natural=die.Roll();auto total=natural+bonus;
+	histSys.RollHistoryAddType2SkillRoll(performer,die.ToPacked(),natural,dc,skill_search,&bonuses);
+	int found=terrain.SearchDoorTraps(performer,sSearch.center,bgskillrules::SearchRadius,total,true);
+	for (auto handle:list) {
+		if (!EligibleTrap(performer,handle,sSearch.center) || total<traps.GetByObj(handle)->searchDC) continue;
+		auto obj=objSystem->GetObject(handle);auto script=obj->GetScript(obj_f_scripts_idx,0x27);
+		script.unk1|=4;obj->SetScript(obj_f_scripts_idx,0x27,script);++found;
+	}
+	RollEvent event;
+	event.actor=description.getDisplayName(performer);event.skill=skillSys.GetSkillName(skill_search);
+	event.natural=natural;event.bonus=bonus;event.dc=dc;
+	event.outcome=total>=dc ? Outcome::Success : Outcome::Failure;
+	Show(event);
+	floatSys.floatMesLine(performer,1,found ? FloatLineColor::Green : FloatLineColor::White,
+		found ? "\xCB\xEE\xE2\xF3\xF8\xEA\xE0 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xE0!" : "\xCB\xEE\xE2\xF3\xF8\xE5\xEA \xED\xE5 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xEE");
+	logger->info("BG Search roll: actor={} natural={} bonus={} dc={} found={}",performer.handle,natural,bonus,dc,found);
 }
 
 void Reset() {

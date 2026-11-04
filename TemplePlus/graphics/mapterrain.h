@@ -100,6 +100,10 @@ public:
 	std::string UpdateDoorContextHover(int x,int y);
 	void ClearDoorContextHover() {mContextHover.Clear();mHoveredContextAction=-1;}
 	void RequestDoorContextAction(const std::string &route,int action);
+	void RequestDoorContextDefault(const std::string &route);
+	bool HasDoorContextHover() const {return !mContextHover.Target().empty();}
+	bool HoveredDoorLocked() const;
+	int SearchDoorTraps(objHndl actor,LocAndOffsets center,float radius,int total,bool reveal);
 	void BindSceneArea(OriginalSceneArea area);
 	void BindSceneRoute(const std::string &route,OriginalSceneRoute definition);
 	int SceneAreaForActor(uint64_t actor) const;
@@ -107,6 +111,7 @@ public:
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
 	void BindSourceContainer(SourceContainerRegion region);
+	void ClearSourceDoors() {mSourceDoors.clear();}
 	void ClearSourceContainers() {mSourceContainers.Clear();mSourceDoors.clear();}
 	// Baldur's Gate doors backed by an invisible native portal: native lock,
 	// trap, Search / Open Lock / Disable Device and opening; the source door

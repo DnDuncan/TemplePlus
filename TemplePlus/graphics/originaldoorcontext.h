@@ -22,7 +22,7 @@ inline std::vector<DoorContextAction> DoorContextActions(bool open,const DoorSec
 	}
 	std::vector<DoorContextAction> result;
 	if (!s.locked) result.push_back(DoorContextAction::Open);
-	result.push_back(DoorContextAction::Search);
+	if (s.locked) result.push_back(DoorContextAction::Search);
 	if (disarm && s.trapped && s.found) result.push_back(DoorContextAction::Disarm);
 	if (s.locked) result.push_back(DoorContextAction::PickLock);
 	return result;
@@ -42,6 +42,7 @@ inline uint64_t BestDoorSkillCandidate(const std::vector<DoorSkillCandidate> &ca
 }
 class DoorContextHover {
 public:
+	void Reveal(const std::string &id,uint32_t now) {Update(id,now);mStarted=now-450;}
 	void Update(const std::string &id,uint32_t now) {
 		if (!id.empty()) { if (id!=mId) {mId=id;mStarted=now;} mLeaving=false; }
 		else if (!mId.empty()) {if (!mLeaving) {mLeaving=true;mLeft=now;} else if (uint32_t(now-mLeft)>350) Clear();}
