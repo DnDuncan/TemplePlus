@@ -1053,6 +1053,10 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 	auto sourceContainerHover = false;
 	if (!combatSys.isCombatActive() && originalDoorTerrain) {
 		auto mouse = mouseFuncs.GetPos();
+		if (originalDoorTerrain->HasDoorContextHover()) {
+			if (originalDoorTerrain->HoveredDoorLocked()) {cursorStateForIntgameFocus=CursorStateLocked;cursorState=CursorStateLocked;}
+			else sourceContainerHover=true;
+		}
 		if (originalDoorTerrain->PickSourceContainer(mouse.x, mouse.y)
 			&& cursorStateForIntgameFocus != CursorStateLocked
 			&& cursorStateForIntgameFocus != CursorStateHaveKey) {

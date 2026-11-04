@@ -316,6 +316,10 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 		auto event=(flags&MSF_LMB_CLICK) ? Event::Down : (flags&MSF_LMB_RELEASED) ? Event::Up : Event::Move;
 		auto result=mOriginalDoorPress.Process(maps.GetCurrentMapId(),hit,event,x-ox,y-oy,
 			(std::max)(4,int(std::ceil(6/gameView->GetWorldZoom()))));
+		if (!result.toggle.empty() && result.toggle[0]=='#') {
+			try {terrain.RequestDoorContextDefault(result.toggle.substr(1));}
+			catch (const std::exception &e) {logger->info("Door default refused: {}",e.what());}
+		}
 		if (!result.toggle.empty() && result.toggle[0]=='!' && result.toggle.size()>3) {
 			try {terrain.RequestDoorContextAction(result.toggle.substr(3),result.toggle[1]-'0');}
 			catch (const std::exception &e) {

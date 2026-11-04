@@ -5,6 +5,7 @@
 #include "party.h"
 #include "critter.h"
 #include "traps.h"
+#include "ui/ui_bgrolls.h"
 #include "d20.h"
 #include "dispatcher.h"
 #include "combat.h"
@@ -171,6 +172,35 @@ std::string TerrainSystem::UpdateDoorContextHover(int screenX,int screenY) {
 	mContextHover.Update(target,now);
 	return target.empty() ? std::string():"#"+target;
 }
+bool TerrainSystem::HoveredDoorLocked() const {
+	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),mContextHover.Target()});
+	return entry!=mTravelMarkers.end() && GetDoorSecurity(entry->second.gateMap,entry->second.gateId).locked;
+}
+void TerrainSystem::RequestDoorContextDefault(const std::string &route) {
+	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),route});
+	if (entry==mTravelMarkers.end()) return;
+	const auto &marker=entry->second;
+	if (GetDoorSecurity(marker.gateMap,marker.gateId).locked) {
+		mContextHover.Reveal(route,timeGetTime());return;
+	}
+	RequestDoorContextAction(route,int(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId)
+		? DoorContextAction::Close : DoorContextAction::Open));
+}
+int TerrainSystem::SearchDoorTraps(objHndl actor,LocAndOffsets center,float radius,int total,bool reveal) {
+	int result=0;auto c=center.ToInches2D();auto area=SceneAreaForActor(actor.handle);
+	for (auto &entry:mDoorContexts) {
+		auto &security=entry.second.security;
+		auto use=mDoorUse.find(entry.first);
+		if (entry.first.first!=maps.GetCurrentMapId() || !security.trapped || security.found
+			|| use==mDoorUse.end() || use->second.points.empty()) continue;
+		if (security.searchDc>20 && !d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)) continue;
+		auto p=use->second.points.front();
+		if (SceneAreaAt(p)!=area || std::hypot(c.x-p.x,c.y-p.y)>radius) continue;
+		if (!reveal) {result=result ? (std::min)(result,security.searchDc) : security.searchDc;continue;}
+		if (total>=security.searchDc) {security.found=true;++result;++mDoorUseRevision;}
+	}
+	return result;
+}
 void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAction) {
 	if (rawAction<0 || rawAction>=static_cast<int>(DoorContextActionCount)) throw std::invalid_argument("invalid context action");
 	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),OriginalDoorState::NormalizeId(route)});
@@ -235,13 +265,7 @@ void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t hand
 		ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock",success ? FloatLineColor::Green:FloatLineColor::Red);
 		logger->info("Door skill roll: actor={} skill=OpenLock dc={} delta={} success={}",handle,security.lockDc,delta,success);
 	} else if (request.action==DoorContextAction::Search) {
-		// 3.5: traps above DC 20 need trapfinding; the roll is still made and logged.
-		int delta=0;auto success=skillSys.SkillRoll(actor,skill_search,security.searchDc,&delta,SRF_Trap_Search)!=FALSE;
-		if (security.searchDc>20 && !d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)) success=false;
-		if (success && security.trapped && !security.found) {security.found=true;++mDoorUseRevision;}
-		ContextMessage(actor,success && security.trapped ? "A trap was found":"No trap was found",
-			success && security.trapped ? FloatLineColor::Green:FloatLineColor::White);
-		logger->info("Door skill roll: actor={} skill=Search dc={} delta={} success={}",handle,security.searchDc,delta,success);
+		bgrolls::BeginAreaSearch(actor);
 	} else if (request.action==DoorContextAction::Disarm) {
 		if (!security.trapped || !security.found) return;
 		int delta=0;auto success=skillSys.SkillRoll(actor,skill_disable_device,security.disarmDc,&delta,SRF_Unk_1)!=FALSE;
