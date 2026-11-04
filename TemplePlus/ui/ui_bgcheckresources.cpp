@@ -68,14 +68,15 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
     std::vector<CheckResource> result;
     for (int n=0;n<party.GroupListGetLen();++n) {
         auto owner=party.GroupListGetMemberN(n);
-        if (!Near(actor,owner)) continue;
+        if (!owner || !objSystem->IsValidHandle(owner) || !party.IsInParty(owner)) continue;
+        auto nearby=Near(actor,owner);
         auto obj=objSystem->GetObject(owner);
         for (bool spontaneous:{false,true}) {
             auto field=spontaneous ? obj_f_critter_spells_known_idx:obj_f_critter_spells_memorized_idx;
             auto spells=obj->GetSpellArray(field);
             for (size_t i=0;i<spells.GetSize();++i) {
                 auto spell=obj->GetSpell(field,i);
-                CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;
+                CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;r.available=nearby;
                 if (!Effect(r,actor,skill)) continue;
                 auto natural=!spellSys.isDomainSpell(spell.classCode)
                     && d20ClassSys.IsNaturalCastingClass(spellSys.GetCastingClass(spell.classCode));
@@ -87,6 +88,7 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
                 if (spontaneous && spellSys.NumSpellsInLevel(owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
                     >=spellSys.GetNumSpellsPerDay(owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) continue;
                 r.label=fmt::format("{}: {} (+{})",description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
+                if (!nearby) r.label="[far] "+r.label;
                 result.push_back(r);
             }
         }
@@ -95,10 +97,11 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
             // Potions only. Scrolls and wands need their native activation checks
             // and are not silently treated as guaranteed consumables.
             if (itemObj->type!=obj_t_food || itemObj->GetSpellArray(obj_f_item_spell_idx).GetSize()!=1) continue;
-            CheckResource r;r.owner=owner;r.item=item;r.spell=itemObj->GetSpell(obj_f_item_spell_idx,0);
+            CheckResource r;r.owner=owner;r.item=item;r.available=nearby;r.spell=itemObj->GetSpell(obj_f_item_spell_idx,0);
             r.quantity=inventory.GetQuantity(item);r.charges=itemObj->GetInt32(obj_f_item_spell_charges_idx);
             if (!Effect(r,actor,skill) || r.quantity<1 || r.charges<1) continue;
             r.label=fmt::format("{}: {} x{} (+{})",description.getDisplayName(owner),description.getDisplayName(item),r.quantity,r.value);
+            if (!nearby) r.label="[far] "+r.label;
             result.push_back(r);
         }
     }

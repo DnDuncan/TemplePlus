@@ -11,7 +11,7 @@ struct CheckResource {
     SpellStoreData spell;
     int slot=-1, quantity=0, charges=0, value=0, type=0;
     std::string label;
-    bool selected=false, spontaneous=false;
+    bool selected=false, spontaneous=false, available=true;
 };
 std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill);
 bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& resources);

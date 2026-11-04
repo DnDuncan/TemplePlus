@@ -45,6 +45,7 @@ BonusList ManualBonuses() {
     return bonuses;
 }
 int ResourceGain(const CheckResource &source) {
+    if (!source.available) return 0;
     auto bonuses=sManual->base;
     for (auto &r:sManual->resources) if (r.selected && r.type!=source.type) bonuses.AddBonusWithDesc(r.value,r.type,0,r.label.c_str());
     auto before=bonuses.GetEffectiveBonusSum();
