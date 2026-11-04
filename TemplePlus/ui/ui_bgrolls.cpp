@@ -398,7 +398,10 @@ bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string
 }
 
 bool HandleModalInput(const TigMsg &msg) {
-    if (!sManual || msg.type==TigMsgType::UPDATE_TIME || msg.type==TigMsgType::EXIT) return false;
+    if (!sManual || msg.type==TigMsgType::UPDATE_TIME) return false;
+    // A native quit confirmation must receive its own buttons. Do not keep
+    // intercepting input behind it, or the player cannot close the game normally.
+    if (msg.type==TigMsgType::EXIT) {Reset();return false;}
     if (!ManualValid()) {CloseManual();return true;}
     if (msg.type==TigMsgType::MOUSE) {
         auto area=ManualArea();int x=int(msg.arg1)-area.x,y=int(msg.arg2)-area.y;
