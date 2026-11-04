@@ -5,6 +5,7 @@
 #include "party.h"
 #include "critter.h"
 #include "traps.h"
+#include "inventory.h"
 #include "ui/ui_bgrolls.h"
 #include "d20.h"
 #include "dispatcher.h"
@@ -51,7 +52,7 @@ std::vector<DoorContextAction> TerrainSystem::ContextActions(const OriginalTrave
 		return ContextTravel(marker) && CanTravelThroughOriginalDoor(marker.gateMap,marker.gateId)
 			? std::vector<DoorContextAction>{DoorContextAction::Travel} : std::vector<DoorContextAction>{};
 	}
-	return DoorContextActions(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId),definition->second.security,
+	return DoorContextActions(ContextIsOpen(marker.gateMap,marker.gateId),GetDoorSecurity(marker.gateMap,marker.gateId),
 		ContextTravel(marker),!definition->second.textures[static_cast<size_t>(DoorContextAction::Disarm)].empty());
 }
 void TerrainSystem::SpringDoorTrap(int mapId,const std::string &id,objHndl actor) {
@@ -80,10 +81,59 @@ void TerrainSystem::BindDoorContext(int mapId,const std::string &id,DoorContextD
 	mDoorContexts[{mapId,OriginalDoorState::NormalizeId(id)}]=std::move(definition);
 	CancelOriginalDoorUse();++mDoorUseRevision;
 }
+void TerrainSystem::ClearSourceContainers() {
+    for (const auto &entry:mContextContainers) {
+        mTravelMarkers.erase(entry.first);mDoorContexts.erase(entry.first);
+        mContextOutlines.erase(entry.first);mDoorUse.erase(entry.first);
+    }
+    mContextContainers.clear();mSourceContainers.Clear();mSourceDoors.clear();
+    ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
+}
+bool TerrainSystem::ContextIsOpen(int mapId,const std::string &id) const {
+    if (mContextContainers.count({mapId,OriginalDoorState::NormalizeId(id)})) return false;
+    return GetOriginalDoorOpenOnMap(mapId,id);
+}
+void TerrainSystem::SetContextSecurity(int mapId,const std::string &id,const DoorSecurity &security) {
+    auto key=std::make_pair(mapId,OriginalDoorState::NormalizeId(id));
+    auto container=mContextContainers.find(key);
+    if (container==mContextContainers.end()) mDoorContexts.at(key).security=security;
+    else {
+        auto handle=objSystem->FindObjectByIdStr(container->second);
+        if (!handle) throw std::invalid_argument("container is unavailable");
+        auto obj=objSystem->GetObject(handle);auto flags=obj->GetInt32(obj_f_container_flags);
+        obj->SetInt32(obj_f_container_flags,security.locked ? flags|OCOF_LOCKED:flags&~OCOF_LOCKED);
+        auto script=obj->GetScript(obj_f_scripts_idx,0x27);
+        if (!security.trapped) {script.scriptId=0;script.unk1&=~4;}
+        else if (security.found) script.unk1|=4;
+        obj->SetScript(obj_f_scripts_idx,0x27,script);
+    }
+    ++mDoorUseRevision;
+}
+void TerrainSystem::SpringContainerTrap(objHndl container,objHndl actor) {
+    if (!traps.GetByObj(container)) return;
+    pythonObjIntegration.ExecuteObjectScript(actor,container,ObjScriptEvent::Trap);
+    // Source fixtures are one-shot; do not allow repeated clicks to farm or
+    // repeat damage even if the native trap script leaves a replacement.
+    auto obj=objSystem->GetObject(container);auto script=obj->GetScript(obj_f_scripts_idx,0x27);
+    script.scriptId=0;script.unk1&=~4;obj->SetScript(obj_f_scripts_idx,0x27,script);
+    ++mDoorUseRevision;
+}
 DoorSecurity TerrainSystem::GetDoorSecurity(int mapId,const std::string &id) const {
 	auto key=std::make_pair(mapId,OriginalDoorState::NormalizeId(id));
 	auto entry=mDoorContexts.find(key);
-	auto source=mSourceDoors.find(key);
+	auto chest=mContextContainers.find(key);
+    if (chest!=mContextContainers.end()) {
+        auto handle=objSystem->FindObjectByIdStr(chest->second);
+        if (!handle || (objects.GetFlags(handle)&(OF_DESTROYED|OF_OFF))) throw std::invalid_argument("container is unavailable");
+        auto obj=objSystem->GetObject(handle);DoorSecurity s;
+        s.locked=(obj->GetInt32(obj_f_container_flags)&OCOF_LOCKED)!=0;
+        s.lockDc=(std::max)(0,(std::min)(60,obj->GetInt32(obj_f_container_lock_dc)));
+        auto trap=traps.GetByObj(handle);s.trapped=trap!=nullptr;
+        s.found=s.trapped && (obj->GetScript(obj_f_scripts_idx,0x27).unk1&4)!=0;
+        if (trap) {s.searchDc=trap->searchDC;s.disarmDc=trap->disableDC;}
+        return s;
+    }
+    auto source=mSourceDoors.find(key);
 	if (source!=mSourceDoors.end()) {
 		auto handle=objSystem->FindObjectByIdStr(source->second);
 		if (!handle) throw std::invalid_argument("source door portal is unavailable");
@@ -114,7 +164,7 @@ void TerrainSystem::ClearDoorContext() {
 		temple::GetRef<int64_t>(0x10307358)=(*mSavedSceneLimits)[3];
 	}
 	mSavedSceneLimits.reset();mFocusedScene=0;mSceneAreas.clear();mSceneRoutes.clear();
-	mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
+	mContextContainers.clear();mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
 }
 bool TerrainSystem::HasDoorContext() const {
 	for (const auto &entry:mTravelMarkers) if (entry.first.first==maps.GetCurrentMapId()
@@ -184,7 +234,7 @@ void TerrainSystem::RequestDoorContextDefault(const std::string &route) {
 	if (security.locked || (security.trapped && security.found)) {
 		mContextHover.Reveal(route,timeGetTime());return;
 	}
-	RequestDoorContextAction(route,int(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId)
+	RequestDoorContextAction(route,int(ContextIsOpen(marker.gateMap,marker.gateId)
 		? DoorContextAction::Close : DoorContextAction::Open));
 }
 int TerrainSystem::SearchDoorTraps(objHndl actor,LocAndOffsets center,float radius,int total,bool reveal) {
@@ -192,7 +242,7 @@ int TerrainSystem::SearchDoorTraps(objHndl actor,LocAndOffsets center,float radi
 	for (auto &entry:mDoorContexts) {
 		auto &security=entry.second.security;
 		auto use=mDoorUse.find(entry.first);
-		if (entry.first.first!=maps.GetCurrentMapId() || !security.trapped || security.found
+		if (mContextContainers.count(entry.first) || entry.first.first!=maps.GetCurrentMapId() || !security.trapped || security.found
 			|| use==mDoorUse.end() || use->second.points.empty()) continue;
 		if (security.searchDc>20 && !d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)) continue;
 		auto p=use->second.points.front();
@@ -207,7 +257,8 @@ void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAct
 	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),OriginalDoorState::NormalizeId(route)});
 	if (entry==mTravelMarkers.end()) throw std::invalid_argument("context route missing");
 	const auto &m=entry->second;
-	auto action=static_cast<DoorContextAction>(rawAction);auto open=GetOriginalDoorOpenOnMap(m.gateMap,m.gateId);
+	if (bgrolls::IsBusy()) return;
+	auto action=static_cast<DoorContextAction>(rawAction);auto open=ContextIsOpen(m.gateMap,m.gateId);
 	auto allowed=ContextActions(m);
 	if (std::find(allowed.begin(),allowed.end(),action)==allowed.end()) return; // stale state/icon cannot become a different action
 	auto selection=ContextSelection();
@@ -251,30 +302,44 @@ void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAct
 }
 void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t handle) {
 	if (!SameDoorSelection(request.selection,ContextSelection())) throw std::invalid_argument("selection changed; door action cancelled");
-	auto &security=mDoorContexts.at({request.gateMap,request.gate}).security;objHndl actor{handle};
-	if (request.action==DoorContextAction::Open || request.action==DoorContextAction::Close) {
-		if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The door is locked",FloatLineColor::Red);return;}
-		SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);
-		if (request.action==DoorContextAction::Open && security.trapped) SpringDoorTrap(request.gateMap,request.gate,actor);
-		return;
-	}
-	if (request.action==DoorContextAction::PickLock) {
-		if (!security.locked) return;
-		if (!security.pickable) {ContextMessage(actor,"This lock requires a key",FloatLineColor::Red);return;}
-		int delta=0;auto success=skillSys.SkillRoll(actor,skill_open_lock,security.lockDc,&delta,SRF_Unk_1)!=FALSE;
-		if (success) {security.locked=false;++mDoorUseRevision;}
-		ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock",success ? FloatLineColor::Green:FloatLineColor::Red);
-		logger->info("Door skill roll: actor={} skill=OpenLock dc={} delta={} success={}",handle,security.lockDc,delta,success);
-	} else if (request.action==DoorContextAction::Search) {
-		bgrolls::BeginAreaSearch(actor);
-	} else if (request.action==DoorContextAction::Disarm) {
-		if (!security.trapped || !security.found) return;
-		int delta=0;auto success=skillSys.SkillRoll(actor,skill_disable_device,security.disarmDc,&delta,SRF_Unk_1)!=FALSE;
-		logger->info("Door skill roll: actor={} skill=DisableDevice dc={} delta={} success={}",handle,security.disarmDc,delta,success);
-		if (success) {security.trapped=false;security.found=false;++mDoorUseRevision;ContextMessage(actor,"Trap disarmed",FloatLineColor::Green);}
-		else if (DoorDisarmSpringsTrap(delta)) SpringDoorTrap(request.gateMap,request.gate,actor);
-		else ContextMessage(actor,"Failed to disarm the trap",FloatLineColor::Red);
-	}
+    auto security=GetDoorSecurity(request.gateMap,request.gate);objHndl actor{handle};
+    auto key=std::make_pair(request.gateMap,request.gate);
+    auto chest=mContextContainers.find(key);
+    auto container=chest==mContextContainers.end() ? objHndl::null:objSystem->FindObjectByIdStr(chest->second);
+    if (request.action==DoorContextAction::Open || request.action==DoorContextAction::Close) {
+        if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The object is locked",FloatLineColor::Red);return;}
+        if (container) {
+            if (security.trapped) SpringContainerTrap(container,actor);
+            if (!critterSys.IsDeadOrUnconscious(actor)) inventory.UiOpenContainer(actor,container);
+        } else {
+            SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);
+            if (request.action==DoorContextAction::Open && security.trapped) SpringDoorTrap(request.gateMap,request.gate,actor);
+        }
+        return;
+    }
+    if (request.action==DoorContextAction::Search) {bgrolls::BeginAreaSearch(actor);return;}
+    auto picking=request.action==DoorContextAction::PickLock;
+    if (picking && (!security.locked || !security.pickable)) return;
+    if (!picking && (!security.trapped || !security.found)) return;
+    auto revision=mDoorUseRevision;
+    auto valid=[this,request,revision,actor,container]() {
+        return mDoorUseRevision==revision && SameDoorSelection(request.selection,ContextSelection())
+            && (!container || (objSystem->IsValidHandle(container) && IsSourceContainerProxy(container)))
+            && DoorUseReachable(actor.handle,mDoorUse.at({request.gateMap,request.gate}).points.front(),60,request.gate);
+    };
+    bgrolls::BeginCheck(actor,picking ? skill_open_lock:skill_disable_device,picking ? security.lockDc:security.disarmDc,SRF_Unk_1,
+        container ? "Container":"Door",valid,[this,request,actor,container,picking](int natural,int total,bool success) {
+            auto security=GetDoorSecurity(request.gateMap,request.gate);
+            if (picking) {
+                if (success) {security.locked=false;SetContextSecurity(request.gateMap,request.gate,security);}
+                ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock",success ? FloatLineColor::Green:FloatLineColor::Red);
+            } else if (success) {
+                security.trapped=false;security.found=false;SetContextSecurity(request.gateMap,request.gate,security);
+                ContextMessage(actor,"Trap disarmed",FloatLineColor::Green);
+            } else if (natural==1) {
+                if (container) SpringContainerTrap(container,actor);else SpringDoorTrap(request.gateMap,request.gate,actor);
+            } else ContextMessage(actor,"Failed to disarm the trap",FloatLineColor::Red);
+        });
 }
 void TerrainSystem::RenderDoorContext() {
 	auto now=timeGetTime();if (!mContextHover.Active(now)) return;
@@ -295,7 +360,7 @@ void TerrainSystem::RenderDoorContext() {
 		if (path.empty()) continue;auto texture=mDevice.GetTextures().Resolve(path,false);
 		if (!texture || !texture->IsValid()) continue;
 		auto alpha=mContextHover.Alpha(now)*(mHoveredContextAction==action ? 1.38f:1.0f);
-		if (actions[i]==DoorContextAction::PickLock && !definition->second.security.pickable) alpha*=0.4f;
+		if (actions[i]==DoorContextAction::PickLock && !GetDoorSecurity(m.gateMap,m.gateId).pickable) alpha*=0.4f;
 		mShapeRenderer.DrawRectangle(float(ox+layout[i].x-size/2),float(oy+layout[i].y-size/2),size,size,*texture,
 			XMCOLOR(1.0f,1.0f,1.0f,alpha));
 	}

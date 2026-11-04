@@ -6,6 +6,7 @@
 #include "../../TemplePlus/graphics/sourcecontainers.h"
 #include "../../TemplePlus/worldviewzoom.h"
 #include "../../TemplePlus/ui/bgskillrules.h"
+#include "../../TemplePlus/bgcheckstate.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -333,7 +334,31 @@ static void TestSourceContainerRegions() {
 	}
 }
 
+static void TestManualCheckLifecycle() {
+    using namespace bgchecks;
+    CheckState c;
+    assert(!c.Commit()); // preparation cannot mutate game state
+    assert(!c.Roll(100,0,3,10));
+    assert(c.Roll(100,12,3,15));
+    assert(!c.Roll(101,20,100,1)); // double click cannot reroll
+    assert(!c.Cancel()); // rolled failure cannot be cancelled into a free retry
+    assert(!c.Commit());
+    c.Advance(1899);assert(c.phase==Phase::Rolling);
+    c.Advance(1900);assert(c.phase==Phase::Result && c.Success(true));
+    int paid=0,effects=0;
+    if(c.Commit()){++paid;++effects;}
+    if(c.Commit()){++paid;++effects;}
+    assert(paid==1 && effects==1);
+    CheckState cancelled;assert(cancelled.Cancel());assert(!cancelled.Roll(0,20,0,10));assert(!cancelled.Commit());
+    CheckState one;one.Roll(0,1,40,10);assert(!one.Success(true) && one.Success(false));
+    CheckState twenty;twenty.Roll(0,20,0,30);assert(!twenty.Success(true)); // no 5e automatic success
+    CheckState wrap;wrap.duration=6000;wrap.Roll(0xFFFFFF00u,8,2,19);
+    wrap.Advance(0xFFFFFF00u+5999u);assert(wrap.phase==Phase::Rolling);
+    wrap.Advance(0xFFFFFF00u+6000u);assert(wrap.phase==Phase::Result);
+}
+
 int main() {
+	TestManualCheckLifecycle();
 	bgskillrules::SearchAttempt attempt;
 	attempt.Start(1000);assert(!attempt.Poll(3999));assert(attempt.Poll(4000));assert(!attempt.Poll(5000));
 	attempt.Start(0);assert(!attempt.Poll(6000));

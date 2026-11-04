@@ -256,7 +256,21 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
 		obj->SetInt32(obj_f_container_pad_i_4,SourceContainerProxyMarker);
 		objects.SetFlag(handle,static_cast<ObjectFlag>(OF_NO_BLOCK|OF_SEE_THROUGH|OF_SHOOT_THROUGH));
 	}
-	mSourceContainers=std::move(candidate);
+    if (handle && !mDoorContexts.empty()) {
+        auto key=std::make_pair(region.mapId,OriginalDoorState::NormalizeId(region.id));
+        if (mDoorContexts.count(key) && !mContextContainers.count(key))
+            throw std::invalid_argument("container context collides with door identity");
+        auto point=objects.GetLocationFull(handle).ToInches2D();
+        OriginalDoorUseGeometry approach{{{point.x,point.y}},60};
+        double x=0,y=0;for (auto p:region.outline) {x+=p.x;y+=p.y;}
+        x/=region.outline.size();y/=region.outline.size();
+        OriginalTravelMarker marker{region.mapId,region.mapId,key.second,key.second,x,y,0,-1,approach};
+        ValidateOriginalTravel(marker);
+        DoorContextDefinition definition;definition.textures=mDoorContexts.begin()->second.textures;
+        mContextContainers[key]=region.objectId;mTravelMarkers[key]=marker;
+        mDoorContexts[key]=definition;mContextOutlines[key]=region.outline;mDoorUse[key]=approach;
+    }
+    mSourceContainers=std::move(candidate);
 }
 // Mouse coordinates are converted to unzoomed world pixels exactly once: inside
 // ScopedWorldInput (native world handlers and world rendering) they already are.
@@ -485,7 +499,7 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 		auto reachable = valid && !combatSys.isCombatActive()
 			&& DoorUseReachable(request.actor, request.target, request.reach, request.id);
 		auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
-			combatSys.isCombatActive(), GetOriginalDoorOpen(request.id), reachable);
+			combatSys.isCombatActive(), ContextIsOpen(request.mapId,request.id), reachable);
 		if (action == OriginalDoorUseQueue::Action::Apply) {
 			// Finish movement before opening. Continuing toward the approach point
 			// could otherwise cross the independent travel band after this click.

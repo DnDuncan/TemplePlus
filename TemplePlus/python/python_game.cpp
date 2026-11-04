@@ -1695,7 +1695,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
-	return PyInt_FromLong(3);
+	return PyInt_FromLong(4);
 }
 static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
 	int mapId,found=0;const char *id,*guid;
@@ -1779,7 +1779,7 @@ static PyObject* PyGame_BgJournalVisible(PyObject*,PyObject* args) {
 // BG scripts (BCS) must not start a conversation while one is on screen.
 static PyObject* PyGame_BgDialogActive(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_dialog_active")) return nullptr;
-	return PyInt_FromLong(uiDialog->IsActive() || uiDialog->IsDialogEngaged() ? 1 : 0);
+	return PyInt_FromLong(uiDialog->IsActive() || uiDialog->IsDialogEngaged() || bgrolls::IsBusy() ? 1 : 0);
 }
 static PyObject* PyGame_BgSourceContainerClear(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_clear")) return nullptr;

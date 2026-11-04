@@ -14,7 +14,17 @@
 	- Search places a 20 ft template for six seconds, with one roll: every
 	  trap in it whose search DC the roll beats is found.
 */
+struct TigMsg;
 namespace bgrolls {
+
+// Deferred checks used by converted scenery. Neither native game state nor
+// history changes before the player finishes the result window.
+bool BeginCheck(objHndl performer,SkillEnum skill,int dc,int flags,
+    const std::string &target,std::function<bool()> valid,
+    std::function<void(int,int,bool)> commit,
+    uint32_t duration=1800,std::function<void()> started={});
+bool IsBusy();
+bool HandleModalInput(const TigMsg &msg);
 
 // Explicit Search uses the native area picker. No roll or template on cancel.
 bool BeginAreaSearch(objHndl performer);

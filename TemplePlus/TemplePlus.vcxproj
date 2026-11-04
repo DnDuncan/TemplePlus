@@ -214,6 +214,7 @@
     <ClCompile Include="ui\ui_logbook.cpp" />
     <ClCompile Include="ui\ui_bgjournal.cpp" />
     <ClCompile Include="ui\ui_bgrolls.cpp" />
+    <ClCompile Include="ui\ui_bgcheckresources.cpp" />
     <ClCompile Include="ui\ui_wrapper.cpp" />
     <ClCompile Include="ui\ui_party.cpp" />
     <ClCompile Include="ui\ui_popup.cpp" />
@@ -400,6 +401,9 @@
     <ClInclude Include="ui\ui_logbook.h" />
     <ClInclude Include="ui\ui_bgjournal.h" />
     <ClInclude Include="ui\ui_bgrolls.h" />
+    <ClInclude Include="ui\ui_bgcheckresources.h" />
+    <ClInclude Include="bgcheckstate.h" />
+    <None Include="ui\bgmanualcheck.inc" />
     <ClInclude Include="ui\bgskillrules.h" />
     <ClInclude Include="ui\ui_popup.h" />
     <ClInclude Include="ui\ui_slider.h" />
