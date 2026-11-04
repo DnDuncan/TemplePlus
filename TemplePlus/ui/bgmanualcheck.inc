@@ -111,10 +111,12 @@ bool DrawManual() {
     float progress=rolling ? (timeGetTime()-sManual->state.started)/float(sManual->state.duration):1;
     auto ease=1-std::pow(1-(std::min)(1.0f,progress),3.0f);
     auto cx=area.x+ManualW/2.0f,cy=area.y+218.0f;
+    auto landing=bgdice::Landing(sManual->state.natural ? sManual->state.natural:20);
+    auto yaw=landing.yaw+(rolling ? (1-ease)*14:0),pitch=landing.pitch+(rolling ? (1-ease)*9:0);
+    int frontNumber=20;
     auto face=DrawDie(cx+(rolling ? (1-ease)*65*sinf(progress*16):0),cy-(rolling ? fabsf(sinf(progress*19))*35*(1-ease):0),
-        48,(rolling ? (1-ease)*14:0),(rolling ? (1-ease)*9:0.35f),1,XMCOLOR(0.72f,0.60f,0.37f,1));
-    auto shown=phase==bgchecks::Phase::Preparing ? std::string("?")
-        :std::to_string(rolling ? 1+(int((timeGetTime()-sManual->state.started)/65)%20):sManual->state.natural);
+        48,yaw,pitch,1,XMCOLOR(0.72f,0.60f,0.37f,1),&frontNumber);
+    auto shown=phase==bgchecks::Phase::Preparing ? std::string("?"):std::to_string(frontNumber);
     Text(shown,int(face.x)-35,int(face.y)-14,70,white,PredefinedFont::ARIAL_BOLD_24,true);
     auto base=sManual->base.GetEffectiveBonusSum();auto bonus=ManualBonuses().GetEffectiveBonusSum();
     Text(fmt::format("\xC1\xEE\xED\xF3\xF1\x20\xED\xE0\xE2\xFB\xEA\xE0\x20\x7B\x3A\x2B\x7D\x20\x20\x20\xC4\xEE\xEF\xEE\xEB\xED\xE8\xF2\xE5\xEB\xFC\xED\xEE\x20\x7B\x3A\x2B\x7D\x20\x20\x20\xC8\xD2\xCE\xC3\xCE\x20\x7B\x3A\x2B\x7D",base,bonus-base,bonus),
@@ -125,7 +127,8 @@ bool DrawManual() {
         for (size_t row=0;row<ResourceRows && row+sManual->scroll<sManual->resources.size();++row) {
             auto &r=sManual->resources[row+sManual->scroll];auto y=area.y+ResourceTop+int(row)*ResourceStep;
             shapes.DrawRectangle(float(area.x+20),float(y),ManualW-40,ResourceStep-2,XMCOLOR(0.14f,0.13f,0.11f,1));
-            Text(std::string(r.selected ? "[+] ":ResourceGain(r)>0 ? "[ ] ":"[0] ")+r.label,area.x+28,y+3,ManualW-56,r.selected ? gold:ResourceGain(r)>0 ? white:dim,PredefinedFont::PRIORY_12,false);
+            auto label=r.label;if(label.size()>70) label=label.substr(0,67)+"...";
+            Text(std::string(r.selected ? "[+] ":ResourceGain(r)>0 ? "[ ] ":"[0] ")+label,area.x+28,y+3,ManualW-56,r.selected ? gold:ResourceGain(r)>0 ? white:dim,PredefinedFont::PRIORY_12,false);
         }
         if (sManual->resources.size()>ResourceRows) Text(fmt::format("{} / {}",sManual->scroll+1,sManual->resources.size()),area.x+20,area.y+430,ManualW-40,dim,PredefinedFont::PRIORY_12,true);
     } else if (result) {

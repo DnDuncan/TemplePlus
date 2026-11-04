@@ -1,6 +1,7 @@
 #pragma once
 #include "common.h"
 #include "spell_structs.h"
+#include "skill.h"
 
 namespace bgrolls {
 // Explicit adapters, rather than guesses from an item's name. Active equipment,
@@ -12,7 +13,7 @@ struct CheckResource {
     std::string label;
     bool selected=false, spontaneous=false;
 };
-std::vector<CheckResource> ScanCheckResources(objHndl actor);
+std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill);
 bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& resources);
 void CommitCheckResources(objHndl actor,const std::vector<CheckResource>& resources);
 }

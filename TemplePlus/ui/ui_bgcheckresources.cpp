@@ -6,6 +6,7 @@
 #include "description.h"
 #include "d20.h"
 #include "d20_class.h"
+#include "dispatcher.h"
 #include "spell.h"
 #include "obj.h"
 #include "gamesystems/gamesystems.h"
@@ -15,13 +16,28 @@
 
 namespace bgrolls {
 namespace {
-bool Effect(CheckResource &r) {
+bool Effect(CheckResource &r,objHndl actor,SkillEnum skill) {
     // Guidance is spent on this skill check. Heroism remains as a real native
     // spell afterwards. Both use 3.5 typed bonuses, including suppression.
     if (r.spell.spellEnum==213) {r.value=1;r.type=34;return true;} // competence
     if (r.spell.spellEnum==557) {r.value=2;r.type=13;return true;}
     if (r.spell.spellEnum==558) {r.value=4;r.type=13;return true;} // morale
-    return false;
+    int stat=-1;
+    switch(r.spell.spellEnum) {
+        case 44:stat=stat_strength;break;
+        case 49:stat=stat_dexterity;break;
+        case 548:stat=stat_charisma;break;
+        case 549:stat=stat_intelligence;break;
+        case 550:stat=stat_wisdom;break;
+    }
+    if (stat<0 || skillSys.skillPropsTable[skill].stat!=stat) return false;
+    DispIoBonusList ability;
+    dispatch.Dispatch10AbilityScoreLevelGet(actor,static_cast<Stat>(stat),&ability);
+    int before=int(std::floor((ability.bonlist.GetEffectiveBonusSum()-10)/2.0));
+    ability.bonlist.AddBonus(4,12,0); // enhancement; gloves/headband do not stack
+    int after=int(std::floor((ability.bonlist.GetEffectiveBonusSum()-10)/2.0));
+    r.value=after-before;r.type=0;
+    return r.value>0;
 }
 bool Near(objHndl actor,objHndl owner) {
     if (!objSystem->IsValidHandle(owner) || !party.IsInParty(owner) || critterSys.IsDeadOrUnconscious(owner)) return false;
@@ -48,7 +64,7 @@ SpellPacketBody ResourcePacket(const CheckResource &r) {
 }
 
 }
-std::vector<CheckResource> ScanCheckResources(objHndl actor) {
+std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
     std::vector<CheckResource> result;
     for (int n=0;n<party.GroupListGetLen();++n) {
         auto owner=party.GroupListGetMemberN(n);
@@ -60,7 +76,7 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor) {
             for (size_t i=0;i<spells.GetSize();++i) {
                 auto spell=obj->GetSpell(field,i);
                 CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;
-                if (!Effect(r)) continue;
+                if (!Effect(r,actor,skill)) continue;
                 auto natural=!spellSys.isDomainSpell(spell.classCode)
                     && d20ClassSys.IsNaturalCastingClass(spellSys.GetCastingClass(spell.classCode));
                 if (natural!=spontaneous || d20Sys.d20Query(owner,DK_QUE_CannotCast)
@@ -81,7 +97,7 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor) {
             if (itemObj->type!=obj_t_food || itemObj->GetSpellArray(obj_f_item_spell_idx).GetSize()!=1) continue;
             CheckResource r;r.owner=owner;r.item=item;r.spell=itemObj->GetSpell(obj_f_item_spell_idx,0);
             r.quantity=inventory.GetQuantity(item);r.charges=itemObj->GetInt32(obj_f_item_spell_charges_idx);
-            if (!Effect(r) || r.quantity<1 || r.charges<1) continue;
+            if (!Effect(r,actor,skill) || r.quantity<1 || r.charges<1) continue;
             r.label=fmt::format("{}: {} x{} (+{})",description.getDisplayName(owner),description.getDisplayName(item),r.quantity,r.value);
             result.push_back(r);
         }
@@ -126,7 +142,7 @@ void CommitCheckResources(objHndl actor,const std::vector<CheckResource>& resour
         else {
             auto packet=ResourcePacket(r);packet.Debit();
         }
-        if (r.spell.spellEnum==557 || r.spell.spellEnum==558) {
+        if (r.spell.spellEnum!=213) {
             auto packet=ResourcePacket(r);
             packet.targetCount=packet.orgTargetCount=1;packet.targetListHandles[0]=actor;
             auto id=spellSys.GetNewSpellId();

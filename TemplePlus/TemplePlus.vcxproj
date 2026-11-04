@@ -406,6 +406,7 @@
     <ClInclude Include="bgappearance.h" />
     <None Include="ui\bgmanualcheck.inc" />
     <ClInclude Include="ui\bgskillrules.h" />
+    <ClInclude Include="ui\bgdicegeometry.h" />
     <ClInclude Include="ui\ui_popup.h" />
     <ClInclude Include="ui\ui_slider.h" />
     <ClInclude Include="ui\ui_sticky.h" />

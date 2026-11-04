@@ -31,6 +31,7 @@
 #include "action_sequence.h"
 #include "d20.h"
 #include "bgskillrules.h"
+#include "bgdicegeometry.h"
 #include "../bgcheckstate.h"
 #include "ui_bgcheckresources.h"
 #include "gamesystems/timeevents.h"
@@ -119,18 +120,7 @@ void Text(const std::string &text, int x, int y, int w, XMCOLOR color, Predefine
 }
 
 // Icosahedron (d20) drawn with flat-shaded triangles.
-struct V3 { float x, y, z; };
-const float Phi = 1.6180339887f;
-const V3 IcoV[12] = {{-1,Phi,0},{1,Phi,0},{-1,-Phi,0},{1,-Phi,0},{0,-1,Phi},{0,1,Phi},{0,-1,-Phi},{0,1,-Phi},
-	{Phi,0,-1},{Phi,0,1},{-Phi,0,-1},{-Phi,0,1}};
-const int IcoF[20][3] = {{0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11},{1,5,9},{5,11,4},{11,10,2},{10,7,6},{7,1,8},
-	{3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9},{4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1}};
-
-V3 Rotate(V3 v, float a, float b) {
-	auto ca = cosf(a), sa = sinf(a), cb = cosf(b), sb = sinf(b);
-	V3 r{ v.x * ca + v.z * sa, v.y, -v.x * sa + v.z * ca };
-	return { r.x, r.y * cb - r.z * sb, r.y * sb + r.z * cb };
-}
+using bgdice::V3;using bgdice::IcoV;using bgdice::IcoF;using bgdice::Rotate;
 
 void Triangle(XMFLOAT2 a, XMFLOAT2 b, XMFLOAT2 c, XMCOLOR color) {
 	gfx::Vertex2d v[4]{};
@@ -143,10 +133,12 @@ void Triangle(XMFLOAT2 a, XMFLOAT2 b, XMFLOAT2 c, XMCOLOR color) {
 }
 
 // Draws the die at (cx, cy); returns the screen centre of the face nearest the viewer.
-XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, XMCOLOR base) {
-	struct Face { float depth; XMFLOAT2 p[3]; float light; XMFLOAT2 centre; };
+XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, XMCOLOR base,int *frontNumber=nullptr) {
+	struct Face { float depth; XMFLOAT2 p[3]; float light; XMFLOAT2 centre;int number; };
 	std::vector<Face> faces;
+	int faceIndex=0;
 	for (auto &f : IcoF) {
+        auto number=bgdice::Labels()[faceIndex++];
 		V3 r[3];
 		for (int k = 0; k < 3; k++) r[k] = Rotate(IcoV[f[k]], a, b);
 		V3 u{ r[1].x - r[0].x, r[1].y - r[0].y, r[1].z - r[0].z }, w{ r[2].x - r[0].x, r[2].y - r[0].y, r[2].z - r[0].z };
@@ -155,7 +147,7 @@ XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, 
 		auto zc = (r[0].z + r[1].z + r[2].z) / 3;
 		if (n.z < 0) continue;   // back face (faces wind outward)
 		Face face;
-		face.depth = zc;
+		face.depth = zc;face.number=number;
 		for (int k = 0; k < 3; k++) face.p[k] = XMFLOAT2(cx + r[k].x * size, cy - r[k].y * size);
 		face.light = 0.45f + 0.55f * fabsf(n.z / len);
 		face.centre = XMFLOAT2(cx + (r[0].x + r[1].x + r[2].x) / 3 * size, cy - (r[0].y + r[1].y + r[2].y) / 3 * size);
@@ -170,6 +162,12 @@ XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, 
 		Triangle(f.p[0], f.p[1], f.p[2], c);
 		for (int k = 0; k < 3; k++) edges.emplace_back(f.p[k], f.p[(k + 1) % 3], edge);
 		front = f.centre;
+        if (frontNumber) {
+            *frontNumber=f.number;
+            if (&f!=&faces.back() && f.light>0.65f)
+                Text(std::to_string(f.number),int(f.centre.x)-15,int(f.centre.y)-7,30,
+                    XMCOLOR(0.95f,0.92f,0.83f,alpha*f.light),PredefinedFont::PRIORY_12,true);
+        }
 	}
 	tig->GetShapeRenderer2d().DrawLines(edges);
 	return front;
@@ -388,7 +386,7 @@ bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string
     session->map=maps.GetCurrentMapId();session->flags=flags;session->target=target;
     session->state.dc=dc;session->state.duration=duration;
     {PreviewScope preview;dispatch.dispatch1ESkillLevel(actor,skill,&session->base,objHndl::null,flags);}
-    session->resources=ScanCheckResources(actor);session->valid=std::move(valid);
+    session->resources=ScanCheckResources(actor,skill);session->valid=std::move(valid);
     session->commit=std::move(commit);session->started=std::move(started);
     LockCheckTime();sManual=std::move(session);
     if (!sWindow) sWindow=new RollWindow();
