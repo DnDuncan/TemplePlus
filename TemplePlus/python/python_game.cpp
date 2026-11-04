@@ -1689,10 +1689,22 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)});Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
+	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
+	return PyInt_FromLong(2);
+}
 static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
-	int mapId;const char *id,*guid;
-	if (!PyArg_ParseTuple(args,"iss:bg_source_door_bind",&mapId,&id,&guid)) return nullptr;
-	try {gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);Py_RETURN_NONE;}
+	int mapId,found=0;const char *id,*guid;
+	if (!PyArg_ParseTuple(args,"iss|i:bg_source_door_bind",&mapId,&id,&guid,&found)) return nullptr;
+	try {
+		gameSystems->GetTerrain().BindSourceDoor(mapId,id,guid);
+		if (found) {
+			auto obj=objSystem->GetObject(objSystem->FindObjectByIdStr(guid));
+			auto script=obj->GetScript(obj_f_scripts_idx,0x27);
+			if (script.scriptId) {script.unk1|=4;obj->SetScript(obj_f_scripts_idx,0x27,script);}
+		}
+		Py_RETURN_NONE;
+	}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 // BG journal in the ToEE logbook (Quests tab): game.bg_quest_set(id, title,
@@ -1972,6 +1984,7 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
+	{"bg_source_interaction_version",PyGame_BgSourceInteractionVersion,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},
 	{"bg_logbook_toggle",PyGame_BgLogbookToggle,METH_VARARGS,NULL},

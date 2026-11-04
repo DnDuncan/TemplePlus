@@ -4,6 +4,7 @@
 #include "gameview.h"
 #include "party.h"
 #include "critter.h"
+#include "traps.h"
 #include "d20.h"
 #include "dispatcher.h"
 #include "combat.h"
@@ -79,7 +80,22 @@ void TerrainSystem::BindDoorContext(int mapId,const std::string &id,DoorContextD
 	CancelOriginalDoorUse();++mDoorUseRevision;
 }
 DoorSecurity TerrainSystem::GetDoorSecurity(int mapId,const std::string &id) const {
-	auto entry=mDoorContexts.find({mapId,OriginalDoorState::NormalizeId(id)});
+	auto key=std::make_pair(mapId,OriginalDoorState::NormalizeId(id));
+	auto entry=mDoorContexts.find(key);
+	auto source=mSourceDoors.find(key);
+	if (source!=mSourceDoors.end()) {
+		auto handle=objSystem->FindObjectByIdStr(source->second);
+		if (!handle) throw std::invalid_argument("source door portal is unavailable");
+		auto obj=objSystem->GetObject(handle);
+		DoorSecurity security;
+		security.locked=objects.IsPortalLocked(handle)!=FALSE;
+		security.lockDc=(std::max)(0,(std::min)(60,obj->GetInt32(obj_f_portal_lock_dc)));
+		auto trap=traps.GetByObj(handle);
+		security.trapped=trap!=nullptr;
+		security.found=security.trapped && (obj->GetScript(obj_f_scripts_idx,0x27).unk1&4)!=0;
+		if (trap) {security.searchDc=trap->searchDC;security.disarmDc=trap->disableDC;}
+		return security;
+	}
 	if (entry==mDoorContexts.end()) throw std::invalid_argument("door context is not bound");
 	return entry->second.security;
 }
