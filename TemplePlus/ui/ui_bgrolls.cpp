@@ -403,6 +403,12 @@ BOOL EndSkillRoll(objHndl performer, SkillEnum skill, int dc, int *delta, int fl
 		|| rec.obj != performer || rec.skill != skill || rec.natural < 1 || rec.natural > 20) return success;
 	if (skill == skill_search && ((flags & SRF_Hide_Failed_Search) || (!sAreaRoll && !ExplicitSearch(performer)))) return success;
 	auto natural = rec.natural;
+	// Explicit house rule requested for these two skills: a natural 1 is
+	// critical failure even when a large skill bonus would meet the DC.
+	if (natural == 1 && (skill == skill_open_lock || skill == skill_disable_device)) {
+		success = FALSE;
+		if (delta) *delta = (std::min)(*delta,-1);
+	}
 	auto outcome = success ? Outcome::Success : Outcome::Failure;
 	if (natural == 20 && success) outcome = Outcome::CriticalSuccess;
 	if (skill == skill_disable_device && !success) {
