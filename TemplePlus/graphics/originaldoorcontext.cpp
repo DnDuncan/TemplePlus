@@ -43,6 +43,12 @@ bool TerrainSystem::ContextTravel(const OriginalTravelMarker &marker) const {
 std::vector<DoorContextAction> TerrainSystem::ContextActions(const OriginalTravelMarker &marker) const {
 	auto definition=mDoorContexts.find({marker.gateMap,marker.gateId});
 	if (definition==mDoorContexts.end()) throw std::invalid_argument("door context is not bound");
+	if (HasSourceDoor(marker.gateMap,marker.gateId)) {
+		// The portal owns interaction/security. Only the existing blue entry
+		// symbol remains, and only after opening a door with a real route.
+		return ContextTravel(marker) && CanTravelThroughOriginalDoor(marker.gateMap,marker.gateId)
+			? std::vector<DoorContextAction>{DoorContextAction::Travel} : std::vector<DoorContextAction>{};
+	}
 	return DoorContextActions(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId),definition->second.security,
 		ContextTravel(marker),!definition->second.textures[static_cast<size_t>(DoorContextAction::Disarm)].empty());
 }
@@ -108,6 +114,7 @@ std::vector<uint64_t> TerrainSystem::ContextSelection() const {
 	return result;
 }
 std::vector<OriginalDoorUsePoint> TerrainSystem::ContextLayout(const OriginalTravelMarker &marker,size_t count) const {
+	if (!count) return {};
 	auto zoom=gameView->GetWorldZoom();auto view=gameView->GetWorldViewport();int ox,oy;GetTerrainOrigin(ox,oy);
 	double half=26/zoom,step=54/zoom;
 	auto x=marker.x-(count-1)*step/2;

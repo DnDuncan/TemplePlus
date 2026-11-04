@@ -294,8 +294,24 @@ bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	if (x < visible.left || y < visible.top || x >= visible.right || y >= visible.bottom) {
 		CancelOriginalDoorInput(); return false;
 	}
+	// Source portals use their reviewed floor approach, not the mesh centre.
+	// RMB is deliberately left to the native skills wheel above.
+	auto contextHit = terrain.HasDoorContext() ? terrain.UpdateDoorContextHover(x,y) : std::string();
+	auto sourceDoor = terrain.SourceDoorFor(objHndl{terrain.PickSourceContainer(x,y)});
+	if (!sourceDoor.empty() && (contextHit.empty() || contextHit[0] != '!')) {
+		int ox,oy; terrain.GetTerrainOrigin(ox,oy);
+		using Event=OriginalDoorMousePress::Event;
+		auto event=(flags&MSF_LMB_CLICK) ? Event::Down : (flags&MSF_LMB_RELEASED) ? Event::Up : Event::Move;
+		auto result=mOriginalDoorPress.Process(maps.GetCurrentMapId(),sourceDoor,event,x-ox,y-oy,
+			(std::max)(4,int(std::ceil(6/gameView->GetWorldZoom()))));
+		if (!result.toggle.empty()) {
+			try { terrain.RequestOriginalDoorUse(sourceDoor,party.GetConsciousPartyLeader().handle); }
+			catch (const std::exception &e) { logger->info("Source door approach refused: {}",e.what()); }
+		}
+		return result.consumed;
+	}
 	if (terrain.HasDoorContext()) {
-		auto hit=terrain.UpdateDoorContextHover(x,y);
+		auto hit=contextHit;
 		int ox,oy;terrain.GetTerrainOrigin(ox,oy);using Event=OriginalDoorMousePress::Event;
 		auto event=(flags&MSF_LMB_CLICK) ? Event::Down : (flags&MSF_LMB_RELEASED) ? Event::Up : Event::Move;
 		auto result=mOriginalDoorPress.Process(maps.GetCurrentMapId(),hit,event,x-ox,y-oy,

@@ -16,6 +16,11 @@
 */
 namespace bgrolls {
 
+// Explicit Search uses the native area picker. No roll or template on cancel.
+bool BeginAreaSearch(objHndl performer);
+void AdvanceSearch();
+void Reset();
+
 // Called by the skill roll replacement around the native roll.
 void BeginSkillRoll();
 BOOL EndSkillRoll(objHndl performer, SkillEnum skill, int dc, int *delta, int flags, BOOL success);

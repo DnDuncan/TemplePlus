@@ -16,6 +16,8 @@
 #include "../critter.h"
 #include "gameview.h"
 #include "graphics/sourcecontainers.h"
+#include "graphics/mapterrain.h"
+#include <infrastructure/mdfmaterial.h>
 #include <graphics/dynamictexture.h>
 
 #include "froggrapplecontroller.h"
@@ -62,6 +64,17 @@ MapObjectRenderer::MapObjectRenderer(GameSystems& gameSystems,
 	mHighlightMaterial = mdfFactory.LoadMaterial("art/meshes/hilight.mdf");
 	mBlobShadowMaterial = mdfFactory.LoadMaterial("art/meshes/shadow.mdf");
 	mOccludedMaterial = mdfFactory.LoadMaterial("art/meshes/occlusion.mdf");
+	// The module VFS is not mounted here yet. Build a separate, uncached flat
+	// silhouette instead of hoping a later module override replaces the cache.
+	mBgOccludedMaterial = mdfFactory.LoadMaterial("art/meshes/occlusion.mdf", [](gfx::MdfMaterial &spec) {
+		spec.samplers.clear();
+		spec.notLit = true;
+		spec.diffuse = 0x96466EAA;
+		spec.blendType = gfx::MdfBlendType::Alpha;
+		spec.enableZWrite = false;
+		spec.disableZ = false;
+		spec.depthGreater = true;
+	});
 
 	mGrappleController = std::make_unique<FrogGrappleController>(device, mdfFactory);
 
@@ -436,6 +449,7 @@ void MapObjectRenderer::RenderOccludedMapObjects(int tileX1, int tileX2, int til
 }
 
 void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
@@ -553,7 +567,10 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 	overrides.alpha = alpha / 255.0f;
 
 	if (type != obj_t_portal) {
-		mOccludedMaterial->Bind(mDevice, lights, &overrides);
+		auto material = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
+			&& mBgOccludedMaterial ? mBgOccludedMaterial : mOccludedMaterial;
+		if (!material) return;
+		material->Bind(mDevice, lights, &overrides);
 		mAasRenderer.RenderWithoutMaterial(animatedModel.get(), animParams);
 
 		if (objects.IsCritterType(type)) {

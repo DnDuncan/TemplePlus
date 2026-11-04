@@ -74,6 +74,7 @@ private:
 	gfx::MdfRenderMaterialPtr mBlobShadowMaterial;
 	gfx::MdfRenderMaterialPtr mHighlightMaterial;
 	gfx::MdfRenderMaterialPtr mOccludedMaterial;
+	gfx::MdfRenderMaterialPtr mBgOccludedMaterial;
 	std::unique_ptr<class FrogGrappleController> mGrappleController;
 	std::array<gfx::MdfRenderMaterialPtr, 10> mGlowMaterials;
 	bool mShowHighlights = false;
