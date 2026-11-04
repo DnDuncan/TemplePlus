@@ -16,6 +16,7 @@
 #include "gamesystems/gamesystems.h"
 #include "gamesystems/mapsystem.h"
 #include "gamesystems/legacymapsystems.h"
+#include "gamesystems/legacysystems.h"
 #include "gamesystems/objects/objsystem.h"
 #include "config/config.h"
 #include <graphics/device.h>
