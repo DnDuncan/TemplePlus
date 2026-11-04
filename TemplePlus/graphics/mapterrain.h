@@ -8,6 +8,7 @@
 #include "originaldoorcontext.h"
 #include "sourcecontainers.h"
 #include "../worldviewzoom.h"
+#include <infrastructure/location.h>
 
 struct TigRect;
 
