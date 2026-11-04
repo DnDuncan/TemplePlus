@@ -61,7 +61,7 @@ bool ReliableCaster(objHndl owner,SpellStoreData spell) {
     if ((components&SpellComponent_Somatic) && spellSys.IsArcaneSpellClass(spell.classCode)) {
         auto classCode=spellSys.GetCastingClass(spell.classCode);
         for(int slot=int(EquipSlot::Helmet);slot<int(EquipSlot::Count);++slot)
-            if (d20Sys.d20QueryWithData(owner,DK_QUE_Get_Arcane_Spell_Failure,classCode,slot)>0) return false;
+            if (int(d20Sys.d20QueryWithData(owner,DK_QUE_Get_Arcane_Spell_Failure,classCode,slot))>0) return false;
     }
     // A cast needing an extra failure/concentration check is performed through
     // the normal spell action first, never granted for free by this preview.
@@ -100,9 +100,11 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
                     || !spellSys.spellCanCast(owner,spell.spellEnum,spell.classCode,spell.spellLevel)) continue;
                 if (!spontaneous && (spell.spellStoreState.usedUp
                     || spell.spellStoreState.spellStoreType!=SpellStoreType::spellStoreMemorized)) continue;
-                if (spontaneous && spellSys.NumSpellsInLevel(owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
-                    >=spellSys.GetNumSpellsPerDay(owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) continue;
-                r.label=fmt::format("{}: {} (+{})",description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
+                auto remaining=spontaneous ? spellSys.GetNumSpellsPerDay(owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)
+                    -spellSys.NumSpellsInLevel(owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel):1;
+                if (remaining<=0) continue;
+                r.label=fmt::format("[L{} x{}] {}: {} (+{})",spell.spellLevel,remaining,
+                    description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
                 auto reliable=ReliableCaster(owner,spell);r.available=nearby && reliable;
                 if (!nearby) r.label="[far] "+r.label;
                 else if (!reliable) r.label="[cast first] "+r.label;

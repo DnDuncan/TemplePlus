@@ -355,9 +355,11 @@ void TerrainSystem::RenderDoorContext() {
 	const auto &m=entry->second;auto definition=mDoorContexts.find({m.gateMap,m.gateId});if (definition==mDoorContexts.end()) return;
 	int ox,oy;GetTerrainOrigin(ox,oy);auto outline=mContextOutlines.find(entry->first);
 	if (outline!=mContextOutlines.end()) {
+        auto security=GetDoorSecurity(m.gateMap,m.gateId);
+        auto color=security.trapped && security.found ? XMCOLOR(1.0f,0.12f,0.12f,0.95f):XMCOLOR(0.2f,0.65f,1.0f,0.9f);
 		std::vector<gfx::Line2d> lines;const auto &poly=outline->second;
 		for (size_t i=0;i<poly.size();++i) lines.emplace_back(XMFLOAT2(float(ox+poly[i].x),float(oy+poly[i].y)),
-			XMFLOAT2(float(ox+poly[(i+1)%poly.size()].x),float(oy+poly[(i+1)%poly.size()].y)),XMCOLOR(0.2f,0.65f,1.0f,0.9f));
+			XMFLOAT2(float(ox+poly[(i+1)%poly.size()].x),float(oy+poly[(i+1)%poly.size()].y)),color);
 		mShapeRenderer.DrawLines(lines);
 	}
 	if (!mContextHover.Visible(now)) return;
