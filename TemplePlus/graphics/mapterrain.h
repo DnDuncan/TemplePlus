@@ -127,7 +127,13 @@ public:
 	TerrainSystem& operator=(TerrainSystem&&) = delete;
 	
 	void UpdateDayNight();
+	// bg2toee Search: a ground template (radius in inches) shown until untilMs (timeGetTime).
+	void AddSearchTemplate(LocAndOffsets center, float radiusInches, uint32_t untilMs);
+
 private:
+	struct SearchTemplate { int mapId; float x, z, radius; uint32_t until; };
+	std::vector<SearchTemplate> mSearchTemplates;
+	void RenderSearchTemplates();
 	gfx::RenderingDevice& mDevice;
 	gfx::ShapeRenderer2d& mShapeRenderer;
 

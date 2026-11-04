@@ -102,6 +102,52 @@ void TerrainSystem::Render() {
 	// substituted 3D portal and never by rewriting the terrain JPEG files.
 	RenderOriginalDoors(terrainOriginX, terrainOriginY);
 	RenderSourceContainers();
+	RenderSearchTemplates();
+}
+
+void TerrainSystem::AddSearchTemplate(LocAndOffsets center, float radiusInches, uint32_t untilMs) {
+	auto world = center.ToInches2D();
+	mSearchTemplates.erase(std::remove_if(mSearchTemplates.begin(), mSearchTemplates.end(),
+		[&](const SearchTemplate &t) { return fabs(t.x - world.x) < 1 && fabs(t.z - world.y) < 1; }), mSearchTemplates.end());
+	mSearchTemplates.push_back({ maps.GetCurrentMapId(), world.x, world.y, radiusInches, untilMs });
+}
+
+// A circle on the ground: world (x, z) inches -> viewport pixels of the 20 x 14 tile diamond.
+void TerrainSystem::RenderSearchTemplates() {
+	auto now = timeGetTime();
+	mSearchTemplates.erase(std::remove_if(mSearchTemplates.begin(), mSearchTemplates.end(),
+		[&](const SearchTemplate &t) { return (int32_t)(now - t.until) >= 0; }), mSearchTemplates.end());
+	if (mSearchTemplates.empty()) return;
+	int trX, trY;
+	locSys.GetScrollTranslation(trX, trY);
+	auto screen = [&](float x, float z) {
+		auto u = x / INCH_PER_TILE, v = z / INCH_PER_TILE;
+		return XMFLOAT2(float(trX + (v - u) * 20.0), float(trY + (u + v) * 14.0));
+	};
+	for (const auto &t : mSearchTemplates) {
+		if (t.mapId != maps.GetCurrentMapId()) continue;
+		auto left = (t.until - now) / 1000.0f;
+		auto fade = left < 2.0f ? left / 2.0f : 1.0f;
+		XMCOLOR fill(0.95f, 0.80f, 0.35f, 0.16f * fade), ring(1.0f, 0.86f, 0.42f, 0.85f * fade);
+		auto centre = screen(t.x, t.z);
+		std::vector<gfx::Line2d> lines;
+		constexpr int Segments = 64;
+		for (int i = 0; i < Segments; ++i) {
+			auto a = i * 6.2831853f / Segments, b = (i + 1) * 6.2831853f / Segments;
+			auto p = screen(t.x + t.radius * cosf(a), t.z + t.radius * sinf(a));
+			auto q = screen(t.x + t.radius * cosf(b), t.z + t.radius * sinf(b));
+			gfx::Vertex2d vertices[4]{};
+			XMFLOAT2 points[4] = { centre, p, q, q };
+			for (int k = 0; k < 4; ++k) {
+				vertices[k].pos = XMFLOAT4(points[k].x, points[k].y, 0, 1);
+				vertices[k].diffuse = fill;
+			}
+			mShapeRenderer.DrawRectangle(vertices, static_cast<gfx::Texture*>(nullptr));
+			lines.emplace_back(p, q, ring);
+			lines.emplace_back(XMFLOAT2(p.x, p.y + 1), XMFLOAT2(q.x, q.y + 1), ring);
+		}
+		mShapeRenderer.DrawLines(lines);
+	}
 }
 
 namespace {
