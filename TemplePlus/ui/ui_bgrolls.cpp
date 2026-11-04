@@ -406,7 +406,9 @@ bool HandleModalInput(const TigMsg &msg) {
             if (int(msg.arg3)<0 && sManual->scroll+ResourceRows<sManual->resources.size()) ++sManual->scroll;
         }
         if (msg.arg4&MSF_LMB_RELEASED) {
-            if (x>=165 && x<435 && y>=478 && y<516) {
+            if (x>=20 && x<140 && y>=478 && y<516 && sManual->state.phase==bgchecks::Phase::Preparing) {
+                sManual->state.Cancel();CloseManual();
+            } else if (x>=165 && x<435 && y>=478 && y<516) {
                 if (sManual->state.phase==bgchecks::Phase::Result) FinishManual();else RollManual();
             } else if (sManual->state.phase==bgchecks::Phase::Preparing && x>=20 && x<ManualW-20
                 && y>=ResourceTop && y<ResourceTop+ResourceRows*ResourceStep) {
@@ -420,9 +422,9 @@ bool HandleModalInput(const TigMsg &msg) {
                 }
             }
         }
-    } else if (msg.type==TigMsgType::CHAR && msg.arg1==VK_ESCAPE) {
+    } else if ((msg.type==TigMsgType::CHAR && msg.arg1==VK_ESCAPE)
+        || (msg.type==TigMsgType::KEYSTATECHANGE && msg.arg1==1 && msg.arg2)) {
         if (sManual->state.Cancel()) CloseManual();
-        else if (sManual->state.phase==bgchecks::Phase::Result) FinishManual();
     }
     // No save/load hotkey, party selection or stale widget click passes through.
     return true;

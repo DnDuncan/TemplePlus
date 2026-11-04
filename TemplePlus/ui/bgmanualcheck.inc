@@ -140,6 +140,10 @@ bool DrawManual() {
             success ? XMCOLOR(0.3f,0.85f,0.4f,1):XMCOLOR(0.95f,0.3f,0.25f,1),PredefinedFont::ARIAL_BOLD_24,true);
     } else Text("\xCF\xF0\xEE\xE2\xE5\xF0\xEA\xE0\x20\xE2\xFB\xEF\xEE\xEB\xED\xFF\xE5\xF2\xF1\xFF\x2E\x2E\x2E",area.x+16,area.y+360,ManualW-32,dim,PredefinedFont::PRIORY_12,true);
     if (!sManual->error.empty()) Text(sManual->error,area.x+16,area.y+444,ManualW-32,white,PredefinedFont::PRIORY_12,true);
+    if (phase==bgchecks::Phase::Preparing) {
+        shapes.DrawRectangle(float(area.x+20),float(area.y+478),120,38,XMCOLOR(0.16f,0.15f,0.13f,1));
+        Text("\xCE\xF2\xEC\xE5\xED\xE0",area.x+20,area.y+488,120,dim,PredefinedFont::PRIORY_12,true);
+    }
     if (!rolling) {
         shapes.DrawRectangle(float(area.x+165),float(area.y+478),270,38,XMCOLOR(0.27f,0.22f,0.13f,1));
         Text(result ? "\xCF\xD0\xCE\xC4\xCE\xCB\xC6\xC8\xD2\xDC":"\xC1\xD0\xCE\xD1\xC8\xD2\xDC\x20\xCA\xD3\xC1\xC8\xCA",area.x+165,area.y+488,270,gold,PredefinedFont::PRIORY_12,true);
