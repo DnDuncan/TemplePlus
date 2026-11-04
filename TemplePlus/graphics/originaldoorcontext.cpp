@@ -180,7 +180,8 @@ void TerrainSystem::RequestDoorContextDefault(const std::string &route) {
 	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),route});
 	if (entry==mTravelMarkers.end()) return;
 	const auto &marker=entry->second;
-	if (GetDoorSecurity(marker.gateMap,marker.gateId).locked) {
+	auto security=GetDoorSecurity(marker.gateMap,marker.gateId);
+	if (security.locked || (security.trapped && security.found)) {
 		mContextHover.Reveal(route,timeGetTime());return;
 	}
 	RequestDoorContextAction(route,int(GetOriginalDoorOpenOnMap(marker.gateMap,marker.gateId)

@@ -1695,7 +1695,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
-	return PyInt_FromLong(2);
+	return PyInt_FromLong(3);
 }
 static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
 	int mapId,found=0;const char *id,*guid;
