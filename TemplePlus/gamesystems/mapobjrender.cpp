@@ -69,7 +69,7 @@ MapObjectRenderer::MapObjectRenderer(GameSystems& gameSystems,
 	mBgOccludedMaterial = mdfFactory.LoadMaterial("art/meshes/occlusion.mdf", [](gfx::MdfMaterial &spec) {
 		spec.samplers.clear();
 		spec.notLit = true;
-		spec.diffuse = 0x96466EAA;
+		spec.diffuse = 0x88909090;
 		spec.blendType = gfx::MdfBlendType::Alpha;
 		spec.enableZWrite = false;
 		spec.disableZ = false;

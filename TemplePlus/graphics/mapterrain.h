@@ -112,7 +112,7 @@ public:
 	void AdvanceTime(uint32_t time) override;
 	void BindSourceContainer(SourceContainerRegion region);
 	void ClearSourceDoors() {mSourceDoors.clear();}
-	void ClearSourceContainers() {mSourceContainers.Clear();mSourceDoors.clear();}
+	void ClearSourceContainers();
 	// Baldur's Gate doors backed by an invisible native portal: native lock,
 	// trap, Search / Open Lock / Disable Device and opening; the source door
 	// art and navigation follow the portal's open state.
@@ -161,6 +161,10 @@ private:
 	std::unordered_map<int, std::string> mTerrainDirs;
 	OriginalDoorState mOriginalDoors;
 	SourceContainerRegions mSourceContainers;
+	std::map<OriginalDoorState::Key,std::string> mContextContainers;
+	bool ContextIsOpen(int mapId,const std::string &id) const;
+	void SetContextSecurity(int mapId,const std::string &id,const DoorSecurity &security);
+	void SpringContainerTrap(objHndl container,objHndl actor);
 	std::map<OriginalDoorState::Key,std::string> mSourceDoors; // door -> portal object id
 	mutable SourceContainerRegion mSourceDoorHit;
 	void RenderSourceContainers();
@@ -186,7 +190,7 @@ private:
 	bool ContextTravel(const OriginalTravelMarker &marker) const;
 	std::vector<DoorContextAction> ContextActions(const OriginalTravelMarker &marker) const;
 	void SpringDoorTrap(int mapId,const std::string &id,objHndl actor);
-	bool mMapReadyPending=false;
+	bool mMapReadyPending=false,mAppearanceReady=false;
 	void DispatchMapReady();
 	void UpdateSceneFocus();
 	int SceneAreaAt(OriginalDoorUsePoint point) const;

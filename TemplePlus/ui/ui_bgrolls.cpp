@@ -14,6 +14,7 @@
 #include "ui/ui_render.h"
 #include "ui/widgets/widgets.h"
 #include "bonus.h"
+#include "condition.h"
 #include "history.h"
 #include "critter.h"
 #include "float_line.h"
@@ -30,6 +31,9 @@
 #include "action_sequence.h"
 #include "d20.h"
 #include "bgskillrules.h"
+#include "../bgcheckstate.h"
+#include "ui_bgcheckresources.h"
+#include "gamesystems/timeevents.h"
 #include "ui/ui_picker.h"
 #include "dispatcher.h"
 #include "combat.h"
@@ -49,6 +53,15 @@ struct Captured {
 Captured sCaptured;
 int sPassive = 0;
 bool sAreaRoll = false;
+int sPreviewDepth=0;
+using GuidanceFn=int(__cdecl)(DispatcherCallbackArgs);
+GuidanceFn *sOriginalGuidance=nullptr;
+int __cdecl GuidanceSkillHook(DispatcherCallbackArgs args) {
+    if (!sPreviewDepth) return sOriginalGuidance(args);
+    auto io=dispatch.DispIoCheckIoType10(static_cast<DispIoObjBonus*>(args.dispIO));
+    if (args.GetCondArg(4)>0) io->bonOut->AddBonus(args.GetData1(),34,args.GetData2());
+    return 0;
+}
 
 using HistoryType2Fn = int(__cdecl)(objHndl, objHndl, int, int, int, int, BonusList*);
 HistoryType2Fn *sOrgHistoryType2 = nullptr;
@@ -69,6 +82,7 @@ int __cdecl HistoryType2Hook(objHndl obj, objHndl obj2, int skillIdx, int dicePa
 class HistoryCaptureFix : public TempleFix {
 public:
 	void apply() override {
+		sOriginalGuidance=replaceFunction<GuidanceFn>(0x100DD360,GuidanceSkillHook);
 		sOrgHistoryType2 = replaceFunction<int(__cdecl)(objHndl, objHndl, int, int, int, int, BonusList*)>(0x10047CF0, HistoryType2Hook);
 	}
 } sHistoryCaptureFix;
@@ -161,11 +175,15 @@ XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, 
 	return front;
 }
 
+bool DrawManual();
+
 class RollWindow : public WidgetContainer {
 public:
 	RollWindow() : WidgetContainer(WndW, WndH) {}
 	void Render() override {
-		if (!IsVisible() || sQueue.empty()) return;
+		if (!IsVisible()) return;
+		if (DrawManual()) return;
+		if (sQueue.empty()) return;
 		auto now = timeGetTime();
 		auto &e = sQueue.front();
 		if (!e.start) e.start = now;
@@ -253,6 +271,9 @@ void RecordOpenLock(objHndl performer, bool criticalFailure) {
 	}
 }
 
+bool Enabled();
+#include "bgmanualcheck.inc"
+
 bool Enabled() {
 	return gameSystems && gameSystems->GetTerrain().HasOriginalDoorInput();
 }
@@ -283,6 +304,7 @@ bool EligibleTrap(objHndl performer, objHndl handle, LocAndOffsets center) {
 }
 
 objHndl BestSearcher(objHndl fallback) {
+	PreviewScope preview;
 	std::vector<DoorSkillCandidate> candidates;
 	auto area = gameSystems->GetTerrain().SceneAreaForActor(fallback.handle);
 	for (uint32_t i=0; i<party.CurrentlySelectedNum(); ++i) {
@@ -313,13 +335,31 @@ void __cdecl SearchPicked(const PickerResult &result, void*) {
 		|| critterSys.IsDeadOrUnconscious(performer)) return;
 	auto a = objects.GetLocationFull(performer).ToInches2D(), b = center.ToInches2D();
 	if (!bgskillrules::InSearchArea(a.x,a.y,b.x,b.y)) return;
-	auto now=timeGetTime();
-	sSearch={};sSearch.performer=performer;sSearch.mapId=mapId;sSearch.center=center;
-	sSearch.until=now+bgskillrules::SearchDuration;sSearch.attempt.Start(now);
-	gameSystems->GetAnim().Interrupt(performer,AnimGoalPriority::AGP_3,true);
-	gameSystems->GetAnim().PushAnimate(performer,112);
-	gameSystems->GetTerrain().AddSearchTemplate(center,bgskillrules::SearchRadius,sSearch.until);
-	logger->info("BG Search placed: actor={} radius=20 duration=6000",performer.handle);
+    auto &terrain=gameSystems->GetTerrain();
+    ObjList list;list.ListRadius(center,bgskillrules::SearchRadius,OLC_PORTAL|OLC_CONTAINER);
+    int dc=terrain.SearchDoorTraps(performer,center,bgskillrules::SearchRadius,0,false);
+    for (auto handle:list) if (EligibleTrap(performer,handle,center)) {
+        auto value=traps.GetByObj(handle)->searchDC;dc=dc ? (std::min)(dc,value):value;
+    }
+    if (!dc) dc=10;
+    BeginCheck(performer,skill_search,dc,SRF_Trap_Search,"20 ft / 6 s",
+        [performer,center]() {
+            auto a=objects.GetLocationFull(performer).ToInches2D(),b=center.ToInches2D();
+            return bgskillrules::InSearchArea(a.x,a.y,b.x,b.y);
+        },
+        [performer,center](int natural,int total,bool success) {
+            int found=gameSystems->GetTerrain().SearchDoorTraps(performer,center,bgskillrules::SearchRadius,total,true);
+            ObjList targets;targets.ListRadius(center,bgskillrules::SearchRadius,OLC_PORTAL|OLC_CONTAINER);
+            for (auto handle:targets) if (EligibleTrap(performer,handle,center) && total>=traps.GetByObj(handle)->searchDC) {
+                auto obj=objSystem->GetObject(handle);auto script=obj->GetScript(obj_f_scripts_idx,0x27);
+                script.unk1|=4;obj->SetScript(obj_f_scripts_idx,0x27,script);++found;
+            }
+            floatSys.floatMesLine(performer,1,found ? FloatLineColor::Green:FloatLineColor::White,
+                found ? "Trap detected":"No traps found");
+            logger->info("BG Search result: actor={} natural={} total={} found={}",performer.handle,natural,total,found);
+        },bgskillrules::SearchDuration,[center]() {
+            gameSystems->GetTerrain().AddSearchTemplate(center,bgskillrules::SearchRadius,timeGetTime()+bgskillrules::SearchDuration);
+        });
 }
 
 // Search also runs automatically (moving near traps, secret doors): only the
@@ -334,9 +374,65 @@ bool ExplicitSearch(objHndl performer) {
 
 }
 
+PreviewScope::PreviewScope(){++sPreviewDepth;}
+PreviewScope::~PreviewScope(){--sPreviewDepth;}
+bool IsBusy() {return sManual!=nullptr;}
+
+bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string &target,
+    std::function<bool()> valid,std::function<void(int,int,bool)> commit,uint32_t duration,std::function<void()> started) {
+    if (IsBusy() || !Enabled() || combatSys.isCombatActive() || !objSystem->IsValidHandle(actor)
+        || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)) return false;
+    auto swap=d20Sys.D20QueryPython(actor,"Skill Swap",skill);
+    if (swap>0 && swap<=42) skill=static_cast<SkillEnum>(swap-1);
+    auto session=std::make_unique<ManualCheck>();session->actor=actor;session->skill=skill;
+    session->map=maps.GetCurrentMapId();session->flags=flags;session->target=target;
+    session->state.dc=dc;session->state.duration=duration;
+    {PreviewScope preview;dispatch.dispatch1ESkillLevel(actor,skill,&session->base,objHndl::null,flags);}
+    session->resources=ScanCheckResources(actor);session->valid=std::move(valid);
+    session->commit=std::move(commit);session->started=std::move(started);
+    LockCheckTime();sManual=std::move(session);
+    if (!sWindow) sWindow=new RollWindow();
+    sWindow->SetCenterHorizontally(false);sWindow->SetCenterVertically(false);sWindow->SetPos(0,0);
+    sWindow->SetSize(uiManager->GetCanvasSize());sWindow->Show();sWindow->BringToFront();
+    logger->info("BG manual check prepared: actor={} skill={} dc={} options={}",actor.handle,int(skill),dc,sManual->resources.size());
+    return true;
+}
+
+bool HandleModalInput(const TigMsg &msg) {
+    if (!sManual || msg.type==TigMsgType::UPDATE_TIME || msg.type==TigMsgType::EXIT) return false;
+    if (!ManualValid()) {CloseManual();return true;}
+    if (msg.type==TigMsgType::MOUSE) {
+        auto area=ManualArea();int x=int(msg.arg1)-area.x,y=int(msg.arg2)-area.y;
+        if ((msg.arg4&MSF_SCROLLWHEEL_CHANGE) && sManual->state.phase==bgchecks::Phase::Preparing) {
+            if (int(msg.arg3)>0 && sManual->scroll) --sManual->scroll;
+            if (int(msg.arg3)<0 && sManual->scroll+ResourceRows<sManual->resources.size()) ++sManual->scroll;
+        }
+        if (msg.arg4&MSF_LMB_RELEASED) {
+            if (x>=165 && x<435 && y>=478 && y<516) {
+                if (sManual->state.phase==bgchecks::Phase::Result) FinishManual();else RollManual();
+            } else if (sManual->state.phase==bgchecks::Phase::Preparing && x>=20 && x<ManualW-20
+                && y>=ResourceTop && y<ResourceTop+ResourceRows*ResourceStep) {
+                auto index=sManual->scroll+(y-ResourceTop)/ResourceStep;
+                if (index<sManual->resources.size()) {
+                    auto &r=sManual->resources[index];auto choose=!r.selected;
+                    if (choose && ResourceGain(r)<=0) return true;
+                    // One source of each type: never charge two suppressed spells.
+                    if (choose) for (auto &other:sManual->resources) if (other.type==r.type) other.selected=false;
+                    r.selected=choose;
+                }
+            }
+        }
+    } else if (msg.type==TigMsgType::CHAR && msg.arg1==VK_ESCAPE) {
+        if (sManual->state.Cancel()) CloseManual();
+        else if (sManual->state.phase==bgchecks::Phase::Result) FinishManual();
+    }
+    // No save/load hotkey, party selection or stale widget click passes through.
+    return true;
+}
+
 bool BeginAreaSearch(objHndl performer) {
 	if (!Enabled()) return false;
-	if (combatSys.isCombatActive() || uiPicker.PickerActiveCheck()) return true;
+	if (IsBusy() || combatSys.isCombatActive() || uiPicker.PickerActiveCheck()) return true;
 	performer = BestSearcher(performer);
 	if (!performer) return true;
 	PickerArgs picker;
@@ -354,41 +450,11 @@ bool BeginAreaSearch(objHndl performer) {
 }
 
 void AdvanceSearch() {
-	if (!sSearch.performer) return;
-	auto now = timeGetTime();
-	if (!Enabled() || maps.GetCurrentMapId() != sSearch.mapId
-		|| int32_t(now-sSearch.until) >= 0 || !objSystem->IsValidHandle(sSearch.performer)
-		|| critterSys.IsDeadOrUnconscious(sSearch.performer)) { sSearch = {}; return; }
-	if (!sSearch.attempt.Poll(now)) return;
-	auto performer=sSearch.performer;
-	auto &terrain=gameSystems->GetTerrain();
-	ObjList list;list.ListRadius(sSearch.center,bgskillrules::SearchRadius,OLC_PORTAL | OLC_CONTAINER);
-	int dc=terrain.SearchDoorTraps(performer,sSearch.center,bgskillrules::SearchRadius,0,false);
-	for (auto handle:list) if (EligibleTrap(performer,handle,sSearch.center)) {
-		auto value=traps.GetByObj(handle)->searchDC;dc=dc ? (std::min)(dc,value) : value;
-	}
-	if (!dc) dc=10;
-	BonusList bonuses;
-	auto bonus=dispatch.dispatch1ESkillLevel(performer,skill_search,&bonuses,objHndl::null,SRF_Trap_Search);
-	Dice die(1,20,0);auto natural=die.Roll();auto total=natural+bonus;
-	histSys.RollHistoryAddType2SkillRoll(performer,die.ToPacked(),natural,dc,skill_search,&bonuses);
-	int found=terrain.SearchDoorTraps(performer,sSearch.center,bgskillrules::SearchRadius,total,true);
-	for (auto handle:list) {
-		if (!EligibleTrap(performer,handle,sSearch.center) || total<traps.GetByObj(handle)->searchDC) continue;
-		auto obj=objSystem->GetObject(handle);auto script=obj->GetScript(obj_f_scripts_idx,0x27);
-		script.unk1|=4;obj->SetScript(obj_f_scripts_idx,0x27,script);++found;
-	}
-	RollEvent event;
-	event.actor=description.getDisplayName(performer);event.skill=skillSys.GetSkillName(skill_search);
-	event.natural=natural;event.bonus=bonus;event.dc=dc;
-	event.outcome=total>=dc ? Outcome::Success : Outcome::Failure;
-	Show(event);
-	floatSys.floatMesLine(performer,1,found ? FloatLineColor::Green : FloatLineColor::White,
-		found ? "\xCB\xEE\xE2\xF3\xF8\xEA\xE0 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xE0!" : "\xCB\xEE\xE2\xF3\xF8\xE5\xEA \xED\xE5 \xEE\xE1\xED\xE0\xF0\xF3\xE6\xE5\xED\xEE");
-	logger->info("BG Search roll: actor={} natural={} bonus={} dc={} found={}",performer.handle,natural,bonus,dc,found);
+    if (sManual && !ManualValid()) CloseManual();
 }
 
 void Reset() {
+    CloseManual();
 	sCaptured.valid = false;
 	sSearch = {};
 	sSearchPickerActor = objHndl::null;
