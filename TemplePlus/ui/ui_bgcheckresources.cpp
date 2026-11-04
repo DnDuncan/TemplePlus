@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "ui_bgcheckresources.h"
+#include "../bgcheckstate.h"
 #include "party.h"
 #include "inventory.h"
 #include "critter.h"
@@ -51,6 +52,21 @@ bool SameSpell(const SpellStoreData &a,const SpellStoreData &b) {
     return a.spellEnum==b.spellEnum && a.classCode==b.classCode && a.spellLevel==b.spellLevel
         && uint32_t(am)==uint32_t(bm);
 }
+bool ReliableCaster(objHndl owner,SpellStoreData spell) {
+    if (d20Sys.d20Query(owner,DK_QUE_CannotCast)
+        || d20Sys.d20Query(owner,DK_QUE_Critter_Is_Grappling)) return false;
+    auto components=spell.GetSpellComponentFlags();
+    if ((components&SpellComponent_Verbal) && (d20Sys.d20Query(owner,DK_QUE_Mute)
+        || d20Sys.d20Query(owner,DK_QUE_Critter_Is_Deafened))) return false;
+    if ((components&SpellComponent_Somatic) && spellSys.IsArcaneSpellClass(spell.classCode)) {
+        auto classCode=spellSys.GetCastingClass(spell.classCode);
+        for(int slot=int(EquipSlot::Helmet);slot<int(EquipSlot::Count);++slot)
+            if (d20Sys.d20QueryWithData(owner,DK_QUE_Get_Arcane_Spell_Failure,classCode,slot)>0) return false;
+    }
+    // A cast needing an extra failure/concentration check is performed through
+    // the normal spell action first, never granted for free by this preview.
+    return true;
+}
 SpellPacketBody ResourcePacket(const CheckResource &r) {
     // Initialize explicitly: the legacy (caster,data) convenience constructor
     // shadows spellEnum and can leave it zero. Never register a zero spell.
@@ -76,19 +92,20 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
             auto spells=obj->GetSpellArray(field);
             for (size_t i=0;i<spells.GetSize();++i) {
                 auto spell=obj->GetSpell(field,i);
-                CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;r.available=nearby;
+                CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;
                 if (!Effect(r,actor,skill)) continue;
                 auto natural=!spellSys.isDomainSpell(spell.classCode)
                     && d20ClassSys.IsNaturalCastingClass(spellSys.GetCastingClass(spell.classCode));
                 if (natural!=spontaneous || d20Sys.d20Query(owner,DK_QUE_CannotCast)
-                    || d20Sys.d20Query(owner,DK_QUE_Mute)
                     || !spellSys.spellCanCast(owner,spell.spellEnum,spell.classCode,spell.spellLevel)) continue;
                 if (!spontaneous && (spell.spellStoreState.usedUp
                     || spell.spellStoreState.spellStoreType!=SpellStoreType::spellStoreMemorized)) continue;
                 if (spontaneous && spellSys.NumSpellsInLevel(owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
                     >=spellSys.GetNumSpellsPerDay(owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) continue;
                 r.label=fmt::format("{}: {} (+{})",description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
+                auto reliable=ReliableCaster(owner,spell);r.available=nearby && reliable;
                 if (!nearby) r.label="[far] "+r.label;
+                else if (!reliable) r.label="[cast first] "+r.label;
                 result.push_back(r);
             }
         }
@@ -109,6 +126,7 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
 }
 bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& resources) {
     std::vector<std::pair<uint64_t,int>> paid;
+    bgchecks::SlotBudget budget;
     for (const auto &r:resources) if (r.selected) {
         if (!Near(actor,r.owner)) return false;
         auto identity=std::make_pair(r.item ? r.item.handle:r.owner.handle,r.item ? -1:r.spontaneous ? -2-r.slot:r.slot);
@@ -127,11 +145,14 @@ bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& reso
             if (r.slot<0 || size_t(r.slot)>=owner->GetSpellArray(field).GetSize()) return false;
             auto spell=owner->GetSpell(field,r.slot);
             if (!SameSpell(spell,r.spell) || (!r.spontaneous && spell.spellStoreState.usedUp)
-                || d20Sys.d20Query(r.owner,DK_QUE_Mute)
+                || !ReliableCaster(r.owner,spell)
                 || d20Sys.d20Query(r.owner,DK_QUE_CannotCast)
                 || !spellSys.spellCanCast(r.owner,spell.spellEnum,spell.classCode,spell.spellLevel)) return false;
-            if (r.spontaneous && spellSys.NumSpellsInLevel(r.owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
-                >=spellSys.GetNumSpellsPerDay(r.owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) return false;
+            if (r.spontaneous) {
+                auto remaining=spellSys.GetNumSpellsPerDay(r.owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)
+                    -spellSys.NumSpellsInLevel(r.owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel);
+                if (!budget.Reserve(r.owner.handle,spell.classCode,spell.spellLevel,remaining)) return false;
+            }
         }
     }
     return true;

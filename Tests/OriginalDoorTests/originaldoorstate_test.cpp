@@ -338,6 +338,13 @@ static void TestSourceContainerRegions() {
 
 static void TestManualCheckLifecycle() {
     using namespace bgchecks;
+    SlotBudget slots;
+    assert(slots.Reserve(1,130,2,1));
+    assert(!slots.Reserve(1,130,2,1)); // two buffs cannot spend the same final slot
+    assert(slots.Reserve(2,130,2,1)); // another caster has a separate pool
+    assert(slots.Reserve(1,130,3,1));
+    assert(slots.Reserve(1,131,2,1));
+    assert(!slots.Reserve(1,130,4,0));
     CheckState c;
     assert(!c.Commit()); // preparation cannot mutate game state
     assert(!c.Roll(100,0,3,10));
