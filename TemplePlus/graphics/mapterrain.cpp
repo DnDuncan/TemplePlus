@@ -55,6 +55,10 @@ void TerrainSystem::Render() {
 		return;
 	}
 
+	// Search uses the same real-time clock as its visible template, including
+	// paused frames; the attempt policy consumes the check exactly once.
+	bgrolls::AdvanceSearch();
+
 	// Check the day<->night transition and stop if necessary
 	if (mIsTransitioning) {
 		auto timeSinceMapEntered = timeGetTime() - mTransitionStart;
@@ -467,7 +471,6 @@ void TerrainSystem::DispatchMapReady() {
 
 void TerrainSystem::AdvanceTime(uint32_t time) {
 	if (mMapReadyPending) DispatchMapReady();
-	bgrolls::AdvanceSearch();
 	UpdateSceneFocus();
 	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;
