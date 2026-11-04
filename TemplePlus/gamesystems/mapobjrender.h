@@ -38,6 +38,7 @@ public:
 	void RenderObject(objHndl handle, bool showInvisible);
 	void RenderObjectInUi(objHndl handle, int x, int y, float rotation, float scale);
 	void RenderOccludedMapObjects(int tileX1, int tileX2, int tileY1, int tileY2);
+	void RenderBgOccludedParty();
 	void RenderOccludedObject(objHndl handle);
 
 	void RenderObjectHighlight(objHndl handle, const gfx::MdfRenderMaterialPtr &material);
@@ -78,6 +79,7 @@ private:
 	std::unique_ptr<class FrogGrappleController> mGrappleController;
 	std::array<gfx::MdfRenderMaterialPtr, 10> mGlowMaterials;
 	bool mShowHighlights = false;
+	bool mBgOcclusionPrepass = false;
 
 	size_t mRenderedLastFrame = 0;
 	size_t mTotalLastFrame = 0;

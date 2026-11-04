@@ -269,6 +269,8 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
     mGameSystems.GetClipping().Render();
     // renderFuncs.RenderClipping();
 
+    mMapObjectRenderer->RenderBgOccludedParty();
+
     mMapObjectRenderer->RenderMapObjects(
         (int)info->tiles->x1, (int)info->tiles->x2, (int)info->tiles->y1,
         (int)info->tiles->y2);

@@ -425,6 +425,18 @@ void MapObjectRenderer::RenderObjectInUi(objHndl handle, int x, int y, float rot
 
 }
 
+void MapObjectRenderer::RenderBgOccludedParty() {
+	if (!originalDoorTerrain || !originalDoorTerrain->HasOriginalDoorInput()) return;
+	// At this point depth contains clipping, but no actor surfaces. Otherwise a
+	// rear arm/leg could pass Greater against its own torso and turn gray too.
+	mBgOcclusionPrepass=true;
+	struct Restore {bool &value;~Restore(){value=false;}} restore{mBgOcclusionPrepass};
+	for (uint32_t n=0;n<party.GroupListGetLen();++n) {
+		auto actor=party.GroupListGetMemberN(n);
+		if (actor && mGameSystems.GetObj().IsValidHandle(actor)) RenderOccludedObject(actor);
+	}
+}
+
 void MapObjectRenderer::RenderOccludedMapObjects(int tileX1, int tileX2, int tileY1, int tileY2) {
 
 	gfx::PerfGroup perfGroup(mDevice, "Occluded Map Objects");
@@ -517,10 +529,11 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 	}
 
 	// Handle fog occlusion of the world position, but handle it differently for portals
+	auto controlledSourceActor = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
+		&& party.IsInParty(parent ? parent : handle);
+	if (!BgOccludedPass(controlledSourceActor,mBgOcclusionPrepass)) return;
 	if (type != obj_t_portal) {
 		auto fogStatus = addresses.GetFogStatus(worldLoc, animParams.offsetX, animParams.offsetY);
-		auto controlledSourceActor = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
-			&& party.IsInParty(parent ? parent : handle);
 		if (!BgOccludedVisible(fogStatus, controlledSourceActor)) {
 			return;
 		}

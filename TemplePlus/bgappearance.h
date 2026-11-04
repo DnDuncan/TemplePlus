@@ -12,3 +12,6 @@ inline int BgChainmailAppearance(int material,bool enabled) {
 inline bool BgOccludedVisible(unsigned fog,bool controlledSourceActor) {
     return (fog&1)!=0 && (controlledSourceActor || (fog&0xB0)!=0);
 }
+inline bool BgOccludedPass(bool controlledSourceActor,bool partyPrepass) {
+    return controlledSourceActor==partyPrepass;
+}

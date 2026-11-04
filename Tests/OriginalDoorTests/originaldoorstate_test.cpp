@@ -369,6 +369,10 @@ int main() {
     assert(!BgOccludedVisible(0,true)); // no fog visibility bypass
     assert(!BgOccludedVisible(0xB0,true));
     assert(BgOccludedVisible(0xB1,false));
+    assert(BgOccludedPass(true,true));
+    assert(!BgOccludedPass(true,false)); // no second pass against the actor's own depth
+    assert(!BgOccludedPass(false,true));
+    assert(BgOccludedPass(false,false));
 	bgskillrules::SearchAttempt attempt;
 	attempt.Start(1000);assert(!attempt.Poll(3999));assert(attempt.Poll(4000));assert(!attempt.Poll(5000));
 	attempt.Start(0);assert(!attempt.Poll(6000));
