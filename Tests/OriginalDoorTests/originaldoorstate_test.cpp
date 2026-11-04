@@ -7,6 +7,7 @@
 #include "../../TemplePlus/worldviewzoom.h"
 #include "../../TemplePlus/ui/bgskillrules.h"
 #include "../../TemplePlus/bgcheckstate.h"
+#include "../../TemplePlus/bgappearance.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -359,6 +360,8 @@ static void TestManualCheckLifecycle() {
 
 int main() {
 	TestManualCheckLifecycle();
+    for(int bank:{2100,17500,18400,18600}) {assert(BgChainmailAppearance(bank,true)==18400);assert(BgChainmailAppearance(bank,false)==bank);}
+    assert(BgChainmailAppearance(1500,true)==1500);
 	bgskillrules::SearchAttempt attempt;
 	attempt.Start(1000);assert(!attempt.Poll(3999));assert(attempt.Poll(4000));assert(!attempt.Poll(5000));
 	attempt.Start(0);assert(!attempt.Poll(6000));

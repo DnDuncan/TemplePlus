@@ -190,7 +190,7 @@ private:
 	bool ContextTravel(const OriginalTravelMarker &marker) const;
 	std::vector<DoorContextAction> ContextActions(const OriginalTravelMarker &marker) const;
 	void SpringDoorTrap(int mapId,const std::string &id,objHndl actor);
-	bool mMapReadyPending=false;
+	bool mMapReadyPending=false,mAppearanceReady=false;
 	void DispatchMapReady();
 	void UpdateSceneFocus();
 	int SceneAreaAt(OriginalDoorUsePoint point) const;

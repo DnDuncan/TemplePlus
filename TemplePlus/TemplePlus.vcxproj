@@ -403,6 +403,7 @@
     <ClInclude Include="ui\ui_bgrolls.h" />
     <ClInclude Include="ui\ui_bgcheckresources.h" />
     <ClInclude Include="bgcheckstate.h" />
+    <ClInclude Include="bgappearance.h" />
     <None Include="ui\bgmanualcheck.inc" />
     <ClInclude Include="ui\bgskillrules.h" />
     <ClInclude Include="ui\ui_popup.h" />

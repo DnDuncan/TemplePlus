@@ -163,7 +163,7 @@ void TerrainSystem::ClearDoorContext() {
 		temple::GetRef<int64_t>(0x103072F0)=(*mSavedSceneLimits)[2];
 		temple::GetRef<int64_t>(0x10307358)=(*mSavedSceneLimits)[3];
 	}
-	mSavedSceneLimits.reset();mFocusedScene=0;mSceneAreas.clear();mSceneRoutes.clear();
+	mAppearanceReady=false;mSavedSceneLimits.reset();mFocusedScene=0;mSceneAreas.clear();mSceneRoutes.clear();
 	mContextContainers.clear();mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
 }
 bool TerrainSystem::HasDoorContext() const {
@@ -211,7 +211,13 @@ std::string TerrainSystem::UpdateDoorContextHover(int screenX,int screenY) {
 	std::string target;auto door=mOriginalDoors.HitTestStable(maps.GetCurrentMapId(),x,y);
 	for (const auto &entry:mTravelMarkers) {
 		if (entry.first.first!=maps.GetCurrentMapId() || !mDoorContexts.count({entry.second.gateMap,entry.second.gateId})) continue;
-		auto scene=mSceneRoutes.find(entry.first.second);
+		auto chest=mContextContainers.find(entry.first);
+        if (chest!=mContextContainers.end()) {
+            auto handle=objSystem->FindObjectByIdStr(chest->second);
+            if (!handle || (objects.GetFlags(handle)&(OF_OFF|OF_DESTROYED))
+                || !(gameSystems->GetMapFogging().IsPosExplored(objects.GetLocationFull(handle))&1)) continue;
+        }
+        auto scene=mSceneRoutes.find(entry.first.second);
 		if (scene!=mSceneRoutes.end() && !SceneContains(mSceneAreas.at(scene->second.source),x,y)) continue;
 		auto outline=mContextOutlines.find(entry.first);
 		if ((!door.empty() && entry.second.gateId==door && mOriginalDoors.Outline(entry.second.gateMap,door))
@@ -266,18 +272,19 @@ void TerrainSystem::RequestDoorContextAction(const std::string &route,int rawAct
 	auto scene=mSceneRoutes.find(m.id);
 	if (scene!=mSceneRoutes.end()) for (auto actor:selection) if (SceneAreaForActor(actor)!=scene->second.source)
 		throw std::invalid_argument("select characters in the same visible area");
+	bgrolls::PreviewScope preview;
 	std::vector<DoorSkillCandidate> candidates;
 	auto skill=action==DoorContextAction::PickLock ? skill_open_lock
 		: action==DoorContextAction::Disarm ? skill_disable_device : skill_search;
 	auto skillAction=action==DoorContextAction::PickLock || action==DoorContextAction::Search || action==DoorContextAction::Disarm;
 	for (auto handle:selection) {
 		objHndl actor{handle};auto pos=objects.GetLocationFull(actor).ToInches2D();
-		auto actualSkill=skill;auto bonus=0;auto eligible=true;
+		auto actualSkill=skill;auto bonus=0;auto eligible=SceneAreaForActor(handle)==SceneAreaAt(m.approach.points.front());
 		if (skillAction) {
 			auto swap=d20Sys.D20QueryPython(actor,"Skill Swap",skill);
 			if (swap>0 && swap<=42) actualSkill=static_cast<SkillEnum>(swap-1);
 			auto props=skillSys.skillPropsTable[actualSkill];
-			eligible=skillSys.IsEnabled(actualSkill) && (props.unskilledUseAllow || critterSys.SkillBaseGet(actor,actualSkill)>0);
+			eligible=eligible && skillSys.IsEnabled(actualSkill) && (props.unskilledUseAllow || critterSys.SkillBaseGet(actor,actualSkill)>0);
 			if (props.stat==stat_intelligence && d20Sys.d20Query(actor,DK_QUE_CannotUseIntSkill)) eligible=false;
 			if (props.stat==stat_charisma && d20Sys.d20Query(actor,DK_QUE_CannotUseChaSkill)) eligible=false;
 			bonus=dispatch.dispatch1ESkillLevel(actor,actualSkill,nullptr,objHndl::null,

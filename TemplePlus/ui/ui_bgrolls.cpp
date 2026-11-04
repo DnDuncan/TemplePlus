@@ -14,6 +14,7 @@
 #include "ui/ui_render.h"
 #include "ui/widgets/widgets.h"
 #include "bonus.h"
+#include "condition.h"
 #include "history.h"
 #include "critter.h"
 #include "float_line.h"
@@ -52,6 +53,15 @@ struct Captured {
 Captured sCaptured;
 int sPassive = 0;
 bool sAreaRoll = false;
+int sPreviewDepth=0;
+using GuidanceFn=int(__cdecl)(DispatcherCallbackArgs);
+GuidanceFn *sOriginalGuidance=nullptr;
+int __cdecl GuidanceSkillHook(DispatcherCallbackArgs args) {
+    if (!sPreviewDepth) return sOriginalGuidance(args);
+    auto io=dispatch.DispIoCheckIoType10(static_cast<DispIoObjBonus*>(args.dispIO));
+    if (args.GetCondArg(4)>0) io->bonOut->AddBonus(args.GetData1(),34,args.GetData2());
+    return 0;
+}
 
 using HistoryType2Fn = int(__cdecl)(objHndl, objHndl, int, int, int, int, BonusList*);
 HistoryType2Fn *sOrgHistoryType2 = nullptr;
@@ -72,6 +82,7 @@ int __cdecl HistoryType2Hook(objHndl obj, objHndl obj2, int skillIdx, int dicePa
 class HistoryCaptureFix : public TempleFix {
 public:
 	void apply() override {
+		sOriginalGuidance=replaceFunction<GuidanceFn>(0x100DD360,GuidanceSkillHook);
 		sOrgHistoryType2 = replaceFunction<int(__cdecl)(objHndl, objHndl, int, int, int, int, BonusList*)>(0x10047CF0, HistoryType2Hook);
 	}
 } sHistoryCaptureFix;
@@ -293,6 +304,7 @@ bool EligibleTrap(objHndl performer, objHndl handle, LocAndOffsets center) {
 }
 
 objHndl BestSearcher(objHndl fallback) {
+	PreviewScope preview;
 	std::vector<DoorSkillCandidate> candidates;
 	auto area = gameSystems->GetTerrain().SceneAreaForActor(fallback.handle);
 	for (uint32_t i=0; i<party.CurrentlySelectedNum(); ++i) {
@@ -362,6 +374,8 @@ bool ExplicitSearch(objHndl performer) {
 
 }
 
+PreviewScope::PreviewScope(){++sPreviewDepth;}
+PreviewScope::~PreviewScope(){--sPreviewDepth;}
 bool IsBusy() {return sManual!=nullptr;}
 
 bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string &target,
@@ -373,7 +387,7 @@ bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string
     auto session=std::make_unique<ManualCheck>();session->actor=actor;session->skill=skill;
     session->map=maps.GetCurrentMapId();session->flags=flags;session->target=target;
     session->state.dc=dc;session->state.duration=duration;
-    dispatch.dispatch1ESkillLevel(actor,skill,&session->base,objHndl::null,flags);
+    {PreviewScope preview;dispatch.dispatch1ESkillLevel(actor,skill,&session->base,objHndl::null,flags);}
     session->resources=ScanCheckResources(actor);session->valid=std::move(valid);
     session->commit=std::move(commit);session->started=std::move(started);
     LockCheckTime();sManual=std::move(session);
@@ -401,6 +415,7 @@ bool HandleModalInput(const TigMsg &msg) {
                 auto index=sManual->scroll+(y-ResourceTop)/ResourceStep;
                 if (index<sManual->resources.size()) {
                     auto &r=sManual->resources[index];auto choose=!r.selected;
+                    if (choose && ResourceGain(r)<=0) return true;
                     // One source of each type: never charge two suppressed spells.
                     if (choose) for (auto &other:sManual->resources) if (other.type==r.type) other.selected=false;
                     r.selected=choose;

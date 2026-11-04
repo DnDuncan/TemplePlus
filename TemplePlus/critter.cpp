@@ -4,6 +4,8 @@
 #include "obj.h"
 #include <objlist.h>
 #include "inventory.h"
+#include "graphics/mapterrain.h"
+#include "bgappearance.h"
 #include "float_line.h"
 #include "condition.h"
 #include "d20.h"
@@ -1429,7 +1431,8 @@ void LegacyCritterSystem::UpdateAddMeshes(objHndl obj)
 		}
 
 		// Addmesh / Material index of the item
-		auto matIdx = objects.getInt32(item, obj_f_item_material_slot);
+		auto matIdx = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot),
+            originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput());
 		if (matIdx == -1) {
 			continue; // No assigned addmesh or material replacement
 		}
@@ -1699,7 +1702,8 @@ void LegacyCritterSystem::UpdateModelEquipment(objHndl obj)
 		auto slot = (EquipSlot) slotId;
 		auto item = GetWornItem(obj, slot);
 		if (item) {
-			auto materialSlot = objects.getInt32(item, obj_f_item_material_slot);
+			auto materialSlot = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot),
+                originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput());
 			if (materialSlot != -1) {
 				ApplyReplacementMaterial(model, materialSlot + raceOffset, materialSlot + baseRaceOffset);
 			}

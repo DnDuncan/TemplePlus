@@ -5,6 +5,7 @@
 #include "critter.h"
 #include "description.h"
 #include "d20.h"
+#include "d20_class.h"
 #include "spell.h"
 #include "obj.h"
 #include "gamesystems/gamesystems.h"
@@ -18,7 +19,8 @@ bool Effect(CheckResource &r) {
     // Guidance is spent on this skill check. Heroism remains as a real native
     // spell afterwards. Both use 3.5 typed bonuses, including suppression.
     if (r.spell.spellEnum==213) {r.value=1;r.type=34;return true;} // competence
-    if (r.spell.spellEnum==557) {r.value=2;r.type=13;return true;} // morale
+    if (r.spell.spellEnum==557) {r.value=2;r.type=13;return true;}
+    if (r.spell.spellEnum==558) {r.value=4;r.type=13;return true;} // morale
     return false;
 }
 bool Near(objHndl actor,objHndl owner) {
@@ -26,12 +28,25 @@ bool Near(objHndl actor,objHndl owner) {
     auto &terrain=gameSystems->GetTerrain();
     if (terrain.SceneAreaForActor(actor.handle)!=terrain.SceneAreaForActor(owner.handle)) return false;
     auto a=objects.GetLocationFull(actor).ToInches2D(),b=objects.GetLocationFull(owner).ToInches2D();
-    return std::hypot(a.x-b.x,a.y-b.y)<=60; // native touch range, no remote assistance
+    return std::hypot(a.x-b.x,a.y-b.y)<=60 && (actor==owner || critterSys.HasLineOfSight(owner,actor)==0); // native touch range, no remote assistance
 }
 bool SameSpell(const SpellStoreData &a,const SpellStoreData &b) {
+    auto am=a.metaMagicData,bm=b.metaMagicData;
     return a.spellEnum==b.spellEnum && a.classCode==b.classCode && a.spellLevel==b.spellLevel
-        && a.metaMagicData==b.metaMagicData;
+        && uint32_t(am)==uint32_t(bm);
 }
+SpellPacketBody ResourcePacket(const CheckResource &r) {
+    // Initialize explicitly: the legacy (caster,data) convenience constructor
+    // shadows spellEnum and can leave it zero. Never register a zero spell.
+    SpellPacketBody packet;
+    packet.spellEnum=packet.spellEnumOriginal=r.spell.spellEnum;packet.caster=r.owner;
+    packet.spellClass=r.spell.classCode;packet.spellKnownSlotLevel=r.spell.spellLevel;
+    auto mm=r.spell.metaMagicData;packet.metaMagicData=uint32_t(mm);packet.invIdx=INV_IDX_INVALID;
+    if (r.item) packet.casterLevel=(std::max)(1,2*int(r.spell.spellLevel)-1);
+    else spellSys.SpellPacketSetCasterLevel(&packet);
+    return packet;
+}
+
 }
 std::vector<CheckResource> ScanCheckResources(objHndl actor) {
     std::vector<CheckResource> result;
@@ -39,16 +54,25 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor) {
         auto owner=party.GroupListGetMemberN(n);
         if (!Near(actor,owner)) continue;
         auto obj=objSystem->GetObject(owner);
-        auto spells=obj->GetSpellArray(obj_f_critter_spells_memorized_idx);
-        for (size_t i=0;i<spells.GetSize();++i) {
-            auto spell=obj->GetSpell(obj_f_critter_spells_memorized_idx,i);
-            CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);
-            if (!Effect(r) || spell.spellStoreState.usedUp
-                || spell.spellStoreState.spellStoreType!=SpellStoreType::spellStoreMemorized
-                || d20Sys.d20Query(owner,DK_QUE_CannotCast)
-                || !spellSys.spellCanCast(owner,spell.spellEnum,spell.classCode,spell.spellLevel)) continue;
-            r.label=fmt::format("{}: {} (+{})",description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
-            result.push_back(r);
+        for (bool spontaneous:{false,true}) {
+            auto field=spontaneous ? obj_f_critter_spells_known_idx:obj_f_critter_spells_memorized_idx;
+            auto spells=obj->GetSpellArray(field);
+            for (size_t i=0;i<spells.GetSize();++i) {
+                auto spell=obj->GetSpell(field,i);
+                CheckResource r;r.owner=owner;r.spell=spell;r.slot=int(i);r.spontaneous=spontaneous;
+                if (!Effect(r)) continue;
+                auto natural=!spellSys.isDomainSpell(spell.classCode)
+                    && d20ClassSys.IsNaturalCastingClass(spellSys.GetCastingClass(spell.classCode));
+                if (natural!=spontaneous || d20Sys.d20Query(owner,DK_QUE_CannotCast)
+                    || d20Sys.d20Query(owner,DK_QUE_Mute)
+                    || !spellSys.spellCanCast(owner,spell.spellEnum,spell.classCode,spell.spellLevel)) continue;
+                if (!spontaneous && (spell.spellStoreState.usedUp
+                    || spell.spellStoreState.spellStoreType!=SpellStoreType::spellStoreMemorized)) continue;
+                if (spontaneous && spellSys.NumSpellsInLevel(owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
+                    >=spellSys.GetNumSpellsPerDay(owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) continue;
+                r.label=fmt::format("{}: {} (+{})",description.getDisplayName(owner),spellSys.GetSpellName(spell.spellEnum),r.value);
+                result.push_back(r);
+            }
         }
         for (auto item:inventory.GetInventory(owner)) {
             auto itemObj=objSystem->GetObject(item);
@@ -68,7 +92,7 @@ bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& reso
     std::vector<std::pair<uint64_t,int>> paid;
     for (const auto &r:resources) if (r.selected) {
         if (!Near(actor,r.owner)) return false;
-        auto identity=std::make_pair(r.item ? r.item.handle:r.owner.handle,r.item ? -1:r.slot);
+        auto identity=std::make_pair(r.item ? r.item.handle:r.owner.handle,r.item ? -1:r.spontaneous ? -2-r.slot:r.slot);
         if (std::find(paid.begin(),paid.end(),identity)!=paid.end()) return false;
         paid.push_back(identity);
         if (r.item) {
@@ -80,11 +104,15 @@ bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& reso
                 || !SameSpell(item->GetSpell(obj_f_item_spell_idx,0),r.spell)) return false;
         } else {
             auto owner=objSystem->GetObject(r.owner);
-            if (r.slot<0 || size_t(r.slot)>=owner->GetSpellArray(obj_f_critter_spells_memorized_idx).GetSize()) return false;
-            auto spell=owner->GetSpell(obj_f_critter_spells_memorized_idx,r.slot);
-            if (!SameSpell(spell,r.spell) || spell.spellStoreState.usedUp
+            auto field=r.spontaneous ? obj_f_critter_spells_known_idx:obj_f_critter_spells_memorized_idx;
+            if (r.slot<0 || size_t(r.slot)>=owner->GetSpellArray(field).GetSize()) return false;
+            auto spell=owner->GetSpell(field,r.slot);
+            if (!SameSpell(spell,r.spell) || (!r.spontaneous && spell.spellStoreState.usedUp)
+                || d20Sys.d20Query(r.owner,DK_QUE_Mute)
                 || d20Sys.d20Query(r.owner,DK_QUE_CannotCast)
                 || !spellSys.spellCanCast(r.owner,spell.spellEnum,spell.classCode,spell.spellLevel)) return false;
+            if (r.spontaneous && spellSys.NumSpellsInLevel(r.owner,obj_f_critter_spells_cast_idx,spell.classCode,spell.spellLevel)
+                >=spellSys.GetNumSpellsPerDay(r.owner,spellSys.GetCastingClass(spell.classCode),spell.spellLevel)) return false;
         }
     }
     return true;
@@ -96,13 +124,10 @@ void CommitCheckResources(objHndl actor,const std::vector<CheckResource>& resour
         // owns a time lock, so no heartbeat can spend a later source meanwhile.
         if (r.item) inventory.ItemSpellChargeConsume(r.item);
         else {
-            D20SpellData data;data.Set(r.spell.spellEnum,r.spell.classCode,r.spell.spellLevel,INV_IDX_INVALID,r.spell.metaMagicData);
-            SpellPacketBody packet(r.owner,data);packet.Debit();
+            auto packet=ResourcePacket(r);packet.Debit();
         }
-        if (r.spell.spellEnum==557) {
-            D20SpellData data;data.Set(557,r.spell.classCode,r.spell.spellLevel,INV_IDX_INVALID,r.spell.metaMagicData);
-            SpellPacketBody packet(r.owner,data);
-            if (r.item) packet.casterLevel=(std::max)(1u,2*r.spell.spellLevel-1);
+        if (r.spell.spellEnum==557 || r.spell.spellEnum==558) {
+            auto packet=ResourcePacket(r);
             packet.targetCount=packet.orgTargetCount=1;packet.targetListHandles[0]=actor;
             auto id=spellSys.GetNewSpellId();
             if (!spellSys.RegisterSpell(packet,id)) throw std::runtime_error("cannot register Heroism bonus spell");

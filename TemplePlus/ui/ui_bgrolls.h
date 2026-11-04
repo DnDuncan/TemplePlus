@@ -25,6 +25,10 @@ bool BeginCheck(objHndl performer,SkillEnum skill,int dc,int flags,
     uint32_t duration=1800,std::function<void()> started={});
 bool IsBusy();
 bool HandleModalInput(const TigMsg &msg);
+struct PreviewScope {
+    PreviewScope();
+    ~PreviewScope();
+};
 
 // Explicit Search uses the native area picker. No roll or template on cancel.
 bool BeginAreaSearch(objHndl performer);

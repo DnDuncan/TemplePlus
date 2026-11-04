@@ -58,6 +58,10 @@ void TerrainSystem::Render() {
 	// Search uses the same real-time clock as its visible template, including
 	// paused frames; the attempt policy consumes the check exactly once.
 	bgrolls::AdvanceSearch();
+    if (!mAppearanceReady && HasOriginalDoorInput()) {
+        mAppearanceReady=true;
+        for (uint32_t n=0;n<party.GroupListGetLen();++n) critterSys.UpdateModelEquipment(party.GroupListGetMemberN(n));
+    }
 
 	// Check the day<->night transition and stop if necessary
 	if (mIsTransitioning) {

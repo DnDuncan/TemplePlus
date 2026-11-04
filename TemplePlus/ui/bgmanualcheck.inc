@@ -37,12 +37,19 @@ bool ManualValid() {
     if (!sManual || !Enabled() || combatSys.isCombatActive()
         || maps.GetCurrentMapId()!=sManual->map || !objSystem->IsValidHandle(sManual->actor)
         || !party.IsInParty(sManual->actor) || critterSys.IsDeadOrUnconscious(sManual->actor)) return false;
-    return !sManual->valid || sManual->valid();
+    try {return !sManual->valid || sManual->valid();} catch (...) {return false;}
 }
 BonusList ManualBonuses() {
     auto bonuses=sManual->base;
     for (auto &r:sManual->resources) if (r.selected) bonuses.AddBonusWithDesc(r.value,r.type,0,r.label.c_str());
     return bonuses;
+}
+int ResourceGain(const CheckResource &source) {
+    auto bonuses=sManual->base;
+    for (auto &r:sManual->resources) if (r.selected && r.type!=source.type) bonuses.AddBonusWithDesc(r.value,r.type,0,r.label.c_str());
+    auto before=bonuses.GetEffectiveBonusSum();
+    bonuses.AddBonusWithDesc(source.value,source.type,0,source.label.c_str());
+    return bonuses.GetEffectiveBonusSum()-before;
 }
 TigRect ManualArea() {
     auto canvas=uiManager->GetCanvasSize();
@@ -54,11 +61,14 @@ void FinishManual() {
         logger->warn("BG check discarded: target or resource changed before commit");CloseManual();return;
     }
     // Move the callback out: a triggered trap or dialog may reset this UI.
-    auto actor=sManual->actor;auto skill=sManual->skill;auto state=sManual->state;
+    auto actor=sManual->actor;auto skill=sManual->skill;auto state=sManual->state;auto flags=sManual->flags;
     auto callback=sManual->commit;auto bonuses=ManualBonuses();auto resources=sManual->resources;
     CloseManual();
     try {
         CommitCheckResources(actor,resources);
+        // Native one-shot effects (e.g. an already active Guidance) are consumed
+        // here, after confirmation; all earlier dispatcher queries were read-only.
+        dispatch.dispatch1ESkillLevel(actor,skill,nullptr,objHndl::null,flags);
         Dice die(1,20,0);
         histSys.RollHistoryAddType2SkillRoll(actor,die.ToPacked(),state.natural,state.dc,skill,&bonuses);
         auto special=skill==skill_open_lock || skill==skill_disable_device;
@@ -73,6 +83,9 @@ void RollManual() {
     if (!sManual || sManual->state.phase!=bgchecks::Phase::Preparing) return;
     if (!ManualValid() || !ValidateCheckResources(sManual->actor,sManual->resources)) {
         sManual->error="Selected source is no longer available";return;
+    }
+    for (auto &r:sManual->resources) if (r.selected && ResourceGain(r)<=0) {
+        sManual->error="This source does not increase the bonus";return;
     }
     auto bonuses=ManualBonuses();
     auto die=Dice(1,20,0).Roll(); // exactly one native RNG call, never a decorative reroll
@@ -112,7 +125,7 @@ bool DrawManual() {
         for (size_t row=0;row<ResourceRows && row+sManual->scroll<sManual->resources.size();++row) {
             auto &r=sManual->resources[row+sManual->scroll];auto y=area.y+ResourceTop+int(row)*ResourceStep;
             shapes.DrawRectangle(float(area.x+20),float(y),ManualW-40,ResourceStep-2,XMCOLOR(0.14f,0.13f,0.11f,1));
-            Text(std::string(r.selected ? "[+] ":"[ ] ")+r.label,area.x+28,y+3,ManualW-56,r.selected ? gold:white,PredefinedFont::PRIORY_12,false);
+            Text(std::string(r.selected ? "[+] ":ResourceGain(r)>0 ? "[ ] ":"[0] ")+r.label,area.x+28,y+3,ManualW-56,r.selected ? gold:ResourceGain(r)>0 ? white:dim,PredefinedFont::PRIORY_12,false);
         }
         if (sManual->resources.size()>ResourceRows) Text(fmt::format("{} / {}",sManual->scroll+1,sManual->resources.size()),area.x+20,area.y+430,ManualW-40,dim,PredefinedFont::PRIORY_12,true);
     } else if (result) {

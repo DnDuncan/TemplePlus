@@ -31,6 +31,7 @@
 #include "ui/ui.h"
 #include "ui/ui_dialog.h"
 #include "ui/ui_bgjournal.h"
+#include "ui/ui_bgrolls.h"
 #include "quest.h"
 #include "ui/ui_tutorial.h"
 #include "ui/ui_picker.h"
