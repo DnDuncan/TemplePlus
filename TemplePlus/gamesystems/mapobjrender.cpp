@@ -7,6 +7,7 @@
 #include <config/config.h>
 #include <temple/meshes.h>
 #include "gamesystems/gamesystems.h"
+#include "gamesystems/objects/objsystem.h"
 #include "gamesystems/gamerenderer.h"
 #include <graphics/renderstates_hooks.h>
 #include <infrastructure/images.h>
