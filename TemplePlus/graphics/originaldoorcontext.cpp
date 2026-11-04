@@ -129,7 +129,7 @@ DoorSecurity TerrainSystem::GetDoorSecurity(int mapId,const std::string &id) con
         auto obj=objSystem->GetObject(handle);DoorSecurity s;
         s.locked=(obj->GetInt32(obj_f_container_flags)&OCOF_LOCKED)!=0;
         s.lockDc=(std::max)(0,(std::min)(60,obj->GetInt32(obj_f_container_lock_dc)));
-        auto trap=traps.GetByObj(handle);s.trapped=trap!=nullptr;
+        auto trap=traps.GetByObj(handle);s.trapped=trap!=nullptr && obj->GetScript(obj_f_scripts_idx,0x27).scriptId!=0;
         s.found=s.trapped && (obj->GetScript(obj_f_scripts_idx,0x27).unk1&4)!=0;
         if (trap) {s.searchDc=trap->searchDC;s.disarmDc=trap->disableDC;}
         return s;

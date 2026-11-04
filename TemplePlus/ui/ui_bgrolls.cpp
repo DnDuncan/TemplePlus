@@ -380,9 +380,10 @@ bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string
     std::function<bool()> valid,std::function<void(int,int,bool)> commit,uint32_t duration,std::function<void()> started) {
     if (IsBusy() || !Enabled() || combatSys.isCombatActive() || !objSystem->IsValidHandle(actor)
         || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)) return false;
+    auto actionSkill=skill;
     auto swap=d20Sys.D20QueryPython(actor,"Skill Swap",skill);
     if (swap>0 && swap<=42) skill=static_cast<SkillEnum>(swap-1);
-    auto session=std::make_unique<ManualCheck>();session->actor=actor;session->skill=skill;
+    auto session=std::make_unique<ManualCheck>();session->actor=actor;session->skill=skill;session->actionSkill=actionSkill;
     session->map=maps.GetCurrentMapId();session->flags=flags;session->target=target;
     session->state.dc=dc;session->state.duration=duration;
     {PreviewScope preview;dispatch.dispatch1ESkillLevel(actor,skill,&session->base,objHndl::null,flags);}

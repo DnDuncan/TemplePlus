@@ -2,7 +2,7 @@
 // renderer, skill capture and UI lifetime; no separate render context.
 struct ManualCheck {
     objHndl actor;
-    SkillEnum skill=skill_search;
+    SkillEnum skill=skill_search,actionSkill=skill_search;
     int map=0,flags=0;
     std::string target,error;
     BonusList base;
@@ -61,7 +61,7 @@ void FinishManual() {
         logger->warn("BG check discarded: target or resource changed before commit");CloseManual();return;
     }
     // Move the callback out: a triggered trap or dialog may reset this UI.
-    auto actor=sManual->actor;auto skill=sManual->skill;auto state=sManual->state;auto flags=sManual->flags;
+    auto actor=sManual->actor;auto skill=sManual->skill;auto state=sManual->state;auto flags=sManual->flags;auto actionSkill=sManual->actionSkill;
     auto callback=sManual->commit;auto bonuses=ManualBonuses();auto resources=sManual->resources;
     CloseManual();
     try {
@@ -71,9 +71,9 @@ void FinishManual() {
         dispatch.dispatch1ESkillLevel(actor,skill,nullptr,objHndl::null,flags);
         Dice die(1,20,0);
         histSys.RollHistoryAddType2SkillRoll(actor,die.ToPacked(),state.natural,state.dc,skill,&bonuses);
-        auto special=skill==skill_open_lock || skill==skill_disable_device;
+        auto special=actionSkill==skill_open_lock || actionSkill==skill_disable_device;
         auto success=state.Success(special);
-        if (skill==skill_open_lock) RecordOpenLock(actor,state.natural==1);
+        if (actionSkill==skill_open_lock) RecordOpenLock(actor,state.natural==1);
         if (callback) callback(state.natural,state.natural+state.bonus,success);
         logger->info("BG manual check committed: actor={} skill={} die={} bonus={} dc={} success={}",
             actor.handle,int(skill),state.natural,state.bonus,state.dc,success);
@@ -132,10 +132,10 @@ bool DrawManual() {
         }
         if (sManual->resources.size()>ResourceRows) Text(fmt::format("{} / {}",sManual->scroll+1,sManual->resources.size()),area.x+20,area.y+430,ManualW-40,dim,PredefinedFont::PRIORY_12,true);
     } else if (result) {
-        auto state=sManual->state;auto success=state.Success(sManual->skill==skill_open_lock || sManual->skill==skill_disable_device);
+        auto state=sManual->state;auto success=state.Success(sManual->actionSkill==skill_open_lock || sManual->actionSkill==skill_disable_device);
         Text(fmt::format("\x64\x32\x30\x3A\x20\x7B\x7D\x20\x7B\x3A\x2B\x7D\x20\x3D\x20\x7B\x7D\x20\x20\x20\xEF\xF0\xEE\xF2\xE8\xE2\x20\xF1\xEB\xEE\xE6\xED\xEE\xF1\xF2\xE8\x20\x7B\x7D",state.natural,state.bonus,state.natural+state.bonus,state.dc),
             area.x+16,area.y+340,ManualW-32,white,PredefinedFont::PRIORY_12,true);
-        auto critical=state.natural==1 && (sManual->skill==skill_open_lock || sManual->skill==skill_disable_device);
+        auto critical=state.natural==1 && (sManual->actionSkill==skill_open_lock || sManual->actionSkill==skill_disable_device);
         Text(critical ? "\xCA\xD0\xC8\xD2\xC8\xD7\xC5\xD1\xCA\xC8\xC9\x20\xCF\xD0\xCE\xC2\xC0\xCB" : success ? "\xD3\xD1\xCF\xC5\xD5":"\xCF\xD0\xCE\xC2\xC0\xCB",area.x+16,area.y+380,ManualW-32,
             success ? XMCOLOR(0.3f,0.85f,0.4f,1):XMCOLOR(0.95f,0.3f,0.25f,1),PredefinedFont::ARIAL_BOLD_24,true);
     } else Text("\xCF\xF0\xEE\xE2\xE5\xF0\xEA\xE0\x20\xE2\xFB\xEF\xEE\xEB\xED\xFF\xE5\xF2\xF1\xFF\x2E\x2E\x2E",area.x+16,area.y+360,ManualW-32,dim,PredefinedFont::PRIORY_12,true);
