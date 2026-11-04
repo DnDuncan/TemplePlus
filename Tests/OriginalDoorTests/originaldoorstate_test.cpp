@@ -364,6 +364,11 @@ int main() {
     for(int number=1;number<=20;++number) assert(bgdice::FrontNumber(bgdice::Landing(number))==number);
     for(int bank:{2100,17500,18400,18600}) {assert(BgChainmailAppearance(bank,true)==18400);assert(BgChainmailAppearance(bank,false)==bank);}
     assert(BgChainmailAppearance(1500,true)==1500);
+    assert(BgOccludedVisible(1,true));  // controlled actor behind a GPU source mask
+    assert(!BgOccludedVisible(1,false)); // ordinary object still needs native occlusion
+    assert(!BgOccludedVisible(0,true)); // no fog visibility bypass
+    assert(!BgOccludedVisible(0xB0,true));
+    assert(BgOccludedVisible(0xB1,false));
 	bgskillrules::SearchAttempt attempt;
 	attempt.Start(1000);assert(!attempt.Poll(3999));assert(attempt.Poll(4000));assert(!attempt.Poll(5000));
 	attempt.Start(0);assert(!attempt.Poll(6000));

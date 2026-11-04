@@ -17,6 +17,8 @@
 #include "gameview.h"
 #include "graphics/sourcecontainers.h"
 #include "graphics/mapterrain.h"
+#include "bgappearance.h"
+#include "party.h"
 #include <infrastructure/mdfmaterial.h>
 #include <graphics/dynamictexture.h>
 
@@ -517,7 +519,9 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 	// Handle fog occlusion of the world position, but handle it differently for portals
 	if (type != obj_t_portal) {
 		auto fogStatus = addresses.GetFogStatus(worldLoc, animParams.offsetX, animParams.offsetY);
-		if (!(fogStatus & 0xB0) || !(fogStatus & 1)) {
+		auto controlledSourceActor = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
+			&& party.IsInParty(parent ? parent : handle);
+		if (!BgOccludedVisible(fogStatus, controlledSourceActor)) {
 			return;
 		}
 	} else {
