@@ -115,7 +115,8 @@ std::vector<CheckResource> ScanCheckResources(objHndl actor,SkillEnum skill) {
             auto itemObj=objSystem->GetObject(item);
             // Potions only. Scrolls and wands need their native activation checks
             // and are not silently treated as guaranteed consumables.
-            if (itemObj->type!=obj_t_food || itemObj->GetSpellArray(obj_f_item_spell_idx).GetSize()!=1) continue;
+            if (itemObj->type!=obj_t_food || !inventory.IsIdentified(item)
+                || itemObj->GetSpellArray(obj_f_item_spell_idx).GetSize()!=1) continue;
             CheckResource r;r.owner=owner;r.item=item;r.available=nearby;r.spell=itemObj->GetSpell(obj_f_item_spell_idx,0);
             r.quantity=inventory.GetQuantity(item);r.charges=itemObj->GetInt32(obj_f_item_spell_charges_idx);
             if (!Effect(r,actor,skill) || r.quantity<1 || r.charges<1) continue;
@@ -137,7 +138,7 @@ bool ValidateCheckResources(objHndl actor,const std::vector<CheckResource>& reso
         if (r.item) {
             if (!objSystem->IsValidHandle(r.item) || inventory.GetParent(r.item)!=r.owner) return false;
             auto item=objSystem->GetObject(r.item);
-            if (item->type!=obj_t_food || inventory.GetQuantity(r.item)!=r.quantity
+            if (item->type!=obj_t_food || !inventory.IsIdentified(r.item) || inventory.GetQuantity(r.item)!=r.quantity
                 || item->GetInt32(obj_f_item_spell_charges_idx)!=r.charges
                 || item->GetSpellArray(obj_f_item_spell_idx).GetSize()!=1
                 || !SameSpell(item->GetSpell(obj_f_item_spell_idx,0),r.spell)) return false;
