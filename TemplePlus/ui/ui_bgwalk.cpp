@@ -19,7 +19,6 @@
 #include "combat.h"
 #include "critter.h"
 #include "animgoals/anim.h"
-#include "animgoals/anim_slot.h"
 
 namespace bgwalk {
 namespace {
@@ -46,28 +45,9 @@ void Toggle() {
     if (!Available()) return;
     config.partyMovementMode=Running()?0:1;
     config.Save();
-    // Only reissue ordinary movement. Spell/use/dialog goal stacks must keep
-    // their native callbacks, targets and action ownership.
     auto &anim=gameSystems->GetAnim();
-    for (uint32_t n=0;n<party.GroupListGetLen();++n) {
-        auto actor=party.GroupListGetMemberN(n);
-        if (!actor || critterSys.IsDeadOrUnconscious(actor)) continue;
-        AnimSlotId id;
-        auto found=false;
-        for (auto type : {ag_move_to_tile,ag_run_to_tile,ag_move_near_tile,ag_run_near_tile}) {
-            if (anim.DoesObjHaveGoal(actor,type,&id)) { found=true; break; }
-        }
-        if (!found) continue;
-        auto slot=anim.GetSlot(id);
-        if (!slot) continue;
-        auto root=slot->goals[0];
-        auto near=root.goalType==ag_move_near_tile || root.goalType==ag_run_near_tile;
-        if (!near && root.goalType!=ag_move_to_tile && root.goalType!=ag_run_to_tile) continue;
-        auto target=root.targetTile.location;
-        if (!anim.Interrupt(actor,AnimGoalPriority::AGP_3,false)) continue;
-        if (near) anim.PushRunNearTile(actor,target,root.animId.number);
-        else anim.PushMoveToTile(actor,target);
-    }
+    for (uint32_t n=0;n<party.GroupListGetLen();++n)
+        anim.RefreshPartyMovement(party.GroupListGetMemberN(n));
 }
 
 void Label(const std::string &text,int x,int y,int w) {

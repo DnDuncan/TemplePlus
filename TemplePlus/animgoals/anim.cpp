@@ -349,6 +349,26 @@ bool AnimSystem::PushRunToTile(objHndl handle, LocAndOffsets loc, PathQueryResul
     return true;
 }
 
+void AnimSystem::RefreshPartyMovement(objHndl actor) {
+    if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor) ||
+        combatSys.isCombatActive() || !gameSystems->GetTerrain().HasOriginalDoorInput()) return;
+    AnimSlotId id;
+    auto found=false;
+    for (auto type : {ag_move_to_tile,ag_run_to_tile,ag_move_near_tile,ag_run_near_tile}) {
+        if (DoesObjHaveGoal(actor,type,&id)) { found=true; break; }
+    }
+    if (!found) return;
+    auto slot=GetSlot(id);
+    if (!slot) return;
+    auto root=slot->goals[0];
+    auto isNear=root.goalType==ag_move_near_tile || root.goalType==ag_run_near_tile;
+    // Never interrupt action/spell/dialog goal stacks to change speed.
+    if (!isNear && root.goalType!=ag_move_to_tile && root.goalType!=ag_run_to_tile) return;
+    if (!Interrupt(actor,AnimGoalPriority::AGP_3,false)) return;
+    if (isNear) PushRunNearTile(actor,root.targetTile.location,root.animId.number);
+    else PushMoveToTile(actor,root.targetTile.location);
+}
+
 bool AnimSystem::ShouldRun(objHndl handle){
     if (party.IsInParty(handle) && !combatSys.isCombatActive() &&
         gameSystems->GetTerrain().HasOriginalDoorInput() &&
