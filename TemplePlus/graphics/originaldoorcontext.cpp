@@ -47,7 +47,8 @@ bool TerrainSystem::ContextTravel(const OriginalTravelMarker &marker) const {
 	return mSceneRoutes.count(marker.id)!=0;
 }
 std::vector<DoorContextAction> TerrainSystem::ContextActions(const OriginalTravelMarker &marker) const {
-	auto definition=mDoorContexts.find({marker.gateMap,marker.gateId});
+	if (mScenePassages.count({marker.gateMap,marker.gateId})) return {DoorContextAction::Travel};
+    auto definition=mDoorContexts.find({marker.gateMap,marker.gateId});
 	if (definition==mDoorContexts.end()) throw std::invalid_argument("door context is not bound");
 	if (HasSourceDoor(marker.gateMap,marker.gateId)) {
 		// The portal owns interaction/security. Only the existing blue entry
@@ -93,6 +94,7 @@ void TerrainSystem::ClearSourceContainers() {
     ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
 }
 bool TerrainSystem::ContextIsOpen(int mapId,const std::string &id) const {
+    if (mScenePassages.count({mapId,OriginalDoorState::NormalizeId(id)})) return true;
     auto chest=mContextContainers.find({mapId,OriginalDoorState::NormalizeId(id)});
     if (chest!=mContextContainers.end()) {
         auto &ui=uiSystems->GetChar();auto handle=objSystem->FindObjectByIdStr(chest->second);
@@ -127,7 +129,8 @@ void TerrainSystem::SpringContainerTrap(objHndl container,objHndl actor) {
 }
 DoorSecurity TerrainSystem::GetDoorSecurity(int mapId,const std::string &id) const {
 	auto key=std::make_pair(mapId,OriginalDoorState::NormalizeId(id));
-	auto entry=mDoorContexts.find(key);
+	if (mScenePassages.count(key)) return DoorSecurity{};
+    auto entry=mDoorContexts.find(key);
 	auto chest=mContextContainers.find(key);
     if (chest!=mContextContainers.end()) {
         auto handle=objSystem->FindObjectByIdStr(chest->second);
@@ -171,7 +174,7 @@ void TerrainSystem::ClearDoorContext() {
 		temple::GetRef<int64_t>(0x10307358)=(*mSavedSceneLimits)[3];
 	}
 	mAppearanceReady=false;mSavedSceneLimits.reset();mFocusedScene=0;mSceneAreas.clear();mSceneRoutes.clear();
-	mContextContainers.clear();mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
+	mScenePassages.clear();mContextContainers.clear();mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
 }
 bool TerrainSystem::HasDoorContext() const {
 	for (const auto &entry:mTravelMarkers) if (entry.first.first==maps.GetCurrentMapId()
@@ -243,6 +246,7 @@ void TerrainSystem::RequestDoorContextDefault(const std::string &route) {
 	auto entry=mTravelMarkers.find({maps.GetCurrentMapId(),route});
 	if (entry==mTravelMarkers.end()) return;
 	const auto &marker=entry->second;
+    if (mScenePassages.count({marker.gateMap,marker.gateId})) {RequestDoorContextAction(route,int(DoorContextAction::Travel));return;}
 	auto security=GetDoorSecurity(marker.gateMap,marker.gateId);
 	if (security.locked || (security.trapped && security.found)) {
 		mContextHover.Reveal(route,timeGetTime());return;
@@ -395,9 +399,27 @@ void TerrainSystem::RenderDoorContext() {
 	}
 }
 
+bool TerrainSystem::CanUseTravelGate(int mapId,const std::string &id) const {
+    return mScenePassages.count({mapId,OriginalDoorState::NormalizeId(id)}) || CanTravelThroughOriginalDoor(mapId,id);
+}
+void TerrainSystem::BindScenePassage(int mapId,const std::string &id,OriginalDoorPolygon outline,OriginalDoorUsePoint point,const std::string &icon) {
+    auto key=std::make_pair(mapId,OriginalDoorState::NormalizeId(id));
+    ValidateDoorPolygon(outline);OriginalDoorUseGeometry use{{point},60};ValidateOriginalDoorUse(use);
+    if (mapId!=5136 || !SceneAreaAt(point) || (mDoorContexts.count(key) && !mScenePassages.count(key)))
+        throw std::invalid_argument("invalid stair passage identity or source area");
+    if (icon!="art/bg2toee/ui/actions/travel.png") throw std::invalid_argument("unreviewed passage icon");
+    auto texture=mDevice.GetTextures().Resolve(icon,false);
+    if (!texture || !texture->IsValid()) throw std::invalid_argument("missing passage icon");
+    double x=0,y=0;for(auto p:outline){x+=p.x;y+=p.y;}x/=outline.size();y/=outline.size();
+    OriginalTravelMarker marker{mapId,mapId,key.second,key.second,x,y,0,-1,use};ValidateOriginalTravel(marker);
+    DoorContextDefinition definition;definition.textures[static_cast<size_t>(DoorContextAction::Travel)]=icon;
+    mScenePassages.insert(key);mTravelMarkers[key]=marker;mDoorContexts[key]=definition;
+    mContextOutlines[key]=std::move(outline);mDoorUse[key]=use;
+    CancelOriginalDoorUse();++mDoorUseRevision;
+}
 void TerrainSystem::BindSceneArea(OriginalSceneArea area) {
 	ValidateOriginalSceneArea(area);
-	if (area.nativeMap!=5136 || (area.id!=5136 && area.id!=5190)) throw std::invalid_argument("scene probe restricted to Candlekeep/inn");
+	if (area.nativeMap!=5136 || (area.id!=5136 && area.id!=5190 && area.id!=5191)) throw std::invalid_argument("scene profile restricted to Candlekeep and inn floors");
 	if (area.sourceGround && !mTerrainDirs.count(area.sourceGround)) throw std::invalid_argument("source interior ground is not installed");
 	for (const auto &entry:mSceneAreas) if (entry.first!=area.id) {
 		const auto &other=entry.second;
