@@ -285,6 +285,7 @@ static ConfigSetting configSettings[] = {
 	CONF_BOOL(preferUse5FootStep),
 	CONF_BOOL(extendedSpellDescriptions),
 	CONF_INT(walkDistanceFt),
+	CONF_INT(partyMovementMode),
 	CONF_BOOL(newAnimSystem),
 	CONF_BOOL(upscaleLinearFiltering),
 	CONF_BOOL(disableChooseRandomSpell_RegardInvulnerableStatus),

@@ -29,6 +29,8 @@
 
 #include <infrastructure/json11.hpp>
 #include "combat.h"
+#include "bgmovementrules.h"
+#include "graphics/mapterrain.h"
 #include "location.h"
 #include "gamesystems/legacysystems.h"
 #include "animgoals_stackentry.h"
@@ -280,6 +282,15 @@ bool AnimSystem::PushUseSkillOn(objHndl actor, objHndl target,
 
 bool AnimSystem::PushRunNearTile(objHndl actor, LocAndOffsets target,
                                      int radiusFeet) {
+  if (party.IsInParty(actor) && !combatSys.isCombatActive() &&
+      gameSystems->GetTerrain().HasOriginalDoorInput() && !ShouldRun(actor)) {
+    // Native run-near 0x1001C1B0 stores the feet radius in animId.number.
+    AnimSlotGoalStackEntry goal(actor, ag_move_near_tile, true);
+    goal.targetTile.location = target;
+    goal.animId.number = radiusFeet;
+    AnimSlotId id;
+    return goal.Push(&id);
+  }
   return addresses.PushRunNearTile(actor, target, radiusFeet);
 }
 
@@ -339,6 +350,14 @@ bool AnimSystem::PushRunToTile(objHndl handle, LocAndOffsets loc, PathQueryResul
 }
 
 bool AnimSystem::ShouldRun(objHndl handle){
+    if (party.IsInParty(handle) && !combatSys.isCombatActive() &&
+        gameSystems->GetTerrain().HasOriginalDoorInput() &&
+        (config.partyMovementMode == 0 || config.partyMovementMode == 1)) {
+        auto &keys = infrastructure::gKeyboard;
+        return bgmovement::Run(config.partyMovementMode, false, 0,
+            keys.IsKeyPressed(VK_LCONTROL) || keys.IsKeyPressed(VK_RCONTROL), false);
+    }
+
 
     auto isAlwaysRun = config.GetVanillaInt("always run") != 0;
     if (config.walkDistanceFt > 0) // adding support for "Walk Distance" option

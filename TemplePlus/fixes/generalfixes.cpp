@@ -515,6 +515,10 @@ public:
 
 			redirectToLambda<BOOL(__cdecl)(objHndl, LocAndOffsets)>(0x10044995, [](objHndl handle, LocAndOffsets loc) {
 				loc = FormationDestination(handle, loc);
+                if ((config.partyMovementMode==0 || config.partyMovementMode==1) &&
+                    party.IsInParty(handle) && !combatSys.isCombatActive() &&
+                    gameSystems->GetTerrain().HasOriginalDoorInput())
+                    return gameSystems->GetAnim().PushMoveToTile(handle,loc)?TRUE:FALSE;
 				if (isWalkOverride)
 					return gameSystems->GetAnim().PushWalkToTile(handle, loc) ? TRUE : FALSE; 
 				else

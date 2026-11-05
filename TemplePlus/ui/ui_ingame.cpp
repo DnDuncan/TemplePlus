@@ -7,6 +7,7 @@
 #include "tig/tig_mouse.h"
 #include "messages/messagequeue.h"
 #include "ui_ingame.h"
+#include "ui_bgwalk.h"
 #include "ui_systems.h"
 #include "ui_legacysystems.h"
 #include "ui_dialog.h"
@@ -41,14 +42,17 @@ UiInGame::UiInGame(const UiSystemConf &config) {
 	if (!startup(&config)) {
 		throw TempleException("Unable to initialize game system Intgame");
 	}
+	bgwalk::Initialize();
 }
 UiInGame::~UiInGame() {
+	bgwalk::Shutdown();
 	auto shutdown = temple::GetPointer<void()>(0x10112eb0);
 	shutdown();
 }
 void UiInGame::ResizeViewport(const UiResizeArgs& resizeArg) {
 	auto resize = temple::GetPointer<void(const UiResizeArgs*)>(0x10112ec0);
 	resize(&resizeArg);
+	bgwalk::Resize();
 }
 void UiInGame::Reset() {
 	CancelOriginalDoorInput();
