@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 
 #include "../gamesystems/gamesystem.h"
 #include <temple/dll.h>
@@ -105,6 +106,8 @@ public:
 	bool HoveredDoorLocked() const;
 	int SearchDoorTraps(objHndl actor,LocAndOffsets center,float radius,int total,bool reveal);
 	void BindSceneArea(OriginalSceneArea area);
+    void BindScenePassage(int mapId,const std::string &id,OriginalDoorPolygon outline,OriginalDoorUsePoint point,const std::string &icon);
+    bool CanUseTravelGate(int mapId,const std::string &id) const;
 	void BindSceneRoute(const std::string &route,OriginalSceneRoute definition);
 	int SceneAreaForActor(uint64_t actor) const;
 	int FocusedSceneArea() const {return mFocusedScene;}
@@ -163,6 +166,7 @@ private:
 	OriginalDoorState mOriginalDoors;
 	SourceContainerRegions mSourceContainers;
 	std::map<OriginalDoorState::Key,std::string> mContextContainers;
+    std::set<OriginalDoorState::Key> mScenePassages;
 	bool ContextIsOpen(int mapId,const std::string &id) const;
 	void SetContextSecurity(int mapId,const std::string &id,const DoorSecurity &security);
 	void SpringContainerTrap(objHndl container,objHndl actor);

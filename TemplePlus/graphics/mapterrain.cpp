@@ -280,7 +280,12 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region, const Orig
         x/=region.outline.size();y/=region.outline.size();
         OriginalTravelMarker marker{region.mapId,region.mapId,key.second,key.second,x,y,0,-1,approach};
         ValidateOriginalTravel(marker);
-        DoorContextDefinition definition;definition.textures=mDoorContexts.begin()->second.textures;
+        auto source=std::find_if(mDoorContexts.begin(),mDoorContexts.end(),[](const auto &entry){
+            return !entry.second.textures[static_cast<size_t>(DoorContextAction::Search)].empty()
+                && !entry.second.textures[static_cast<size_t>(DoorContextAction::PickLock)].empty();
+        });
+        if (source==mDoorContexts.end()) throw std::invalid_argument("bind complete door icons before containers");
+        DoorContextDefinition definition;definition.textures=source->second.textures;
         if (icons) {definition.textures[0]=(*icons)[0];definition.textures[1]=(*icons)[1];}
         mContextContainers[key]=region.objectId;mTravelMarkers[key]=marker;
         mDoorContexts[key]=definition;mContextOutlines[key]=region.outline;mDoorUse[key]=approach;
@@ -617,7 +622,7 @@ void TerrainSystem::RequestOriginalTravel(const std::string &id,uint64_t handle)
 		for (auto member:mTravelSelection) if (SceneAreaForActor(member)!=mSceneRoutes.at(m.id).source)
 			throw std::invalid_argument("select characters in the same area");
 	}
-	if (!CanTravelThroughOriginalDoor(m.gateMap,m.gateId)) {
+	if (!CanUseTravelGate(m.gateMap,m.gateId)) {
 		floatSys.floatMesLine(actor,1,FloatLineColor::Yellow,"Open the door first"); return;
 	}
 	auto from=objects.GetLocationFull(actor).ToInches2D();
@@ -639,7 +644,7 @@ std::optional<OriginalTravelReady::Intent> TerrainSystem::PeekOriginalTravel() {
 		auto entry=mTravelMarkers.find({intent.mapId,intent.id});
 		bool valid=!gameSystems->GetMap().IsClearingMap() && !combatSys.isCombatActive()
 			&& gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor) && !critterSys.IsDeadOrUnconscious(actor)
-			&& entry!=mTravelMarkers.end() && CanTravelThroughOriginalDoor(entry->second.gateMap,entry->second.gateId)
+			&& entry!=mTravelMarkers.end() && CanUseTravelGate(entry->second.gateMap,entry->second.gateId)
 			&& (!mSceneRoutes.count(intent.id) || SameDoorSelection(mTravelSelection,ContextSelection()));
 		mTravelReady.Validate(timeGetTime(),maps.GetCurrentMapId(),mDoorUseRevision,valid);
 	}
@@ -657,7 +662,7 @@ void TerrainSystem::AdvanceTravel(uint32_t time) {
 		if (entry==mTravelMarkers.end() || gameSystems->GetMap().IsClearingMap()) { CancelOriginalDoorUse(); return; }
 		const auto &m=entry->second; objHndl actor{request.actor};
 		auto valid=gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
-			&& !critterSys.IsDeadOrUnconscious(actor) && CanTravelThroughOriginalDoor(m.gateMap,m.gateId)
+			&& !critterSys.IsDeadOrUnconscious(actor) && CanUseTravelGate(m.gateMap,m.gateId)
 			&& (!mSceneRoutes.count(m.id) || SameDoorSelection(mTravelSelection,ContextSelection()));
 		auto reachable=valid && request.mapId==maps.GetCurrentMapId() && !combatSys.isCombatActive()
 			&& DoorUseReachable(request.actor,request.target,request.reach,m.gateMap==request.mapId ? m.gateId : "");
