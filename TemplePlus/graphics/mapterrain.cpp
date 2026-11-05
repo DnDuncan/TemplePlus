@@ -245,7 +245,17 @@ bool TerrainSystem::PrepareSourceDoorToggle(objHndl portal) {
 		return false;
 	}
 }
-void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
+void TerrainSystem::BindSourceContainer(SourceContainerRegion region, const OriginalDoorUseGeometry *use,
+    const std::array<std::string,2> *icons) {
+    if (use) ValidateOriginalDoorUse(*use);
+    if (icons) for (const auto &path:*icons) {
+        if (path.compare(0,23,"art/bg2toee/ui/actions/") || path.find("..")!=std::string::npos
+            || path.find(':')!=std::string::npos || path.size()>240 || path.size()<4 || path.substr(path.size()-4)!=".png")
+            throw std::invalid_argument("invalid container icon path");
+        auto texture=mDevice.GetTextures().Resolve(path,false);
+        if (!texture || !texture->IsValid() || !texture->GetResourceView())
+            throw std::invalid_argument("cannot load container icon: "+path);
+    }
 	// Validate everything before changing the backing object's presentation.
 	SourceContainerRegions candidate=mSourceContainers;candidate.Bind(region);
 	auto handle=objSystem->FindObjectByIdStr(region.objectId);
@@ -265,12 +275,13 @@ void TerrainSystem::BindSourceContainer(SourceContainerRegion region) {
         if (mDoorContexts.count(key) && !mContextContainers.count(key))
             throw std::invalid_argument("container context collides with door identity");
         auto point=objects.GetLocationFull(handle).ToInches2D();
-        OriginalDoorUseGeometry approach{{{point.x,point.y}},60};
+        OriginalDoorUseGeometry approach=use ? *use:OriginalDoorUseGeometry{{{point.x,point.y}},60};
         double x=0,y=0;for (auto p:region.outline) {x+=p.x;y+=p.y;}
         x/=region.outline.size();y/=region.outline.size();
         OriginalTravelMarker marker{region.mapId,region.mapId,key.second,key.second,x,y,0,-1,approach};
         ValidateOriginalTravel(marker);
         DoorContextDefinition definition;definition.textures=mDoorContexts.begin()->second.textures;
+        if (icons) {definition.textures[0]=(*icons)[0];definition.textures[1]=(*icons)[1];}
         mContextContainers[key]=region.objectId;mTravelMarkers[key]=marker;
         mDoorContexts[key]=definition;mContextOutlines[key]=region.outline;mDoorUse[key]=approach;
     }
@@ -502,7 +513,16 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 			&& (!mContextRequest || SameDoorSelection(mContextRequest->selection,ContextSelection()));
 		auto reachable = valid && !combatSys.isCombatActive()
 			&& DoorUseReachable(request.actor, request.target, request.reach, request.id);
-		auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
+		if (valid && !reachable && mContextRequest && uint32_t(time-request.started)>1500) {
+            AnimSlotId slot{};auto &anim=gameSystems->GetAnim();
+            bool moving=anim.DoesObjHaveGoal(actor,ag_move_to_tile,&slot) || anim.DoesObjHaveGoal(actor,ag_run_to_tile,&slot)
+                || anim.DoesObjHaveGoal(actor,ag_move_near_tile,&slot) || anim.DoesObjHaveGoal(actor,ag_run_near_tile,&slot);
+            if (!moving) {
+                logger->info("Object approach stopped before reach: id={} target={},{} reach={}",request.id,request.target.x,request.target.y,request.reach);
+                throw std::invalid_argument("Cannot reach the object; move closer and retry");
+            }
+        }
+        auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
 			combatSys.isCombatActive(), ContextIsOpen(request.mapId,request.id), reachable);
 		if (action == OriginalDoorUseQueue::Action::Apply) {
 			// Finish movement before opening. Continuing toward the approach point

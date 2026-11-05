@@ -7,6 +7,8 @@
 #include "traps.h"
 #include "inventory.h"
 #include "ui/ui_bgrolls.h"
+#include "ui/ui.h"
+#include "ui/ui_char.h"
 #include "d20.h"
 #include "dispatcher.h"
 #include "combat.h"
@@ -91,7 +93,11 @@ void TerrainSystem::ClearSourceContainers() {
     ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
 }
 bool TerrainSystem::ContextIsOpen(int mapId,const std::string &id) const {
-    if (mContextContainers.count({mapId,OriginalDoorState::NormalizeId(id)})) return false;
+    auto chest=mContextContainers.find({mapId,OriginalDoorState::NormalizeId(id)});
+    if (chest!=mContextContainers.end()) {
+        auto &ui=uiSystems->GetChar();auto handle=objSystem->FindObjectByIdStr(chest->second);
+        return handle && ui.IsVisible() && ui.IsLootingActive() && ui.GetLootedObject()==handle;
+    }
     return GetOriginalDoorOpenOnMap(mapId,id);
 }
 void TerrainSystem::SetContextSecurity(int mapId,const std::string &id,const DoorSecurity &security) {
@@ -317,28 +323,41 @@ void TerrainSystem::ApplyDoorContext(const ContextRequest &request,uint64_t hand
     if (request.action==DoorContextAction::Open || request.action==DoorContextAction::Close) {
         if (security.locked && request.action==DoorContextAction::Open) {ContextMessage(actor,"The object is locked",FloatLineColor::Red);return;}
         if (container) {
-            if (security.trapped) SpringContainerTrap(container,actor);
-            if (!critterSys.IsDeadOrUnconscious(actor)) inventory.UiOpenContainer(actor,container);
+            if (request.action==DoorContextAction::Close) uiSystems->GetChar().Hide();
+            else {
+                if (security.trapped) SpringContainerTrap(container,actor);
+                if (!critterSys.IsDeadOrUnconscious(actor)) inventory.UiOpenContainer(actor,container);
+            }
         } else {
             SetOriginalDoorOpen(request.gate,request.action==DoorContextAction::Open);
             if (request.action==DoorContextAction::Open && security.trapped) SpringDoorTrap(request.gateMap,request.gate,actor);
         }
         return;
     }
-    if (request.action==DoorContextAction::Search) {bgrolls::BeginAreaSearch(actor);return;}
     auto picking=request.action==DoorContextAction::PickLock;
+    auto searching=request.action==DoorContextAction::Search;
+    if (searching && !security.locked) return;
     if (picking && (!security.locked || !security.pickable)) return;
-    if (!picking && (!security.trapped || !security.found)) return;
+    if (!searching && !picking && (!security.trapped || !security.found)) return;
     auto revision=mDoorUseRevision;
     auto valid=[this,request,revision,actor,container]() {
         return mDoorUseRevision==revision && SameDoorSelection(request.selection,ContextSelection())
             && (!container || (objSystem->IsValidHandle(container) && IsSourceContainerProxy(container)))
             && DoorUseReachable(actor.handle,mDoorUse.at({request.gateMap,request.gate}).points.front(),60,request.gate);
     };
-    bgrolls::BeginCheck(actor,picking ? skill_open_lock:skill_disable_device,picking ? security.lockDc:security.disarmDc,SRF_Unk_1,
-        container ? "Container":"Door",valid,[this,request,actor,container,picking](int natural,int total,bool success) {
+    auto target=container ? "\xD1\xF3\xED\xE4\xF3\xEA / ":"\xC4\xE2\xE5\xF0\xFC / ";
+    bgrolls::BeginCheck(actor,searching ? skill_search:picking ? skill_open_lock:skill_disable_device,
+        searching ? security.searchDc:picking ? security.lockDc:security.disarmDc,searching ? SRF_Trap_Search:SRF_Unk_1,
+        target+request.gate,valid,[this,request,actor,container,picking,searching](int natural,int total,bool success) {
             auto security=GetDoorSecurity(request.gateMap,request.gate);
-            if (picking) {
+            if (searching) {
+                // This check owns exactly one object. No area picker, template,
+                // neighbouring trap reveal or passive search side effects.
+                auto searched=SearchObjectTrap(security,success,d20Sys.d20Query(actor,DK_QUE_Critter_Can_Find_Traps)!=0);
+                bool found=searched.found;
+                if (found && !security.found) SetContextSecurity(request.gateMap,request.gate,searched);
+                ContextMessage(actor,found ? "Trap found":"No trap found",found ? FloatLineColor::Green:FloatLineColor::White);
+            } else if (picking) {
                 if (success) {security.locked=false;SetContextSecurity(request.gateMap,request.gate,security);}
                 ContextMessage(actor,success ? "Lock opened":"Failed to pick the lock",success ? FloatLineColor::Green:FloatLineColor::Red);
             } else if (success) {

@@ -4,6 +4,13 @@
 
 namespace bgdice {
 struct V3 {float x,y,z;};
+struct P2 {float x,y;};
+inline float ScreenArea(P2 a,P2 b,P2 c) {return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);}
+inline std::array<P2,3> ClockwiseTriangle(P2 a,P2 b,P2 c) {
+    // Native GUI material culls counter-clockwise triangles in screen space.
+    // The die projection flips Y, reversing the outward mesh winding.
+    return ScreenArea(a,b,c)<0 ? std::array<P2,3>{{a,c,b}}:std::array<P2,3>{{a,b,c}};
+}
 constexpr float Phi=1.6180339887f;
 constexpr V3 IcoV[12]={{-1,Phi,0},{1,Phi,0},{-1,-Phi,0},{1,-Phi,0},{0,-1,Phi},{0,1,Phi},{0,-1,-Phi},{0,1,-Phi},
     {Phi,0,-1},{Phi,0,1},{-Phi,0,-1},{-Phi,0,1}};
