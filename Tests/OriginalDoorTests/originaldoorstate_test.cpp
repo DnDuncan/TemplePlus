@@ -8,6 +8,7 @@
 #include "../../TemplePlus/ui/bgskillrules.h"
 #include "../../TemplePlus/bgcheckstate.h"
 #include "../../TemplePlus/bgappearance.h"
+#include "../../TemplePlus/bgmovementrules.h"
 #include "../../TemplePlus/ui/bgdicegeometry.h"
 #include <limits>
 #include <cassert>
@@ -367,6 +368,14 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
+    for (bool alwaysRun:{false,true}) for (bool ctrl:{false,true}) for (bool num:{false,true}) {
+        assert(bgmovement::Run(0,alwaysRun,30,ctrl,num)==ctrl);
+        assert(bgmovement::Run(1,alwaysRun,30,ctrl,num)==!ctrl);
+    }
+    assert(bgmovement::BaseRun(-1,true,0));
+    assert(!bgmovement::BaseRun(-1,true,10));
+    assert(bgmovement::Run(-1,false,0,false,true));
+    assert(!bgmovement::Run(-1,false,10,false,true));
     assert(BgNpcMotionOwner(0x42474E00u,false,true));
     assert(BgNpcMotionOwner(0x42474E2Bu,false,true));
     assert(!BgNpcMotionOwner(0x42474E01u,true,true)); // recruited/controlled party member

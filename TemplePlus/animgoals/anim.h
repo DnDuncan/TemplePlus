@@ -197,6 +197,9 @@ public:
 	*/
 	void PushForMouseTarget(objHndl handle, AnimGoalType type, objHndl tgt, locXY loc, objHndl scratchObj, int someFlag);
 
+	// Reissue ordinary party movement after an explicit speed choice.
+	void RefreshPartyMovement(objHndl actor);
+
 	void Debug();
 	const AnimGoal* GetGoal(AnimGoalType goalType);
 	int GetSlotUsedCount() const;

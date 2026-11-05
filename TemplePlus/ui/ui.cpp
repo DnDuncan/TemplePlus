@@ -12,6 +12,7 @@
 #include "gamesystems/legacysystems.h"
 #include "gameview.h"
 #include "ui_bgrolls.h"
+#include "ui_bgwalk.h"
 
 UiManager *uiManager;
 
@@ -951,7 +952,9 @@ bool UiManager::TranslateMouseMessage(const TigMouseMsg& mouseMsg)
 
 bool UiManager::ProcessMessage(TigMsg &msg)
 {
+	bgwalk::Update();
 	if (bgrolls::HandleModalInput(msg)) return true;
+	if (bgwalk::HandleHotkey(msg)) return true;
 	// Dispatch time update messages continuously to all advanced widgets
 	if (msg.type == TigMsgType::UPDATE_TIME) {
 		for (auto &entry : mActiveWidgets) {

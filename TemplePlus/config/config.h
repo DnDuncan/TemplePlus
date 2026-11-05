@@ -148,6 +148,7 @@ struct TemplePlusConfig
 	bool preferUse5FootStep = false;
 	bool extendedSpellDescriptions = false;
 	int walkDistanceFt = 0;
+	int partyMovementMode = -1; // BG party: native / walk / run
 	bool disableChooseRandomSpell_RegardInvulnerableStatus = false;
 	bool wildShapeUsableItems = false; // allows some worn items to be used
 	int npcStatBoost = 0;
