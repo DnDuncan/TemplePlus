@@ -7,7 +7,7 @@
 #include "traps.h"
 #include "inventory.h"
 #include "ui/ui_bgrolls.h"
-#include "ui/ui.h"
+#include "ui/ui_systems.h"
 #include "ui/ui_char.h"
 #include "d20.h"
 #include "dispatcher.h"
