@@ -75,7 +75,8 @@ void Label(const std::string &text,int x,int y,int w) {
     TigTextStyle style(&color);
     style.flags=8; style.shadowColor=&shadow;
     UiRenderer::PushFont(PredefinedFont::PRIORY_12);
-    UiRenderer::RenderText(text,TigRect(x,y,w,70),style);
+    TigRect rect(x,y,w,70);
+    UiRenderer::RenderText(text,rect,style);
     UiRenderer::PopFont();
 }
 void Render(int id) {
