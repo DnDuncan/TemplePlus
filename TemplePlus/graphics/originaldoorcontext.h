@@ -27,6 +27,10 @@ inline std::vector<DoorContextAction> DoorContextActions(bool open,const DoorSec
 	if (s.locked) result.push_back(DoorContextAction::PickLock);
 	return result;
 }
+inline DoorSecurity SearchObjectTrap(DoorSecurity s,bool success,bool canFindDifficultTraps) {
+    if (success && s.trapped && (s.searchDc<=20 || canFindDifficultTraps)) s.found=true;
+    return s;
+}
 // 3.5 Disable Device: failing by five or more springs the trap.
 inline bool DoorDisarmSpringsTrap(int deltaFromDc) { return deltaFromDc<=-5; }
 // Opening a still armed door springs it once, whether or not it was found.

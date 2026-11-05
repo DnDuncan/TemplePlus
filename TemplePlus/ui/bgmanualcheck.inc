@@ -98,14 +98,29 @@ bool DrawManual() {
     if (!ManualValid()) {CloseManual();return true;}
     sManual->state.Advance(timeGetTime());
     auto area=ManualArea();auto canvas=uiManager->GetCanvasSize();auto &shapes=tig->GetShapeRenderer2d();
-    shapes.DrawRectangle(0,0,float(canvas.width),float(canvas.height),XMCOLOR(0.0f,0.0f,0.0f,0.60f));
-    shapes.DrawRectangle(float(area.x),float(area.y),ManualW,ManualH,XMCOLOR(0.055f,0.05f,0.06f,0.98f));
+    shapes.DrawRectangle(0,0,float(canvas.width),float(canvas.height),XMCOLOR(0.0f,0.0f,0.0f,0.12f));
+    shapes.DrawRectangle(float(area.x),float(area.y),ManualW,ManualH,XMCOLOR(0.055f,0.05f,0.06f,0.72f));
     for (int inset:{1,5}) shapes.DrawRectangleOutline({float(area.x+inset),float(area.y+inset)},
         {float(area.x+ManualW-inset-1),float(area.y+ManualH-inset-1)},XMCOLOR(0.63f,0.50f,0.29f,1.0f));
     XMCOLOR gold(0.94f,0.78f,0.46f,1),white(0.91f,0.89f,0.84f,1),dim(0.65f,0.65f,0.65f,1);
+    // Compact native interpretation of the original concept: bronze corners,
+    // separated title/object, blue primary action and a readable red d20.
+    std::vector<gfx::Line2d> trim;
+    for (int side:{-1,1}) {
+        float x=float(area.x+(side<0 ? 10:ManualW-10));
+        float dx=float(-side);
+        for (int top:{0,1}) {
+            float y=float(area.y+(top ? ManualH-10:10));float dy=top ? -1.0f:1.0f;
+            trim.emplace_back(XMFLOAT2(x,y+24*dy),XMFLOAT2(x+24*dx,y),gold);
+            trim.emplace_back(XMFLOAT2(x+24*dx,y),XMFLOAT2(x+48*dx,y),gold);
+        }
+    }
+    trim.emplace_back(XMFLOAT2(float(area.x+50),float(area.y+126)),XMFLOAT2(float(area.x+ManualW-50),float(area.y+126)),gold);
+    trim.emplace_back(XMFLOAT2(float(area.x+65),float(area.y+315)),XMFLOAT2(float(area.x+ManualW-65),float(area.y+315)),gold);
+    shapes.DrawLines(trim);
     auto actor=description.getDisplayName(sManual->actor);auto name=skillSys.GetSkillName(sManual->skill);
-    Text(fmt::format("{}: {}",actor,name),area.x+16,area.y+20,ManualW-32,gold,PredefinedFont::PRIORY_12,true);
-    Text(sManual->target,area.x+16,area.y+44,ManualW-32,dim,PredefinedFont::PRIORY_12,true);
+    Text(name,area.x+16,area.y+17,ManualW-32,gold,PredefinedFont::ARIAL_BOLD_24,true);
+    Text(fmt::format("{} - {}",actor,sManual->target),area.x+16,area.y+49,ManualW-32,white,PredefinedFont::PRIORY_12,true);
     Text("\xD1\xCB\xCE\xC6\xCD\xCE\xD1\xD2\xDC",area.x,area.y+74,ManualW,gold,PredefinedFont::PRIORY_12,true);
     Text(std::to_string(sManual->state.dc),area.x,area.y+94,ManualW,white,PredefinedFont::ARIAL_BOLD_24,true);
     auto phase=sManual->state.phase;bool rolling=phase==bgchecks::Phase::Rolling,result=phase==bgchecks::Phase::Result;
@@ -116,7 +131,7 @@ bool DrawManual() {
     auto yaw=landing.yaw+(rolling ? (1-ease)*14:0),pitch=landing.pitch+(rolling ? (1-ease)*9:0);
     int frontNumber=20;
     auto face=DrawDie(cx+(rolling ? (1-ease)*65*sinf(progress*16):0),cy-(rolling ? fabsf(sinf(progress*19))*35*(1-ease):0),
-        48,yaw,pitch,1,XMCOLOR(0.72f,0.60f,0.37f,1),&frontNumber);
+        48,yaw,pitch,1,XMCOLOR(0.78f,0.24f,0.15f,1),&frontNumber);
     auto shown=phase==bgchecks::Phase::Preparing ? std::string("?"):std::to_string(frontNumber);
     Text(shown,int(face.x)-35,int(face.y)-14,70,white,PredefinedFont::ARIAL_BOLD_24,true);
     auto base=sManual->base.GetEffectiveBonusSum();auto bonus=ManualBonuses().GetEffectiveBonusSum();
@@ -146,10 +161,12 @@ bool DrawManual() {
         Text("\xCE\xF2\xEC\xE5\xED\xE0",area.x+20,area.y+488,120,dim,PredefinedFont::PRIORY_12,true);
     }
     if (!rolling) {
-        shapes.DrawRectangle(float(area.x+165),float(area.y+478),270,38,XMCOLOR(0.27f,0.22f,0.13f,1));
+        shapes.DrawRectangle(float(area.x+165),float(area.y+478),270,38,XMCOLOR(0.10f,0.27f,0.40f,0.94f));
+        shapes.DrawRectangleOutline({float(area.x+165),float(area.y+478)},{float(area.x+435),float(area.y+516)},gold);
+        shapes.DrawRectangleOutline({float(area.x+168),float(area.y+481)},{float(area.x+432),float(area.y+513)},XMCOLOR(0.30f,0.53f,0.67f,1));
         Text(result ? "\xCF\xD0\xCE\xC4\xCE\xCB\xC6\xC8\xD2\xDC":"\xC1\xD0\xCE\xD1\xC8\xD2\xDC\x20\xCA\xD3\xC1\xC8\xCA",area.x+165,area.y+488,270,gold,PredefinedFont::PRIORY_12,true);
     }
-    Text(phase==bgchecks::Phase::Preparing ? "\x45\x73\x63\x20\x97\x20\xEE\xF2\xEC\xE5\xED\xE0\x2E\x20\xCA\xEE\xEB\xE5\xF1\xEE\x20\x97\x20\xF1\xEF\xE8\xF1\xEE\xEA\x20\xE1\xEE\xED\xF3\xF1\xEE\xE2\x2E"
-        : "\xC4\xE5\xE9\xF1\xF2\xE2\xE8\xE5\x20\xE8\x20\xF0\xE0\xF1\xF5\xEE\xE4\x20\xF0\xE5\xF1\xF3\xF0\xF1\xEE\xE2\x20\x97\x20\xEF\xEE\xF1\xEB\xE5\x20\xAB\xCF\xF0\xEE\xE4\xEE\xEB\xE6\xE8\xF2\xFC\xBB",area.x+16,area.y+527,ManualW-32,dim,PredefinedFont::PRIORY_12,true);
+    Text(phase==bgchecks::Phase::Preparing ? "\x45\x73\x63\x20\x2D\x20\xEE\xF2\xEC\xE5\xED\xE0\x2E\x20\xCA\xEE\xEB\xE5\xF1\xEE\x20\x2D\x20\xF1\xEF\xE8\xF1\xEE\xEA\x20\xE1\xEE\xED\xF3\xF1\xEE\xE2\x2E"
+        : "\xC4\xE5\xE9\xF1\xF2\xE2\xE8\xE5\x20\xE8\x20\xF0\xE0\xF1\xF5\xEE\xE4\x20\xF0\xE5\xF1\xF3\xF0\xF1\xEE\xE2\x20\x2D\x20\xEF\xEE\xF1\xEB\xE5\x20\x22\xCF\xF0\xEE\xE4\xEE\xEB\xE6\xE8\xF2\xFC\x22",area.x+16,area.y+527,ManualW-32,dim,PredefinedFont::PRIORY_12,true);
     return true;
 }

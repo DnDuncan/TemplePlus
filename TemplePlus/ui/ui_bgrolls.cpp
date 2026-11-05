@@ -124,9 +124,10 @@ using bgdice::V3;using bgdice::IcoV;using bgdice::IcoF;using bgdice::Rotate;
 
 void Triangle(XMFLOAT2 a, XMFLOAT2 b, XMFLOAT2 c, XMCOLOR color) {
 	gfx::Vertex2d v[4]{};
-	XMFLOAT2 p[4] = { a, b, c, c };
+	auto face=bgdice::ClockwiseTriangle({a.x,a.y},{b.x,b.y},{c.x,c.y});
+    bgdice::P2 p[4]={face[0],face[1],face[2],face[2]};
 	for (int i = 0; i < 4; i++) {
-		v[i].pos = XMFLOAT4(p[i].x, p[i].y, 0, 1);
+		v[i].pos = XMFLOAT4(p[i].x, p[i].y, 0.5f, 1);
 		v[i].diffuse = color;
 	}
 	tig->GetShapeRenderer2d().DrawRectangle(v, static_cast<gfx::Texture*>(nullptr));
@@ -156,7 +157,7 @@ XMFLOAT2 DrawDie(float cx, float cy, float size, float a, float b, float alpha, 
 	std::sort(faces.begin(), faces.end(), [](const Face &l, const Face &r) { return l.depth < r.depth; });
 	XMFLOAT2 front(cx, cy);
 	std::vector<gfx::Line2d> edges;
-	XMCOLOR edge(0.05f, 0.04f, 0.02f, alpha);
+	XMCOLOR edge(0.92f, 0.48f, 0.30f, alpha);
 	for (auto &f : faces) {
 		XMCOLOR c(base.r / 255.0f * f.light, base.g / 255.0f * f.light, base.b / 255.0f * f.light, alpha);
 		Triangle(f.p[0], f.p[1], f.p[2], c);

@@ -367,7 +367,28 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
-	TestManualCheckLifecycle();
+    // Regression: visible projected d20 faces used to wind backwards and were
+    // culled by the native GUI material, leaving only numbers/edge lines.
+    for(int value=1;value<=20;++value) {
+        auto pose=bgdice::Landing(value);
+        for(auto &indices:bgdice::IcoF) {
+            auto a=bgdice::Rotate(bgdice::IcoV[indices[0]],pose.yaw,pose.pitch);
+            auto b=bgdice::Rotate(bgdice::IcoV[indices[1]],pose.yaw,pose.pitch);
+            auto c=bgdice::Rotate(bgdice::IcoV[indices[2]],pose.yaw,pose.pitch);
+            auto normal=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+            if(normal<=0.0001f) continue;
+            auto triangle=bgdice::ClockwiseTriangle({a.x,-a.y},{b.x,-b.y},{c.x,-c.y});
+            assert(bgdice::ScreenArea(triangle[0],triangle[1],triangle[2])>0);
+        }
+    }
+    DoorSecurity target;target.locked=true;target.trapped=true;target.searchDc=21;
+    auto neighbour=target;
+    assert(!SearchObjectTrap(target,false,true).found);
+    assert(!SearchObjectTrap(target,true,false).found);
+    auto found=SearchObjectTrap(target,true,true);assert(found.found && found.locked && found.trapped);
+    assert(!target.found && !neighbour.found); // only the returned target is committed
+    assert(!SearchObjectTrap(DoorSecurity{},true,true).found);
+    TestManualCheckLifecycle();
     for(int number=1;number<=20;++number) assert(bgdice::FrontNumber(bgdice::Landing(number))==number);
     for(int bank:{2100,17500,18400,18600}) {assert(BgChainmailAppearance(bank,true)==18400);assert(BgChainmailAppearance(bank,false)==bank);}
     assert(BgChainmailAppearance(1500,true)==1500);

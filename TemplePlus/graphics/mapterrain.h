@@ -110,7 +110,8 @@ public:
 	int FocusedSceneArea() const {return mFocusedScene;}
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
-	void BindSourceContainer(SourceContainerRegion region);
+	void BindSourceContainer(SourceContainerRegion region, const OriginalDoorUseGeometry *use=nullptr,
+        const std::array<std::string,2> *icons=nullptr);
 	void ClearSourceDoors() {mSourceDoors.clear();}
 	void ClearSourceContainers();
 	// Baldur's Gate doors backed by an invisible native portal: native lock,

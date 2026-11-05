@@ -1685,9 +1685,14 @@ static PyObject* PyGame_BgSourceContainerVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_container_version")) return nullptr;return PyInt_FromLong(1);
 }
 static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
-	int mapId;const char *id,*guid;PyObject* points;OriginalDoorPolygon outline;
-	if (!PyArg_ParseTuple(args,"issO:bg_source_container_bind",&mapId,&id,&guid,&points) || !ReadDoorOutline(points,outline)) return nullptr;
-	try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)});Py_RETURN_NONE;}
+	int mapId;const char *id,*guid,*openIcon=nullptr,*closeIcon=nullptr;PyObject* points;OriginalDoorPolygon outline;
+    double x=0,y=0;
+    if (!PyArg_ParseTuple(args,"issO|ddss:bg_source_container_bind",&mapId,&id,&guid,&points,&x,&y,&openIcon,&closeIcon)
+        || !ReadDoorOutline(points,outline)) return nullptr;
+    if (PyTuple_Size(args)!=4 && PyTuple_Size(args)!=8) {PyErr_SetString(PyExc_ValueError,"container requires both use point and icons");return nullptr;}
+    OriginalDoorUseGeometry use{{{x,y}},60};
+    std::array<std::string,2> icons{{openIcon ? openIcon:"",closeIcon ? closeIcon:""}};
+    try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)},openIcon ? &use:nullptr,openIcon ? &icons:nullptr);Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
@@ -1696,7 +1701,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
-	return PyInt_FromLong(4);
+	return PyInt_FromLong(5);
 }
 static PyObject* PyGame_BgSourceDoorBind(PyObject*,PyObject* args) {
 	int mapId,found=0;const char *id,*guid;
