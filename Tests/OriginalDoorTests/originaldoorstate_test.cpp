@@ -367,6 +367,12 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
+    assert(BgNpcMotionOwner(0x42474E00u,false,true));
+    assert(BgNpcMotionOwner(0x42474E2Bu,false,true));
+    assert(!BgNpcMotionOwner(0x42474E01u,true,true)); // recruited/controlled party member
+    assert(!BgNpcMotionOwner(0x42474301u,false,true)); // container is never an actor
+    assert(!BgNpcMotionOwner(0,false,true));
+    assert(!BgNpcMotionOwner(0x42474E01u,false,false));
     // Regression: visible projected d20 faces used to wind backwards and were
     // culled by the native GUI material, leaving only numbers/edge lines.
     for(int value=1;value<=20;++value) {

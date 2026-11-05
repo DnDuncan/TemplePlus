@@ -1695,6 +1695,24 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
     try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)},openIcon ? &use:nullptr,openIcon ? &icons:nullptr);Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+static PyObject* PyGame_BgNpcMotionVersion(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_npc_motion_version")) return nullptr;return PyInt_FromLong(1);
+}
+static PyObject* PyGame_BgNpcMove(PyObject*,PyObject* args) {
+    objHndl actor;double x,y;
+    if (!PyArg_ParseTuple(args,"O&dd:bg_npc_move",&ConvertObjHndl,&actor,&x,&y)) return nullptr;
+    try {return PyBool_FromLong(gameSystems->GetTerrain().StartScriptNpcMove(actor,{x,y}));}
+    catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgNpcMoving(PyObject*,PyObject* args) {
+    objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_npc_moving",&ConvertObjHndl,&actor)) return nullptr;
+    return PyBool_FromLong(gameSystems->GetTerrain().ScriptNpcMoving(actor));
+}
+static PyObject* PyGame_BgNpcStop(PyObject*,PyObject* args) {
+    objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_npc_stop",&ConvertObjHndl,&actor)) return nullptr;
+    try {return PyBool_FromLong(gameSystems->GetTerrain().StopScriptNpcMove(actor));}
+    catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
 static PyObject* PyGame_BgScenePassageBind(PyObject*,PyObject* args) {
     int map;const char *id,*icon;PyObject *points;double x,y;OriginalDoorPolygon outline;
     if (!PyArg_ParseTuple(args,"isOdds:bg_scene_passage_bind",&map,&id,&points,&x,&y,&icon) || !ReadDoorOutline(points,outline)) return nullptr;
@@ -1999,6 +2017,10 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_version",PyGame_BgSourceContainerVersion,METH_VARARGS,NULL},
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
     {"bg_scene_passage_bind",PyGame_BgScenePassageBind,METH_VARARGS,NULL},
+    {"bg_npc_motion_version",PyGame_BgNpcMotionVersion,METH_VARARGS,NULL},
+    {"bg_npc_move",PyGame_BgNpcMove,METH_VARARGS,NULL},
+    {"bg_npc_moving",PyGame_BgNpcMoving,METH_VARARGS,NULL},
+    {"bg_npc_stop",PyGame_BgNpcStop,METH_VARARGS,NULL},
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_source_door_clear",PyGame_BgSourceDoorClear,METH_VARARGS,NULL},

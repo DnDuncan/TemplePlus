@@ -105,7 +105,10 @@ public:
 	bool HasDoorContextHover() const {return !mContextHover.Target().empty();}
 	bool HoveredDoorLocked() const;
 	int SearchDoorTraps(objHndl actor,LocAndOffsets center,float radius,int total,bool reveal);
-	void BindSceneArea(OriginalSceneArea area);
+	bool StartScriptNpcMove(objHndl actor,OriginalDoorUsePoint point);
+    bool ScriptNpcMoving(objHndl actor) const;
+    bool StopScriptNpcMove(objHndl actor);
+    void BindSceneArea(OriginalSceneArea area);
     void BindScenePassage(int mapId,const std::string &id,OriginalDoorPolygon outline,OriginalDoorUsePoint point,const std::string &icon);
     bool CanUseTravelGate(int mapId,const std::string &id) const;
 	void BindSceneRoute(const std::string &route,OriginalSceneRoute definition);
