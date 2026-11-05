@@ -399,6 +399,36 @@ void TerrainSystem::RenderDoorContext() {
 	}
 }
 
+namespace {
+bool ScriptNpcActor(objHndl actor) {
+    if (!objSystem->IsValidHandle(actor)) return false;
+    auto obj=objSystem->GetObject(actor);
+    return obj->type==obj_t_npc && !(obj->GetFlags()&(OF_OFF|OF_DESTROYED))
+        && BgNpcMotionOwner(static_cast<uint32_t>(obj->GetInt32(obj_f_npc_pad_i_4)),party.IsInParty(actor),!critterSys.IsDeadOrUnconscious(actor));
+}
+}
+bool TerrainSystem::ScriptNpcMoving(objHndl actor) const {
+    if (!ScriptNpcActor(actor)) return false;
+    AnimSlotId slot{};auto &anim=gameSystems->GetAnim();
+    return anim.DoesObjHaveGoal(actor,ag_move_to_tile,&slot) || anim.DoesObjHaveGoal(actor,ag_run_to_tile,&slot)
+        || anim.DoesObjHaveGoal(actor,ag_move_near_tile,&slot) || anim.DoesObjHaveGoal(actor,ag_run_near_tile,&slot);
+}
+bool TerrainSystem::StopScriptNpcMove(objHndl actor) {
+    if (!ScriptNpcActor(actor) || combatSys.isCombatActive()) return false;
+    StopDoorMovement(actor.handle);return true;
+}
+bool TerrainSystem::StartScriptNpcMove(objHndl actor,OriginalDoorUsePoint point) {
+    if (!ScriptNpcActor(actor) || combatSys.isCombatActive() || maps.GetCurrentMapId()!=5136) return false;
+    ValidateOriginalDoorUse({{point},60});
+    auto source=SceneAreaForActor(actor.handle);
+    if (!source || source!=SceneAreaAt(point)) return false;
+    auto loc=LocAndOffsets::FromInches(float(point.x),float(point.y));RaycastPacket ray;
+    ray.flags=static_cast<RaycastFlags>(StopAfterFirstBlockerFound|HasSourceObj|ExcludeItemObjects);
+    ray.origin=loc;ray.targetLoc=loc;ray.sourceObj=actor;ray.radius=0;
+    if (ray.RaycastShortRange()!=0) return false;
+    if (ScriptNpcMoving(actor)) StopDoorMovement(actor.handle);
+    return gameSystems->GetAnim().PushMoveToTile(actor,loc);
+}
 bool TerrainSystem::CanUseTravelGate(int mapId,const std::string &id) const {
     return mScenePassages.count({mapId,OriginalDoorState::NormalizeId(id)}) || CanTravelThroughOriginalDoor(mapId,id);
 }

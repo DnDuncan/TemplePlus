@@ -2,6 +2,9 @@
 #include "originaltravel.h"
 #include <limits>
 
+inline bool BgNpcMotionOwner(uint32_t tag,bool inParty,bool conscious) {
+    return (tag&0xFFFFFF00u)==0x42474E00u && !inParty && conscious;
+}
 enum class DoorContextAction { Open, Close, Search, PickLock, Travel, Disarm };
 constexpr size_t DoorContextActionCount=6;
 struct DoorSecurity {
