@@ -1078,7 +1078,7 @@ void InventorySystem::InsertAtLocation(objHndl item, objHndl receiver, int itemI
 	}
 		
 
-    if (BgAutoIdentifyConsumable(gameSystems->GetTerrain().HasOriginalDoorInput(),
+    if (BgAutoIdentifyConsumable(originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput(),
         itemObj->type==obj_t_scroll,itemObj->type==obj_t_food))
         itemObj->SetItemFlag(OIF_IDENTIFIED,true);
 	auto itemType = objects.GetType(item);
@@ -1980,7 +1980,7 @@ bool InventorySystem::IsIdentified(objHndl itemHandle)
 	if (!obj->IsItem())
 		return false;
 
-    if (BgAutoIdentifyConsumable(gameSystems->GetTerrain().HasOriginalDoorInput(),
+    if (BgAutoIdentifyConsumable(originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput(),
         obj->type==obj_t_scroll,obj->type==obj_t_food))
         obj->SetItemFlag(OIF_IDENTIFIED,true);
 	if (obj->GetItemFlags() & ItemFlag::OIF_IS_MAGICAL)
