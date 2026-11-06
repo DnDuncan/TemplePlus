@@ -242,6 +242,7 @@ void UiInGame::HandleNonCombatMessage(const TigMsg & msg)
 	}
 
 	if (msg.type == TigMsgType::MOUSE) {
+		if (bgwalk::HandleMouse(msg)) return;
 		if (HandleOriginalDoorMessage(msg)) return;
 
 		auto tigMsgMouse = (TigMsgMouse&)msg;
