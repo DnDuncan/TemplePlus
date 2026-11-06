@@ -404,6 +404,7 @@
     <ClInclude Include="ui\ui_bgrolls.h" />
     <ClInclude Include="ui\ui_bgwalk.h" />
     <ClInclude Include="bgmovementrules.h" />
+    <ClInclude Include="bgconsumables.h" />
     <ClInclude Include="ui\ui_bgcheckresources.h" />
     <ClInclude Include="bgcheckstate.h" />
     <ClInclude Include="bgappearance.h" />

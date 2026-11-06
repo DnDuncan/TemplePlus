@@ -9,6 +9,7 @@
 #include "../../TemplePlus/bgcheckstate.h"
 #include "../../TemplePlus/bgappearance.h"
 #include "../../TemplePlus/bgmovementrules.h"
+#include "../../TemplePlus/bgconsumables.h"
 #include "../../TemplePlus/ui/bgdicegeometry.h"
 #include <limits>
 #include <cassert>
@@ -368,6 +369,10 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
+    assert(BgAutoIdentifyConsumable(true,true,false));
+    assert(BgAutoIdentifyConsumable(true,false,true));
+    assert(!BgAutoIdentifyConsumable(true,false,false));
+    assert(!BgAutoIdentifyConsumable(false,true,true));
     for (bool alwaysRun:{false,true}) for (bool ctrl:{false,true}) for (bool num:{false,true}) {
         assert(bgmovement::Run(0,alwaysRun,30,ctrl,num)==ctrl);
         assert(bgmovement::Run(1,alwaysRun,30,ctrl,num)==!ctrl);
