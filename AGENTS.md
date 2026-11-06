@@ -1,5 +1,26 @@
 # AGENTS.md — форк Temple+ для bg2toee
 
+## Расходники — 6 ноября, продолжение
+
+- PR23 feat/bg-consumable-identification, code f1dc48c, portable0.2.111.
+  Full CI42245619750 success, Buildjob127986946012, registry/policy +6hooks
+  +13image tests OK. Artifact13517867527,23,573,764B, SHA256 GitHub ZIP
+  9ac925603051ceee2f8ae71930dc4b058b9de0f29da61e56d6e6683c3c8d1cb2.
+- inventory.cpp: automatic OIF_IDENTIFIED on scroll/food insertion and query
+  in BG scenes; originalDoorTerrain null-guard required during init. Other
+  maps/items and class/UMD requirements unchanged. Native unidentified-scroll
+  refusal in PerformCastItemSpell is a confirmed use blocker; Spell280 is full.
+- Converter PR43 installed4modfiles: IE/BCS migration for existing known
+  inventories and one IWD2 Mage Armor icon (9280→invAid24000, SPWI102A).
+  No spawning/restock. Rollback files does not revert later saved item flags/
+  icon fields; keep resource registration for such saves or reverse migration.
+- Converter current feat/native-price-catalog PR44:52mapped native prices,
+  column52 worth, column53 icon. Text splitlines breaks VT-separated flags;
+  byte LF reader required. Full292tests +Windows/Linux CI pass; gameplay
+  untested. No ToEE/CUA. Engine installation remains manual by user.
+
+
+
 ## Актуально — 6 ноября 2026: ходьба
 
 - Пользователь сам проверяет в игре позже. Computer-use и запуск ToEE запрещены.
