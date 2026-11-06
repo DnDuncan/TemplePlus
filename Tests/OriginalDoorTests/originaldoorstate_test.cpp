@@ -410,8 +410,15 @@ int main() {
     assert(!SearchObjectTrap(DoorSecurity{},true,true).found);
     TestManualCheckLifecycle();
     for(int number=1;number<=20;++number) assert(bgdice::FrontNumber(bgdice::Landing(number))==number);
-    for(int bank:{2100,17500,18400,18600}) {assert(BgChainmailAppearance(bank,true)==18400);assert(BgChainmailAppearance(bank,false)==bank);}
+    for(int bank:{2100,17500,18400,18600,7100,9300,9400,9500,16300,22100,19600,29000}) {assert(BgChainmailAppearance(bank,true)==18400);assert(BgChainmailAppearance(bank,false)==bank);}
     assert(BgChainmailAppearance(1500,true)==1500);
+    assert(BgChainmailAppearance(7600,true)==7600); // banded armour, not chain
+    assert(BgChainmailAppearance(4200,true)==4200); // helmet, not torso
+    assert(BgChainmailAppearance(20900,true,6296)==18400);
+    assert(BgChainmailAppearance(20900,true,6341)==18400);
+    assert(BgChainmailAppearance(7600,true,6301)==18400);
+    assert(BgChainmailAppearance(20900,true,9999)==20900);
+    assert(BgChainmailAppearance(1500,true,6296)==1500);
     assert(BgOccludedVisible(1,true));  // controlled actor behind a GPU source mask
     assert(!BgOccludedVisible(1,false)); // ordinary object still needs native occlusion
     assert(!BgOccludedVisible(0,true)); // no fog visibility bypass
