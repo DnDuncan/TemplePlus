@@ -11,6 +11,7 @@
 #include "config/config.h"
 #include "tig/tig_startup.h"
 #include "tig/tig_console.h"
+#include "tig/tig_mouse.h"
 #include "gamesystems/gamesystems.h"
 #include "graphics/mapterrain.h"
 #include "graphics/shaperenderer2d.h"
@@ -25,6 +26,8 @@ namespace {
 int sWindow=-1, sButton=-1;
 bool sUtility=true, sLatched=false;
 constexpr int Size=36;
+uint32_t sHoverSince=0;
+void Tooltip(int,int,LgcyWidgetId*);
 
 bool Scope() {
     return sUtility && gameSystems && party.GroupListGetLen()>0 &&
@@ -79,6 +82,12 @@ void Render(int id) {
     if (Running()) {
         for (int i=0;i<3;++i) s.DrawRectangle(x+5,y+18+i*4,5,1,gold);
     }
+    TigMouseState mouse;mouseFuncs.GetState(&mouse);
+    auto hovered=mouse.x>=b->x && mouse.x<b->x+Size && mouse.y>=b->y && mouse.y<b->y+Size;
+    auto now=timeGetTime();
+    if (!hovered) sHoverSince=0;
+    else if (!sHoverSince) sHoverSince=now;
+    else if (uint32_t(now-sHoverSince)>=550) Tooltip(0,0,nullptr);
 }
 void Tooltip(int, int, LgcyWidgetId*) {
     auto b=uiManager->GetButton(sButton);
@@ -98,10 +107,11 @@ void Initialize() {
     LgcyWindow window(0,0,Size,Size); window.flags=1;
     sWindow=uiManager->AddWindow(window);
     LgcyButton button("BG party movement",sWindow,0,0,Size,Size);
-    button.render=Render; button.renderTooltip=Tooltip;
+    button.render=Render; button.renderTooltip=nullptr;
     button.handleMessage=[](int,TigMsg *msg) {
         if (msg->type!=TigMsgType::WIDGET) return FALSE;
-        if (msg->IsWidgetEvent(TigMsgWidgetEvent::MouseReleased)) Toggle();
+        // Native TranslateMouseMessage also queues widget releases.
+        // HandleMouse owns this gesture; never toggle twice for one release.
         return TRUE;
     };
     button.SetDefaultSounds();
@@ -120,7 +130,15 @@ void Resize() {
     if (w && b) { w->x=b->x=canvas.width-48; w->y=b->y=canvas.height-146; }
 }
 void Update() {
-    if (sWindow!=-1) uiManager->SetHidden(sWindow,!Scope());
+    if (sWindow!=-1) {
+        auto window=uiManager->GetWindow(sWindow);
+        auto hidden=!Scope();
+        if (window && window->IsHidden()!=hidden) {
+            uiManager->SetHidden(sWindow,hidden);
+            sHoverSince=0;
+            if (!hidden) uiManager->BringToFront(sWindow);
+        }
+    }
 }
 void SetUtilityVisible(bool visible) { sUtility=visible; Update(); }
 bool HandleMouse(const TigMsg &msg) {
