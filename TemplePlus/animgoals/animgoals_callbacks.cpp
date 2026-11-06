@@ -9,6 +9,8 @@
 #include "gamesystems/objects/objsystem.h"
 #include "python/python_integration_spells.h"
 #include "critter.h"
+#include "party.h"
+#include "config/config.h"
 #include "action_sequence.h"
 #include "combat.h"
 #include "location.h"
@@ -847,7 +849,12 @@ int GoalIsLiveCritterNear(AnimSlot &slot) {
 int GoalSetRunningFlag(AnimSlot &slot) {
 	// static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x10011600);
 	Expects(slot.animObj);
-	slot.flags |= AnimSlotFlag::ASF_RUNNING;
+	if (party.IsInParty(slot.animObj) && !combatSys.isCombatActive() &&
+        gameSystems->GetTerrain().HasOriginalDoorInput() &&
+        (config.partyMovementMode==0 || config.partyMovementMode==1) &&
+        !gameSystems->GetAnim().ShouldRun(slot.animObj))
+        slot.flags &= ~AnimSlotFlag::ASF_RUNNING;
+    else slot.flags |= AnimSlotFlag::ASF_RUNNING;
 	return TRUE;
 }
 

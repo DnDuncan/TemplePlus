@@ -955,6 +955,7 @@ bool UiManager::ProcessMessage(TigMsg &msg)
 	bgwalk::Update();
 	if (bgrolls::HandleModalInput(msg)) return true;
 	if (bgwalk::HandleHotkey(msg)) return true;
+	if (bgwalk::HandleMouse(msg)) return true;
 	// Dispatch time update messages continuously to all advanced widgets
 	if (msg.type == TigMsgType::UPDATE_TIME) {
 		for (auto &entry : mActiveWidgets) {

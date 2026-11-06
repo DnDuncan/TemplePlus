@@ -123,6 +123,19 @@ void Update() {
     if (sWindow!=-1) uiManager->SetHidden(sWindow,!Scope());
 }
 void SetUtilityVisible(bool visible) { sUtility=visible; Update(); }
+bool HandleMouse(const TigMsg &msg) {
+    static bool captured=false;
+    if (msg.type!=TigMsgType::MOUSE) return false;
+    auto b=sButton!=-1?uiManager->GetButton(sButton):nullptr;
+    auto inside=b && Scope() && int(msg.arg1)>=b->x && int(msg.arg1)<b->x+Size &&
+        int(msg.arg2)>=b->y && int(msg.arg2)<b->y+Size;
+    if ((msg.arg4 & MSF_LMB_CLICK) && inside) captured=true;
+    if (captured) {
+        if (msg.arg4 & MSF_LMB_RELEASED) { captured=false; if (inside) Toggle(); }
+        return true;
+    }
+    return inside && (msg.arg4 & (MSF_LMB_DOWN|MSF_LMB_RELEASED|MSF_RMB_CLICK|MSF_RMB_RELEASED));
+}
 bool HandleHotkey(const TigMsg &msg) {
     if (msg.type!=TigMsgType::KEYSTATECHANGE || msg.arg1!=0x13) return false; // DIK_R
     auto down=msg.arg2!=0;
