@@ -1,5 +1,35 @@
 # AGENTS.md — форк Temple+ для bg2toee
 
+## Смотрители и все кольчуги — 6 ноября, актуальное продолжение
+
+- Converter fix/gatekeeper-equipment, draft PR45 поверх PR44, code8c23b4a.
+  KEEPER14916/GATEWA14917: native halberd4412, armor6039/6019, без щита.
+  One-time BGE1; source0 старого save распознаётся только по полной сигнатуре
+  десяти Knight items. Чужие вещи сохраняются; нет spawn/refill после кражи.
+- Установлены3modfiles в F:, receiptv10 final journal
+  interaction-fixes-20261106-40ba071011bf4848bbcf84a1d92b4732.
+  Промежуточный3a4de7daffc64a99b6eae8e959b2ebaf откатывать после final.
+  238controlfiles unchanged; backups/rollback dry-run OK. Saved equipment
+  файловым откатом не отменяется. D:/saves/engine/INI/launcher не менялись.
+- Engine fix/bg-chainmail-variants, draft PR24 поверх PR23, code0111159.
+  Fine18400:12native chain torso banks + адресные6296/6301/6341 shared-banded
+  исключения. Материал/addmesh вместе, PC/NPC/preview на всех картах;
+  характеристики и saved fields не меняются.16resource dependencies найдены.
+- Portable0.2.117, CI42265171561 success, Build128055098196:
+  registry/policy,6hooks,13images OK. Artifact13527775108,23,573,969B,
+  GitHub ZIP SHA256 a137466fa2ac8cf403ae2039385486fe10835e306f0f681cdee451c530228f7a.
+  https://github.com/DnDuncan/TemplePlus/actions/runs/42265171561/artifacts/13527775108
+  Распаковка движка вручную пользователем в НОВУЮ папку117. Не ставить EXE
+  автоматически и не перенаправлять launcher. Игра/CUA не запускались.
+- Full local297unittest +15runtime py_compile OK. Converter CI42265971943 /
+  42265963188 success Windows/Linux3.10/3.12. Игровая приёмка впереди.
+  Протокол и ограничения: converter docs/gatekeepers-chainmail.md.
+- Полный Кэндлкип не завершён. IWD2icons кроме MageArmor pilot ещё pending;
+  merchant5concepts ждут выбора, цены52refs пока таблица без изменения игры;
+  другие blocked areas AR2617 ещё не объявлять исправленными. HALB01 store
+  legacyalias4118 не мигрировался этим этапом. Все PR draft, не сливать.
+
+
 ## Расходники — 6 ноября, продолжение
 
 - PR23 feat/bg-consumable-identification, code f1dc48c, portable0.2.111.
