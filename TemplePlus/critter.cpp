@@ -1431,7 +1431,7 @@ void LegacyCritterSystem::UpdateAddMeshes(objHndl obj)
 		}
 
 		// Addmesh / Material index of the item
-		auto matIdx = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot), true);
+		auto matIdx = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot), true, objSystem->GetProtoId(item));
 		if (matIdx == -1) {
 			continue; // No assigned addmesh or material replacement
 		}
@@ -1701,7 +1701,7 @@ void LegacyCritterSystem::UpdateModelEquipment(objHndl obj)
 		auto slot = (EquipSlot) slotId;
 		auto item = GetWornItem(obj, slot);
 		if (item) {
-			auto materialSlot = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot), true);
+			auto materialSlot = BgChainmailAppearance(objects.getInt32(item, obj_f_item_material_slot), true, objSystem->GetProtoId(item));
 			if (materialSlot != -1) {
 				ApplyReplacementMaterial(model, materialSlot + raceOffset, materialSlot + baseRaceOffset);
 			}
