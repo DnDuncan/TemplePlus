@@ -77,6 +77,12 @@ inline void ValidateOriginalSceneArea(const OriginalSceneArea &a) {
 		|| a.shiftX%256 || a.shiftY%256)
 		throw std::invalid_argument("invalid isolated scene area");
 }
+inline bool IsReviewedCandlekeepScene(const OriginalSceneArea &a) {
+    if (a.nativeMap!=5136) return false;
+    if (a.id==5136 || a.id==5190 || a.id==5191) return true;
+    return a.id==5192 && a.x==2968 && a.y==8818 && a.width==640 && a.height==512
+        && a.sourceGround==903 && a.shiftX==-5120 && a.shiftY==0;
+}
 inline bool SceneContains(const OriginalSceneArea &a,double x,double y) {
 	return x>=a.x && y>=a.y && x<a.x+a.width && y<a.y+a.height;
 }

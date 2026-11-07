@@ -7,6 +7,14 @@ from unittest.mock import Mock, patch
 
 
 class SaveHookTests(unittest.TestCase):
+    def test_successful_container_open_dispatch_is_optional(self):
+        adapter = SimpleNamespace(source_container_open=Mock())
+        with patch.dict(sys.modules, {'bg2toee_lifecycle': adapter}):
+            self.hook.source_container_open('container', 'actor')
+        adapter.source_container_open.assert_called_once_with(('container', 'actor'))
+        with patch.dict(sys.modules, {'bg2toee_lifecycle': SimpleNamespace()}):
+            self.hook.source_container_open('container', 'actor')
+
     def setUp(self):
         path = Path(__file__).resolve().parents[2] / 'tpdata/templeplus/lib/templeplus/savehook.py'
         spec = importlib.util.spec_from_file_location('savehook_under_test', path)
