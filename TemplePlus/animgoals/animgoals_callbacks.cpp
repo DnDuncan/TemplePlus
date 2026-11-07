@@ -1038,8 +1038,23 @@ int GoalMoveAlongPath(AnimSlot &slot) {
 			return FALSE;
 		}
 	}
-	static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x100147d0);
-	return org(slot);
+    const bool trace=slot.animObj && party.IsInParty(slot.animObj)
+        && gameSystems->GetTerrain().SceneAreaForActor(slot.animObj.handle)==5191;
+    auto before=trace?objects.GetLocationFull(slot.animObj):LocAndOffsets{};
+    auto index=slot.path.currentNode;
+    static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x100147d0);
+    auto result=org(slot);
+    if (trace) {
+        static std::map<uint64_t,uint32_t> last;
+        auto now=timeGetTime();auto &previous=last[slot.animObj.handle];
+        if (!result || now-previous>=1000) {
+            previous=now;
+            logger->info("Upper floor step: actor={} from={} now={} target={} index={}->{} nodes={} result={}",
+                slot.animObj,before,objects.GetLocationFull(slot.animObj),slot.path.to,index,
+                slot.path.currentNode,slot.path.nodeCount,result);
+        }
+    }
+    return result;
 }
 
 // Originally @ 0x10014f10

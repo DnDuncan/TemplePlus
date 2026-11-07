@@ -1117,6 +1117,19 @@ void Pathfinding::PathNodesAddByDirections(Path* pqr, PathQuery* pq)
 		return;
 	} 
 
+    // AR2617 uses centre-cell clearance. The legacy simplifier still
+    // tests full-radius straight segments, so preserve its proven A* steps.
+    if (BgUpperFloorCell(pq->critter,pqr->from)==1 && BgUpperFloorCell(pq->critter,pqr->to)==1) {
+        const int count=pqr->nodeCount3;
+        pqr->nodeCount=0; pqr->currentNode=0;
+        BgEmitInteriorSubtileRoute(count,200,[&](int step,bool last) {
+            LocAndOffsets point=pqr->to;
+            if (!last) PathTempNodeAddByDirections(step,pqr,&point);
+            pqr->nodes[pqr->nodeCount++]=point;
+        });
+        return;
+    }
+
 	// else use the directions to build the nodes
 	LocAndOffsets newNode, curNode;
 		LocAndOffsets fromLoc = pqr->from;
