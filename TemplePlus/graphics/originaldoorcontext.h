@@ -80,8 +80,14 @@ inline void ValidateOriginalSceneArea(const OriginalSceneArea &a) {
 inline bool IsReviewedCandlekeepScene(const OriginalSceneArea &a) {
     if (a.nativeMap!=5136) return false;
     if (a.id==5136 || a.id==5190 || a.id==5191) return true;
-    return a.id==5192 && a.x==2968 && a.y==8818 && a.width==640 && a.height==512
-        && a.sourceGround==903 && a.shiftX==-5120 && a.shiftY==0;
+    return (a.id==5192 && a.x==2968 && a.y==8818 && a.width==640 && a.height==512
+        && a.sourceGround==903 && a.shiftX==-5120 && a.shiftY==0)
+        || (a.id==5194 && a.x==2968 && a.y==12402 && a.width==640 && a.height==512
+        && a.sourceGround==905 && a.shiftX==-5120 && a.shiftY==3584)
+        || (a.id==5195 && a.x==13208 && a.y==8882 && a.width==640 && a.height==384
+        && a.sourceGround==906 && a.shiftX==5120 && a.shiftY==0)
+        || (a.id==5196 && a.x==13144 && a.y==10610 && a.width==768 && a.height==512
+        && a.sourceGround==907 && a.shiftX==5120 && a.shiftY==1792);
 }
 inline bool SceneContains(const OriginalSceneArea &a,double x,double y) {
 	return x>=a.x && y>=a.y && x<a.x+a.width && y<a.y+a.height;

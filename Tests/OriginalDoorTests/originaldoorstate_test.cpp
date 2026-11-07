@@ -380,6 +380,12 @@ static void TestReviewedShankScene() {
 }
 int main() {
     TestReviewedShankScene();
+    for (const auto &area : {OriginalSceneArea{5194,5136,2968,12402,640,512,905,-5120,3584},
+                            OriginalSceneArea{5195,5136,13208,8882,640,384,906,5120,0},
+                            OriginalSceneArea{5196,5136,13144,10610,768,512,907,5120,1792}}) {
+        ValidateOriginalSceneArea(area);assert(IsReviewedCandlekeepScene(area));
+        auto bad=area;++bad.sourceGround;assert(!IsReviewedCandlekeepScene(bad));
+    }
     {
         struct Route { int flags; int nodes[3]; };
         struct Result: Route { int occupied; int pause; };

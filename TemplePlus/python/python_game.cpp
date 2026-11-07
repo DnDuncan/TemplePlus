@@ -1725,7 +1725,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
-    return PyInt_FromLong(1); // exact AR2602 profile and successful-looting notification
+    return PyInt_FromLong(2); // AR2602 plus reviewed rat storehouse, Carbos house and barracks
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
