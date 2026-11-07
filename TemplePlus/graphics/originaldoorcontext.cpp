@@ -449,7 +449,7 @@ void TerrainSystem::BindScenePassage(int mapId,const std::string &id,OriginalDoo
 }
 void TerrainSystem::BindSceneArea(OriginalSceneArea area) {
 	ValidateOriginalSceneArea(area);
-	if (area.nativeMap!=5136 || (area.id!=5136 && area.id!=5190 && area.id!=5191)) throw std::invalid_argument("scene profile restricted to Candlekeep and inn floors");
+	if (!IsReviewedCandlekeepScene(area)) throw std::invalid_argument("scene profile is not a reviewed Candlekeep interior");
 	if (area.sourceGround && !mTerrainDirs.count(area.sourceGround)) throw std::invalid_argument("source interior ground is not installed");
 	for (const auto &entry:mSceneAreas) if (entry.first!=area.id) {
 		const auto &other=entry.second;

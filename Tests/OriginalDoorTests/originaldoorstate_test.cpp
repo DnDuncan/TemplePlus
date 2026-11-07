@@ -369,7 +369,17 @@ static void TestManualCheckLifecycle() {
     wrap.Advance(0xFFFFFF00u+6000u);assert(wrap.phase==Phase::Result);
 }
 
+static void TestReviewedShankScene() {
+    OriginalSceneArea a{5192,5136,2968,8818,640,512,903,-5120,0};
+    ValidateOriginalSceneArea(a);assert(IsReviewedCandlekeepScene(a));
+    auto bad=a;bad.id=5193;assert(!IsReviewedCandlekeepScene(bad));
+    bad=a;++bad.x;assert(!IsReviewedCandlekeepScene(bad));
+    bad=a;bad.sourceGround=904;assert(!IsReviewedCandlekeepScene(bad));
+    bad=a;bad.shiftX=0;assert(!IsReviewedCandlekeepScene(bad));
+    bad=a;bad.nativeMap=5192;assert(!IsReviewedCandlekeepScene(bad));
+}
 int main() {
+    TestReviewedShankScene();
     {
         struct Route { int flags; int nodes[3]; };
         struct Result: Route { int occupied; int pause; };

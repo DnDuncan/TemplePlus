@@ -10,7 +10,7 @@ def _original_doors(event, filename):
             return
         raise
     handler = getattr(bg2toee_lifecycle, event, None)
-    if handler is None and event in ('map_ready', 'door_trap', 'journal_key'):
+    if handler is None and event in ('map_ready', 'door_trap', 'journal_key', 'source_container_open'):
         return  # older adapter without the optional event
     return handler(filename)
 
@@ -43,6 +43,13 @@ def journal_key():
     except Exception as exc:
         print('bg2toee journal_key failed: ' + str(exc))
         return False
+
+def source_container_open(container, actor):
+    try:
+        _original_doors('source_container_open', (container, actor))
+    except Exception as exc:
+        print('bg2toee source_container_open failed: ' + str(exc))
+
 
 def door_trap(map_id, door_id, actor):
     # A source door trap was sprung by an engine context action.
