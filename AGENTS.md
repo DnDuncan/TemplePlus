@@ -1,5 +1,33 @@
 # AGENTS.md — форк Temple+ для bg2toee
 
+## Передача маршрута AR2617 — 7 ноября, текущий этап
+
+- Иконки приняты пользователем; проходы на 0.2.120 не приняты. Один выбранный
+  персонаж начинает идти, останавливается у входа. Старые radius/clearance
+  changes не считать принятой навигацией.
+- Ветка fix/bg-upper-floor-path-handoff, draft PR26 поверх25, код 0e73564.
+  Single actor в scene5191: exact FindPath → PushPreparedPartyPath в свежую
+  native animation slot. Группы сохраняют native formation offsets и получают
+  prepared route. ShouldRun и анимация прежние; прочие сцены/бой — native.
+  PathNodesAddByDirections сохраняет все A* subtile steps и точный конец,
+  проверяет лимит200 до emission. Никаких obj.move/телепортов.
+- Логи Upper floor command/handoff/step: requested/resolved, node count/index,
+  walk/run, позиции до/после, result. Progress не чаще1/s на actor.
+- Регрессии: Г-коридор/конечная точка/лимит200/отказ0 и201; копирование только
+  базового Path с сохранением live PathQueryResult.occupiedFlag/someDelay.
+  Первые сборки121/122 не собрались: присваивание Path в derived Result.
+  Исправлено базовым cast (как PushRunToTile), вынесено в проверяемый helper.
+  Полный CI42357762916 для0e73564 прошёл, версия0.2.124, Build128359510104:
+  registry/новые route-copy+коридор tests,6savehooks,13images OK.
+  Artifact13568254216,23,574,242B,GitHub ZIP SHA256
+  d71f87b8796f16307c60e616e442e05529271fa7c0c8f559619231e90e3b3936.
+  https://github.com/DnDuncan/TemplePlus/actions/runs/42357762916/artifacts/13568254216
+- Новый EXE распаковывает пользователь в новую F:папку; INI/launcher не менять.
+  Папка: F:\Documents\ToEE_BGfication\bg2toee-engine\TemplePlus-0.2.124\.
+  Игру/CUA не запускать; saves/maps/иконки этим этапом не записывались.
+  Детали: converter docs/upper-floor-path-handoff.md. FindPath success сам по
+  себе не доказывает исполнение команды движения; игровая приёмка впереди.
+
 ## Верхний этаж таверны — 7 ноября, актуально
 
 - fix/bg-upper-floor-navigation, draft PR25 поверх24, code6575409. Пользователь
