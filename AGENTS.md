@@ -1,6 +1,31 @@
 # AGENTS.md — форк Temple+ для bg2toee
 
-## Передача маршрута AR2617 — 7 ноября, текущий этап
+## AR2602 и successful-looting callback — 7 ноября, текущий этап
+
+- Пользователь принял пути/комнаты AR2617 с0.2.124;ниже старый pending — история.
+- feat/bg-shank-scene-and-open-event, draft PR27 поверх26,код350e29b.
+  IsReviewedCandlekeepScene добавляет только точный AR2602:5192/native5136,
+  rect2968,8818,640,512/ground903/shift-5120,0. Старые3сцены/навигация прежние.
+- bg_candlekeep_interior_version()=1 означает этот scene profile и callback
+  после успешного native ShowLooting на source container с валиднымparty actor.
+  Не использовать san_use/клик для ACT10:неудачныйlock не должен бытьOpened.
+  templeplus.savehook.source_container_open optionaldispatch в lifecycle;
+  старыеадаптеры/обычныйloot/Co8 hooks сохраняются. Никаких BGresources вgit.
+- CI42368421427 и42368421983 success,portable0.2.125/0.2.126;использовать126.
+  Registry/newscene checks,7savehook/Co8 tests,image decoding checks прошли.
+  Artifact13573330932,23,574,103B,SHA256
+  28d626c4175014fa9a3935aa7340e0e01dc7856b23273181182bafba0723e36d.
+  https://github.com/DnDuncan/TemplePlus/actions/runs/42368421983/artifacts/13573330932
+- Converter feat/candlekeep-shank-room PR52,code304c01e:88file testrelease,
+  SHANK+conditionalWATCHN/2dialogs/5containers/ACT10/installer. Новая runtime
+  требуетAPI1 доclear/создания иpre_load. Sourcepopup→3sec→guard ledger,
+  одноразовыйalarm,expiry200/300elapsedsec,persistentphase безrespawn/refill.
+  Полнаяинструкция:../bg2toee/docs/ar2602-room-release.md.
+- EXE/DLL устанавливает пользователь в новую F:папку TemplePlus-0.2.126.
+  Не менять INI/launcher,не запускатьигру/CUA. Новое помещение ещё не
+  проверялосьв игре. ОсновнуюD:/сохранения не трогать.
+
+## Передача маршрута AR2617 — 7 ноября, история до приёмки
 
 - Иконки приняты пользователем; проходы на 0.2.120 не приняты. Один выбранный
   персонаж начинает идти, останавливается у входа. Старые radius/clearance
