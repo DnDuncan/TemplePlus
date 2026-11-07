@@ -1723,6 +1723,10 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_door_clear")) return nullptr;
 	gameSystems->GetTerrain().ClearSourceDoors();Py_RETURN_NONE;
 }
+static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
+    return PyInt_FromLong(1); // exact AR2602 profile and successful-looting notification
+}
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
 	return PyInt_FromLong(6);
@@ -2024,6 +2028,7 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_clear",PyGame_BgSourceContainerClear,METH_VARARGS,NULL},
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_source_door_clear",PyGame_BgSourceDoorClear,METH_VARARGS,NULL},
+	{"bg_candlekeep_interior_version",PyGame_BgCandlekeepInteriorVersion,METH_VARARGS,NULL},
 	{"bg_source_interaction_version",PyGame_BgSourceInteractionVersion,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},
