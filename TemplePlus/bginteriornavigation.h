@@ -7,6 +7,6 @@ inline bool BgUpperFloorCentreNavigation(int scene, int sx, int sy) {
 }
 
 inline bool BgStaticClearancePassable(bool centreNavigation, float clearance, float radius) {
-    if (!std::isfinite(clearance) || clearance <= 0) return false;
-    return centreNavigation || clearance >= radius;
+    if (!centreNavigation) return !(clearance < radius); // preserve native comparison
+    return std::isfinite(clearance) && clearance > 0;
 }

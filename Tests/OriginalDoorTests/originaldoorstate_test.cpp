@@ -379,6 +379,7 @@ int main() {
     assert(!BgStaticClearancePassable(true,0,30));
     assert(!BgStaticClearancePassable(true,std::numeric_limits<float>::infinity(),30));
     assert(BgStaticClearancePassable(false,40,30));
+    assert(BgStaticClearancePassable(false,0,0));
     assert(BgAutoIdentifyConsumable(true,true,false));
     assert(BgAutoIdentifyConsumable(true,false,true));
     assert(!BgAutoIdentifyConsumable(true,false,false));
