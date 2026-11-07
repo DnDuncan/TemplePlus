@@ -1,5 +1,29 @@
 # AGENTS.md — форк Temple+ для bg2toee
 
+## Верхний этаж таверны — 7 ноября, актуально
+
+- fix/bg-upper-floor-navigation, draft PR25 поверх24, code6575409. Пользователь
+  подтвердил:clearance-only converterPR48 не исправил недоступные комнаты.
+- pathfinding.cpp:BgUpperFloorCell проверяетregisteredscene5191 иsector8,12,
+  valid/nonzerocentre clearance. Оба PathDestIsClear не отвергают доступный
+  центр из-за peripheral sectorhits;собираютвсеraycasthits и сохраняют full
+  actor radius collision. Оба A* staticclearance используют centrepolicy;
+  dynamicdoorblockers/proximityradius не меняются. Другие карты сохраняют
+  буквальное native comparison. bginteriornavigation.h содержит scope/policy,
+  standalone positive/negative tests включены в registry suite.
+- BuildCI42336713342 success,0.2.120,job128295158206:registry/policy,
+  6savehooks,13images OK. Artifact13559774026,23,574,131B,GitHub ZIP SHA256
+  aafef285a85a8c226f34ff83674d7ffaf13c31081a96575e9f9c64dff83aa2b7.
+  https://github.com/DnDuncan/TemplePlus/actions/runs/42336713342/artifacts/13559774026
+  Не выдавать старую0.2.117 как содержащуюфикс;native gameplay ещё не проверен.
+  УстановкаEXE только пользователем в новую F:папку. Игру/CUA не запускать.
+- Converter PR49 fix/iwd2-equipped-icon-alpha, ef383f3:neutralRGB приalpha0
+  исправляет hiddengreenkey23TGA. Installed receipt14 journal
+  interaction-fixes-20261107-549a71b0f1ae46c08836a3639f47cd44.
+  275controlfiles unchanged,backup/rollback dry-runOK;319tests иCIWindows/Linux
+  3.10/3.12 passed. ВидимыеRGBA/alpha/size/slots прежние. Игровая приёмкаpending.
+  Полная база/протокол — converter docs/equipped-alpha-navigation.md.
+
 ## Смотрители и все кольчуги — 6 ноября, актуальное продолжение
 
 - Converter fix/gatekeeper-equipment, draft PR45 поверх PR44, code8c23b4a.

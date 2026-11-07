@@ -8,6 +8,7 @@
 #include "../../TemplePlus/ui/bgskillrules.h"
 #include "../../TemplePlus/bgcheckstate.h"
 #include "../../TemplePlus/bgappearance.h"
+#include "../../TemplePlus/bginteriornavigation.h"
 #include "../../TemplePlus/bgmovementrules.h"
 #include "../../TemplePlus/bgconsumables.h"
 #include "../../TemplePlus/ui/bgdicegeometry.h"
@@ -369,6 +370,16 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
+    assert(BgUpperFloorCentreNavigation(5191,8,12));
+    assert(!BgUpperFloorCentreNavigation(5190,8,12));
+    assert(!BgUpperFloorCentreNavigation(5191,8,11));
+    assert(!BgUpperFloorCentreNavigation(5136,8,12));
+    assert(BgStaticClearancePassable(true,9.4f,30));
+    assert(!BgStaticClearancePassable(false,9.4f,30));
+    assert(!BgStaticClearancePassable(true,0,30));
+    assert(!BgStaticClearancePassable(true,std::numeric_limits<float>::infinity(),30));
+    assert(BgStaticClearancePassable(false,40,30));
+    assert(BgStaticClearancePassable(false,0,0));
     assert(BgAutoIdentifyConsumable(true,true,false));
     assert(BgAutoIdentifyConsumable(true,false,true));
     assert(!BgAutoIdentifyConsumable(true,false,false));
