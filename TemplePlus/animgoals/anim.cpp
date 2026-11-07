@@ -403,6 +403,28 @@ bool AnimSystem::ShouldRun(objHndl handle){
     return isAlwaysRun;
 }
 
+bool AnimSystem::PushPreparedPartyPath(objHndl actor, const PathQueryResult &path) {
+    if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)
+        || combatSys.isCombatActive() || path.mover!=actor
+        || !(path.flags & PF_COMPLETE) || path.nodeCount<=0 || path.nodeCount>200) return false;
+    const bool running=ShouldRun(actor);
+    AnimSlotGoalStackEntry goal(actor,running?ag_run_to_tile:ag_move_to_tile);
+    goal.targetTile.location=path.to;
+    AnimSlotId id;
+    if (!Interrupt(actor,AnimGoalPriority::AGP_3,false) || !goal.Push(&id)) return false;
+    auto slot=GetSlot(id);
+    if (!slot) return false;
+    // Install a fresh complete route, never a reused slot's previous path.
+    slot->path=static_cast<const Path&>(path);
+    slot->path.currentNode=0;
+    slot->field_14=0;
+    if (running) slot->flags|=ASF_RUNNING; else slot->flags&=~ASF_RUNNING;
+    GoalDestinationRemove(actor);
+    GoalDestinationAdd(actor,path.to);
+    logger->info("Upper floor handoff: actor={} target={} nodes={} running={}",actor,path.to,path.nodeCount,running);
+    return true;
+}
+
 bool AnimSystem::PushMoveToTile(objHndl handle, LocAndOffsets loc){
 
     if (!handle || critterSys.IsDeadOrUnconscious(handle))

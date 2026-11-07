@@ -159,6 +159,7 @@ public:
 
 	bool ShouldRun(objHndl handle); // should critter use ag_run_to_tile?
 	bool PushMoveToTile(objHndl handle, LocAndOffsets loc);
+    bool PushPreparedPartyPath(objHndl actor, const PathQueryResult &path);
 	bool PushWalkToTile(objHndl handle, LocAndOffsets loc);
 	void SetRunningState(bool state); // sets ASF_RUNNING on/off on the last anim slot (i.e. should characters use running animation, as opposed to walking)
 	void TurnOnRunning(); // same as SetRunningState, except for the global anim

@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "gamesystems/map/sector.h"
 #include "util/fixes.h"
 #include "common.h"
 #include "obj.h"
@@ -460,7 +461,11 @@ public:
 	static int PartySelectedFormationMoveToPosition(LocAndOffsets loc, int isNotAlwaysRun){
 
 		isWalkOverride = true;
-		auto N = party.CurrentlySelectedNum();
+        auto N = party.CurrentlySelectedNum();
+        if (N==1) {
+            auto direct=MoveUpperFloorActor(party.GetCurrentlySelected(0),loc,false);
+            if (direct>=0) return direct;
+        }
 		for (int i = 0; i < static_cast<int>(N); i++) {
 			auto dude = party.GetCurrentlySelected(i);
 			if (!dude)
@@ -505,6 +510,25 @@ public:
 		return slot;
 	}
 
+    // -1 leaves all other scenes/native commands untouched.
+    static int MoveUpperFloorActor(objHndl actor, const LocAndOffsets &to, bool allowAlternative) {
+        if (!actor || combatSys.isCombatActive() || !party.IsInParty(actor)
+            || gameSystems->GetTerrain().SceneAreaForActor(actor.handle)!=5191) return -1;
+        SectorLoc sector(to.location);
+        if (sector.x()!=8 || sector.y()!=12) return -1;
+        PathQuery query; PathQueryResult path;
+        query.critter=actor; query.from=objects.GetLocationFull(actor); query.to=to;
+        query.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_IGNORE_CRITTERS
+            | (allowAlternative?PQF_ALLOW_ALTERNATIVE_TARGET_TILE:0));
+        if (pathfindingSys.FindPath(&query,&path)<=0) {
+            logger->info("Upper floor command refused: actor={} from={} requested={}",actor,query.from,to);
+            return FALSE;
+        }
+        logger->info("Upper floor command: actor={} from={} requested={} resolved={} nodes={}",
+            actor,query.from,to,path.to,path.nodeCount);
+        return gameSystems->GetAnim().PushPreparedPartyPath(actor,path)?TRUE:FALSE;
+    }
+
 	static bool isWalkOverride;
 	static bool formationActive;
 	static LocAndOffsets formationTarget;
@@ -515,6 +539,8 @@ public:
 
 			redirectToLambda<BOOL(__cdecl)(objHndl, LocAndOffsets)>(0x10044995, [](objHndl handle, LocAndOffsets loc) {
 				loc = FormationDestination(handle, loc);
+                auto interior=MoveUpperFloorActor(handle,loc,true);
+                if (interior>=0) return interior;
                 if ((config.partyMovementMode==0 || config.partyMovementMode==1) &&
                     party.IsInParty(handle) && !combatSys.isCombatActive() &&
                     gameSystems->GetTerrain().HasOriginalDoorInput())
