@@ -13,6 +13,7 @@
 #include "obj.h"
 #include "critter.h"
 #include "pathfinding.h"
+#include "bginteriornavigation.h"
 #include "party.h"
 #include "dice.h"
 #include "util/folderutils.h"
@@ -415,7 +416,7 @@ bool AnimSystem::PushPreparedPartyPath(objHndl actor, const PathQueryResult &pat
     auto slot=GetSlot(id);
     if (!slot) return false;
     // Install a fresh complete route, never a reused slot's previous path.
-    static_cast<Path&>(slot->path)=static_cast<const Path&>(path);
+    BgCopyPreparedRoute<Path>(slot->path,path);
     slot->path.currentNode=0;
     slot->field_14=0;
     if (running) slot->flags|=ASF_RUNNING; else slot->flags&=~ASF_RUNNING;

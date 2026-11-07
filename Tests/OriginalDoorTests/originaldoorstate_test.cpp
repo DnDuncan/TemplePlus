@@ -370,6 +370,17 @@ static void TestManualCheckLifecycle() {
 }
 
 int main() {
+    {
+        struct Route { int flags; int nodes[3]; };
+        struct Result: Route { int occupied; int pause; };
+        Result source,slot;
+        source.flags=1;source.nodes[0]=4;source.nodes[1]=7;source.nodes[2]=9;
+        source.occupied=99;source.pause=888;
+        slot.flags=0;slot.occupied=1;slot.pause=33;
+        BgCopyPreparedRoute<Route>(slot,source);
+        assert(slot.flags==1 && slot.nodes[0]==4 && slot.nodes[1]==7 && slot.nodes[2]==9);
+        assert(slot.occupied==1 && slot.pause==33); // live slot bookkeeping is preserved
+    }
     // L-shaped narrow corridor. Every emitted segment stays on proven floor;
     // skipping the bend would cross the blocked interior of the L.
     {

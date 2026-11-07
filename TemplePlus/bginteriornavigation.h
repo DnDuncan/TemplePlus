@@ -18,3 +18,9 @@ template<class Emit> bool BgEmitInteriorSubtileRoute(int steps, int capacity, Em
     for (int i=1;i<=steps;++i) emit(i,i==steps);
     return true;
 }
+
+// Animation slots own result metadata after the route payload. Do not copy it.
+template<class Route, class Destination, class Source>
+void BgCopyPreparedRoute(Destination &destination, const Source &source) {
+    static_cast<Route&>(destination)=static_cast<const Route&>(source);
+}
