@@ -53,8 +53,23 @@ jobs:
       run: python -B -m unittest discover -s Tests/Python -q
     - name: Download and Extract Dependencies
       run: |
-        curl -L -o dependencies.7z https://github.com/GrognardsFromHell/Dependencies/releases/download/v1.19/dependencies.7z
+        $downloadOk = $false
+        for ($downloadAttempt = 1; $downloadAttempt -le 3; $downloadAttempt++) {
+          $downloadUrl = "https://github.com/GrognardsFromHell/Dependencies/releases/download/v1.19/dependencies.7z?nonce=$([guid]::NewGuid().ToString('N'))"
+          curl.exe --fail --location --retry 2 --retry-all-errors --connect-timeout 30 --max-time 180 --output dependencies.7z $downloadUrl
+          if ($LASTEXITCODE -ne 0) { continue }
+          $stream = [IO.File]::OpenRead("$pwd/dependencies.7z")
+          try {
+            $signature = New-Object byte[] 6
+            $count = $stream.Read($signature, 0, 6)
+            $downloadOk = $count -eq 6 -and [Convert]::ToBase64String($signature) -eq 'N3q8rycc'
+          } finally { $stream.Dispose() }
+          if ($downloadOk) { break }
+          Write-Warning "Dependency response was not a 7z archive; retrying a fresh release URL"
+        }
+        if (-not $downloadOk) { throw "Could not obtain the dependency archive after three attempts" }
         7z x dependencies.7z
+        if ($LASTEXITCODE -ne 0) { throw "Dependency extraction failed" }
     - name: Install NuGet packages
       run: |
         nuget install Squirrel.Windows -OutputDirectory Squirrel -Verbosity Detailed
