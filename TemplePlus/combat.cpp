@@ -2273,6 +2273,7 @@ bool Detects(objHndl actor,objHndl observer) {
     if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor) ||
         locSys.DistanceToObj(observer,actor)>COMBAT_ACTIVATION_DISTANCE) return false;
     auto sense=[&]() {
+        BgActorContext<objHndl>::Scope perceptionMode(actorContext,observer);
         if (critterSys.HasLineOfSight(observer,actor)==0 || critterSys.CanSeeWithBlindsight(observer,actor))
             return critterSys.CanSense(observer,actor);
         int open=!critterSys.IsMovingSilently(actor) && !critterSys.IsConcealed(actor);
