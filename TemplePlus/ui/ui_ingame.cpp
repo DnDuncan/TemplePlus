@@ -151,6 +151,28 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 	
 	
 
+    if (!dmSys.IsActive() && !uiSystems->GetDlg().IsActive() && !uiSystems->GetChar().IsVisible()
+        && !uiSystems->GetTownmap().IsVisible() && !uiSystems->GetLogbook().IsVisible() && !tig->GetConsole().IsOpen()) {
+            if (bgscenecombat::Enabled() && combatSys.isCombatActive() && msg.type==TigMsgType::KEYSTATECHANGE) {
+                auto key=reinterpret_cast<const TigKeyStateChangeMsg&>(msg);
+                if (!key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
+                    auto actor=party.GroupListGetMemberN(key.key-0x3b);
+                    if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
+                        if (!hotkeys.IsKeyPressed(VK_CONTROL) || !bgscenecombat::FreeSelection()) party.CurrentlySelectedClear();
+                        party.AddToCurrentlySelected(actor);return;
+                    }
+                }
+            }
+			if (combatSys.isCombatActive() && bgscenecombat::FreeSelection()) {
+                if (msg.type==TigMsgType::MOUSE) {
+                    if (bgwalk::HandleMouse(msg)) return;
+                    if (HandleOriginalDoorMessage(msg)) return;
+                    if (msg.arg4&MSF_LMB_RELEASED) {LocAndOffsets target;locSys.GetLocFromScreenLocPrecise(int(msg.arg1),int(msg.arg2),target);bgscenecombat::MoveFreeSelection(target);}
+                }
+                return;
+            }
+    }
+
 	if (HandleRadialMenuMessage(msg)) {
 		CancelOriginalDoorInput();
 		return;
@@ -191,24 +213,6 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 		if (!viewportIds[viewportIdx+1])
 		{
 			static bool combatModeMsg = false;
-            if (bgscenecombat::Enabled() && combatSys.isCombatActive() && msg.type==TigMsgType::KEYSTATECHANGE) {
-                auto key=reinterpret_cast<const TigKeyStateChangeMsg&>(msg);
-                if (!key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
-                    auto actor=party.GroupListGetMemberN(key.key-0x3b);
-                    if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
-                        if (!hotkeys.IsKeyPressed(VK_CONTROL) || !bgscenecombat::FreeSelection()) party.CurrentlySelectedClear();
-                        party.AddToCurrentlySelected(actor);return;
-                    }
-                }
-            }
-			if (combatSys.isCombatActive() && bgscenecombat::FreeSelection()) {
-                if (msg.type==TigMsgType::MOUSE) {
-                    if (bgwalk::HandleMouse(msg)) return;
-                    if (HandleOriginalDoorMessage(msg)) return;
-                    if (msg.arg4&MSF_LMB_RELEASED) {LocAndOffsets target;locSys.GetLocFromScreenLocPrecise(int(msg.arg1),int(msg.arg2),target);bgscenecombat::MoveFreeSelection(target);}
-                }
-                return;
-            }
 			if (combatSys.isCombatActive())
 			{
 				// First message in combat

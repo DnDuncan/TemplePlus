@@ -2270,6 +2270,7 @@ void Sleep(objHndl actor,bool sleeping) {
         if (!FindCondition(actor,"Sleeping")) conds.AddTo(actor,"Sleeping",{});
         obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)|OCF_SLEEPING);
         if (!objects.IsCritterProne(actor)) conds.AddTo(actor,"Prone",{});
+        gameSystems->GetAnim().Interrupt(actor,AnimGoalPriority::AGP_3,false);
         if (auto model=objects.GetAnimHandle(actor)) model->SetAnimId(gfx::EncodedAnimId(gfx::NormalAnimType::ProneIdle));
     } else {
         if (auto node=FindCondition(actor,"Sleeping")) conds.ConditionRemove(actor,node);
