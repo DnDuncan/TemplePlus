@@ -22,7 +22,8 @@ and their fixed path-cache entries for nonparticipants. Combat-end signals and
 animation interrupts are limited to participants in BG scenes.
 
 Free selection uses ordinary input, radial menu and targeting handlers. A hostile
-command in the active encounter's scene joins initiative before performance,
+command or assistance to a combat participant in the active encounter's scene
+joins initiative before performance,
 without executing the command for free. Commands targeting another logical scene
 are refused. Existing scene transitions continue to join entering characters.
 
@@ -32,8 +33,10 @@ This is a draft first package for one initiative encounter plus realtime actors.
 It does not implement several simultaneous independent encounter lists. A hostile
 command outside the current encounter is deferred without consuming its action;
 a second encounter scheduler is still needed. World GameTime clocks and multiple
-simultaneous dialogues/pickers remain shared. Do not claim full BG3 equivalence.
-Scripted automatic greetings still have the prior global combat deferral.
+dialogue/picker contexts remain shared. Detached Python dialogues are deferred:
+the native PythonDialog event would otherwise end the active encounter. Do not claim full BG3 equivalence.
+Scripted automatic greetings retain the prior global combat deferral; actor-local
+dialogue and skill-check completion remain separate follow-ups.
 
 ## Verification
 

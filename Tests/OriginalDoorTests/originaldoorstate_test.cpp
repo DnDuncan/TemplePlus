@@ -562,6 +562,9 @@ int main() {
     assert(bgscenecombatpolicy::Free(false,true,false,5136,5195));
     assert(bgscenecombatpolicy::Free(false,false,true,5195,5195));
     assert(!bgscenecombatpolicy::Free(true,true,false,5195,5195));
+    assert(bgscenecombatpolicy::SameScene(5195,5195));
+    assert(!bgscenecombatpolicy::SameScene(5195,5136));
+    assert(!bgscenecombatpolicy::SameScene(0,0));
     BgSequenceReservations<int> reservations;
     int battle=1,freeAction=2;
     assert(!reservations.Contains(&battle));

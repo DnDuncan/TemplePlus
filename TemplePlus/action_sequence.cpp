@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "bgscenecombat.h"
+#include "bgscenecombatpolicy.h"
+#include "graphics/mapterrain.h"
 #include "common.h"
 #include "d20.h"
 #include "action_sequence.h"
@@ -945,9 +947,17 @@ int ActionSequenceSystem::ActionAddToSeq()
 {
     auto performer=d20Sys.globD20Action->d20APerformer;
     auto target=d20Sys.globD20Action->d20ATarget;
-    if (bgscenecombat::Enabled() && target && performer &&
-        gameSystems->GetTerrain().SceneAreaForActor(target.handle)!=
-        gameSystems->GetTerrain().SceneAreaForActor(performer.handle)) return AEC_TARGET_INVALID;
+    if (bgscenecombat::Enabled() && performer) {
+        auto &terrain=gameSystems->GetTerrain();
+        auto scene=terrain.SceneAreaForActor(performer.handle);
+        if (target && !bgscenecombatpolicy::SameScene(scene,terrain.SceneAreaForActor(target.handle)))
+            return AEC_TARGET_INVALID;
+        if (!target && d20Sys.globD20Action->d20ActType==D20A_UNSPECIFIED_MOVE) {
+            auto point=d20Sys.globD20Action->destLoc.ToInches2D();
+            if (!bgscenecombatpolicy::SameScene(scene,terrain.SceneAreaForPoint({point.x,point.y})))
+                return AEC_TARGET_INVALID;
+        }
+    }
     BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,performer);
 
 	auto curSeq = *actSeqCur;
@@ -3097,7 +3107,24 @@ void ActionSequenceSystem::sequencePerform()
 {
     auto contextActor=*actSeqCur ? (*actSeqCur)->performer:objHndl::null;
     BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,contextActor);
-    if (bgscenecombat::Free(contextActor) && *actSeqCur && ShouldTriggerCombat(*actSeqCur)) {
+    bool assistingEncounter=false;
+    if (bgscenecombat::Free(contextActor) && *actSeqCur) {
+        auto &packet=(*actSeqCur)->spellPktBody;
+        auto &terrain=gameSystems->GetTerrain();
+        auto scene=terrain.SceneAreaForActor(contextActor.handle);
+        for (auto i=0u;i<packet.targetCount;++i) {
+            auto target=packet.targetListHandles[i];
+            if (!target) continue;
+            if (!bgscenecombatpolicy::SameScene(scene,terrain.SceneAreaForActor(target.handle))) return;
+            assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+        }
+        for (auto i=0;i<(*actSeqCur)->d20ActArrayNum;++i) {
+            auto target=(*actSeqCur)->d20ActArray[i].d20ATarget;
+            if (target) assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+        }
+    }
+    if (bgscenecombat::Free(contextActor) && *actSeqCur &&
+        (assistingEncounter || ShouldTriggerCombat(*actSeqCur))) {
         if (bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
         else logger->warn("Detached hostile action requires a separate encounter; action deferred for {}",contextActor);
         return;
