@@ -34,7 +34,7 @@ void CloseManual() {
     }
 }
 bool ManualValid() {
-    if (!sManual || !Enabled() || combatSys.isCombatActive()
+    if (!sManual || !Enabled() || bgscenecombat::Busy(sManual->actor)
         || maps.GetCurrentMapId()!=sManual->map || !objSystem->IsValidHandle(sManual->actor)
         || !party.IsInParty(sManual->actor) || critterSys.IsDeadOrUnconscious(sManual->actor)) return false;
     try {return !sManual->valid || sManual->valid();} catch (...) {return false;}

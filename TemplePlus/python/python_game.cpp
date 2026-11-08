@@ -1698,7 +1698,13 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 
-static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(3);}
+static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(4);}
+// API 4: game.combat_is_active() stays global; these tell a free hero from a fighter.
+static PyObject* PyGame_BgFreeSelection(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::FreeSelection());}
+static PyObject* PyGame_BgActorFree(PyObject*,PyObject* args) {
+    objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_actor_free",&ConvertObjHndl,&actor)) return nullptr;
+    return PyInt_FromLong(bgscenecombat::Free(actor));
+}
 static PyObject* PyGame_BgSceneCombatScene(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::Scene());}
 static PyObject* PyGame_BgCivilianBind(PyObject*,PyObject* args) {
     objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_civilian_bind",&ConvertObjHndl,&actor)) return nullptr;
@@ -2045,6 +2051,8 @@ static PyMethodDef PyGameMethods[]{
     {"bg_scene_passage_bind",PyGame_BgScenePassageBind,METH_VARARGS,NULL},
     {"bg_scene_combat_version",PyGame_BgSceneCombatVersion,METH_VARARGS,NULL},
     {"bg_scene_combat_scene",PyGame_BgSceneCombatScene,METH_VARARGS,NULL},
+    {"bg_free_selection",PyGame_BgFreeSelection,METH_NOARGS,NULL},
+    {"bg_actor_free",PyGame_BgActorFree,METH_VARARGS,NULL},
     {"bg_civilian_bind",PyGame_BgCivilianBind,METH_VARARGS,NULL},
     {"bg_party_actions_busy",PyGame_BgPartyActionsBusy,METH_NOARGS,NULL},
     {"bg_civilian_sleep",PyGame_BgCivilianSleep,METH_VARARGS,NULL},
