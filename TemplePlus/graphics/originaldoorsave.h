@@ -7,6 +7,7 @@
 namespace originaldoorsave {
 constexpr size_t MaxBytes = 16 * 1024 * 1024;
 constexpr uint32_t MaxDoors = 1024;
+constexpr uint32_t MaxMetadataBytes = 1024 * 1024;
 struct Session { OriginalDoorState doors; std::string metadata; };
 
 class Writer {
@@ -66,7 +67,7 @@ private:
 
 inline std::vector<uint8_t> Encode(const OriginalDoorState &state, const std::string &metadata) {
 	if (state.Patches().size() > MaxDoors) throw std::invalid_argument("too many original doors to save");
-	Writer w; w.U32(0x52444742); w.U32(1); w.String(metadata, 4096); w.U32(static_cast<uint32_t>(state.Patches().size()));
+	Writer w; w.U32(0x52444742); w.U32(1); w.String(metadata, MaxMetadataBytes); w.U32(static_cast<uint32_t>(state.Patches().size()));
 	for (const auto &entry : state.Patches()) {
 		const auto &p = entry.second;
 		w.U32(p.mapId); w.String(p.id, 32); w.U32(p.x); w.U32(p.y); w.U32(p.width); w.U32(p.height);
@@ -84,7 +85,7 @@ inline std::vector<uint8_t> Encode(const OriginalDoorState &state, const std::st
 inline Session Decode(const std::vector<uint8_t> &bytes) {
 	Reader r(bytes);
 	if (r.U32() != 0x52444742 || r.U32() != 1) throw std::invalid_argument("unsupported original door save format");
-	Session result; result.metadata = r.String(4096); auto count = r.Count(MaxDoors);
+	Session result; result.metadata = r.String(MaxMetadataBytes); auto count = r.Count(MaxDoors);
 	std::set<OriginalDoorState::Key> seen;
 	for (uint32_t i = 0; i < count; ++i) {
 		OriginalDoorPatch p; p.mapId = r.Integer(0x7fffffff); p.id = r.String(32);

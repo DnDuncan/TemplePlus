@@ -1,4 +1,9 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
+#include "bgscenecombatpolicy.h"
+#include "graphics/mapterrain.h"
+#include "dispatcher.h"
+#include "animgoals/anim.h"
 #include "common.h"
 #include "combat.h"
 #include "tig/tig_mes.h"
@@ -569,6 +574,7 @@ void LegacyCombatSystem::GetEnemyListInRange(objHndl performer, float rangeFeet,
 		auto resHandle = enemies[i];
 		if (!resHandle)
 			break;
+        if (!bgscenecombat::MayJoin(resHandle)) continue;
 
 		if (critterSys.IsDeadNullDestroyed(resHandle))
 			continue;
@@ -825,13 +831,15 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 		logger->debug("Combat: TB_Start: Anim-Goal-Interrupt FAILED!");
 	}
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(temple::GetRef<void(__cdecl)()>(0x100628F0));
+	bgscenecombat::Begin(combatInitiator);
 	tbSys.CreateInitiativeListWithParty();
 	*combatModeActive = TRUE;
+	bgscenecombat::Started();
 
 	// Add within rect party to initiative 
 	for (auto i=0u; i < party.GroupListGetLen(); i++){
 		auto partyMember = party.GroupListGetMemberN(i);
-		AddToInitiativeWithinRect(partyMember);
+		if (bgscenecombat::MayJoin(partyMember)) AddToInitiativeWithinRect(partyMember);
 	}
 
 	AddToInitiative(combatInitiator);
@@ -1054,6 +1062,7 @@ void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 	logger->debug("TurnStart2: \t Starting new turn for {}. InitiativeIdx: {}", actor, curActorInitIdx);
 	Subturn();
 
+	bgscenecombat::Turn();
 	// set action bar values
 	actor = tbSys.turnBasedGetCurrentActor(); 
 	// Temple+: updating CurrentActor here since it can change during Subturn(). 
@@ -2184,4 +2193,107 @@ float VagrantSystem::GetAiGreybarResetCountdownValue()
 float VagrantSystem::GetPcGreybarResetCountdownValue()
 {
 	return cumulativeTime;
+}
+
+// BG scenes share map 5136; their combat membership must not share a party list.
+namespace bgscenecombat {
+static int startingScene=0;
+static objHndl starter;
+static bool starting=false;
+constexpr int CivilianMarker=0x42474356;
+bool Enabled() {return maps.GetCurrentMapId()==5136 && gameSystems->GetTerrain().HasOriginalDoorInput();}
+bool Civilian(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) return false;
+    auto obj=objSystem->GetObject(actor);
+    return obj->IsNPC() && (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)==0x42474e00u
+        && obj->GetInt32(obj_f_critter_pad_i_4)==CivilianMarker;
+}
+int Scene() {
+    if (!Enabled()) return 0;
+    if (starting) return startingScene;
+    if (!combatSys.isCombatActive()) return 0;
+    auto actor=tbSys.turnBasedGetCurrentActor();
+    return actor && objSystem->IsValidHandle(actor) ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):startingScene;
+}
+void Begin(objHndl actor) {
+    starting=Enabled();starter=actor;startingScene=starting ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
+    if (startingScene) {auto args=Py_BuildValue("(i)",startingScene);auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","scene_begin",args);Py_XDECREF(result);Py_DECREF(args);}
+}
+void SeedInitiative() {if (starting && !tbSys.GetInitiativeListLength() && starter) tbSys.AddToInitiative(starter);}
+void Started() {starting=false;}
+bool MayJoin(objHndl actor) {
+    if (!Enabled()) return true;
+    return bgscenecombatpolicy::Join(Scene(),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Civilian(actor));
+}
+bool Free(objHndl actor) {
+    return Enabled() && combatSys.isCombatActive() && actor && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
+}
+bool Busy(objHndl actor) {return combatSys.isCombatActive() && !Free(actor);}
+bool FreeSelection() {
+    if (!Enabled() || !combatSys.isCombatActive() || !party.CurrentlySelectedNum()) return false;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) if (!Free(party.GetCurrentlySelected(i))) return false;
+    return true;
+}
+bool CanTarget(objHndl actor,objHndl target) {
+    if (!Enabled()) return true;
+    return bgscenecombatpolicy::Target(gameSystems->GetTerrain().SceneAreaForActor(actor.handle),gameSystems->GetTerrain().SceneAreaForActor(target.handle),Civilian(target));
+}
+static CondNode* FindCondition(objHndl actor,const char *name) {
+    auto dispatcher=objSystem->GetObject(actor)->GetDispatcher();if (!dispatcher || !dispatcher->IsValid()) return nullptr;
+    auto wanted=conds.GetByName(name);
+    for (auto node=dispatcher->conditions;node;node=node->nextCondNode)
+        if (!node->IsExpired() && node->condStruct==wanted) return node;
+    return nullptr;
+}
+void BindCivilian(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) throw std::invalid_argument("civilian requires a BG scene actor");
+    auto obj=objSystem->GetObject(actor);
+    if (!obj->IsNPC() || (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)!=0x42474e00u)
+        throw std::invalid_argument("civilian requires a registered project NPC");
+    auto old=obj->GetInt32(obj_f_critter_pad_i_4);
+    if (old && old!=CivilianMarker) throw std::invalid_argument("civilian marker occupied");
+    obj->SetInt32(obj_f_critter_pad_i_4,CivilianMarker);
+}
+void Sleep(objHndl actor,bool sleeping) {
+    BindCivilian(actor);auto obj=objSystem->GetObject(actor);
+    if (critterSys.IsDeadNullDestroyed(actor)) return;
+    if (sleeping) {
+        if (!FindCondition(actor,"Sleeping")) conds.AddTo(actor,"Sleeping",{});
+        obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)|OCF_SLEEPING);
+        if (!objects.IsCritterProne(actor)) {conds.AddTo(actor,"Prone",{});gameSystems->GetAnim().PushFallDown(actor);}
+    } else {
+        if (auto node=FindCondition(actor,"Sleeping")) conds.ConditionRemove(actor,node);
+        obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)&~OCF_SLEEPING);
+        // The move goal plays the native get-up animation before walking.
+    }
+}
+static void Event(const char *name,PyObject *args) {
+    auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook",name,args);Py_XDECREF(result);
+}
+void Pulse(uint32_t now) {
+    static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
+    auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
+}
+void Turn() {
+    if (!Enabled()) return;
+    auto actor=tbSys.turnBasedGetCurrentActor();if (!actor) return;
+    auto args=Py_BuildValue("(iii)",combatSys.GetCombatRoundCount(),tbSys.GetInitiativeListIdx(),objSystem->GetObject(actor)->GetInt32(obj_f_initiative));
+    Event("scene_turn",args);Py_DECREF(args);
+}
+bool MoveFreeSelection(LocAndOffsets target) {
+    if (!FreeSelection()) return false;
+    auto &terrain=gameSystems->GetTerrain();
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto actor=party.GetCurrentlySelected(i);auto point=target.ToInches2D();
+        if (terrain.SceneAreaForPoint({point.x,point.y})!=terrain.SceneAreaForActor(actor.handle)) return false;
+    }
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto actor=party.GetCurrentlySelected(i);if (critterSys.IsDeadOrUnconscious(actor)) continue;
+        PathQuery pq;pq.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_ALLOW_ALTERNATIVE_TARGET_TILE);
+        pq.critter=actor;pq.from=objects.GetLocationFull(actor);pq.to=target;pq.maxShortPathFindLength=200;
+        PathQueryResult result;
+        if (pathfindingSys.FindPath(&pq,&result)) gameSystems->GetAnim().PushPreparedPartyPath(actor,result);
+    }
+    return true;
+}
 }

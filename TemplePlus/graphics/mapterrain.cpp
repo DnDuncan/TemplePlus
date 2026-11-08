@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "../bgscenecombat.h"
 #include "originaldoorsave.h"
 #include "mapterrain.h"
 #include "maps.h"
@@ -462,7 +463,7 @@ bool TerrainSystem::HasOriginalDoorUse(int mapId, const std::string &id) const {
 void TerrainSystem::RequestOriginalDoorUse(const std::string &id, uint64_t actorHandle) {
 	objHndl actor{actorHandle};
 	if (!gameSystems->GetObj().IsValidHandle(actor) || !party.IsInParty(actor)
-		|| critterSys.IsDeadOrUnconscious(actor) || combatSys.isCombatActive())
+		|| critterSys.IsDeadOrUnconscious(actor) || bgscenecombat::Busy(actor))
 		throw std::invalid_argument("door approach requires a conscious party actor outside combat");
 	auto mapId = maps.GetCurrentMapId();
 	auto found = mDoorUse.find({mapId, OriginalDoorState::NormalizeId(id)});
@@ -505,6 +506,7 @@ void TerrainSystem::DispatchMapReady() {
 
 void TerrainSystem::AdvanceTime(uint32_t time) {
 	if (mMapReadyPending) DispatchMapReady();
+    bgscenecombat::Pulse(time);
 	UpdateSceneFocus();
 	AdvanceTravel(time);
 	if (!mDoorUseQueue.Pending()) return;
@@ -516,7 +518,7 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
 		auto valid = gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
 			&& !critterSys.IsDeadOrUnconscious(actor)
 			&& (!mContextRequest || SameDoorSelection(mContextRequest->selection,ContextSelection()));
-		auto reachable = valid && !combatSys.isCombatActive()
+		auto reachable = valid && !bgscenecombat::Busy(actor)
 			&& DoorUseReachable(request.actor, request.target, request.reach, request.id);
 		if (valid && !reachable && mContextRequest && uint32_t(time-request.started)>1500) {
             AnimSlotId slot{};auto &anim=gameSystems->GetAnim();
@@ -528,7 +530,7 @@ void TerrainSystem::AdvanceTime(uint32_t time) {
             }
         }
         auto action = mDoorUseQueue.Poll(maps.GetCurrentMapId(), mDoorUseRevision, time, valid,
-			combatSys.isCombatActive(), ContextIsOpen(request.mapId,request.id), reachable);
+			bgscenecombat::Busy(actor), ContextIsOpen(request.mapId,request.id), reachable);
 		if (action == OriginalDoorUseQueue::Action::Apply) {
 			// Finish movement before opening. Continuing toward the approach point
 			// could otherwise cross the independent travel band after this click.
@@ -612,7 +614,7 @@ void TerrainSystem::RequestOriginalTravel(const std::string &id,uint64_t handle)
 	if (entry==mTravelMarkers.end()) throw std::invalid_argument("travel marker is not bound");
 	objHndl actor{handle};
 	if (!gameSystems->GetObj().IsValidHandle(actor) || !party.IsInParty(actor)
-		|| critterSys.IsDeadOrUnconscious(actor) || combatSys.isCombatActive())
+		|| critterSys.IsDeadOrUnconscious(actor) || bgscenecombat::Busy(actor))
 		throw std::invalid_argument("travel requires a conscious party actor outside combat");
 	const auto &m=entry->second;
 	if (mSceneRoutes.count(m.id)) {
@@ -642,7 +644,7 @@ std::optional<OriginalTravelReady::Intent> TerrainSystem::PeekOriginalTravel() {
 	if (mTravelReady.Peek()) {
 		auto intent=*mTravelReady.Peek(); objHndl actor{intent.actor};
 		auto entry=mTravelMarkers.find({intent.mapId,intent.id});
-		bool valid=!gameSystems->GetMap().IsClearingMap() && !combatSys.isCombatActive()
+		bool valid=!gameSystems->GetMap().IsClearingMap() && !bgscenecombat::Busy(actor)
 			&& gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor) && !critterSys.IsDeadOrUnconscious(actor)
 			&& entry!=mTravelMarkers.end() && CanUseTravelGate(entry->second.gateMap,entry->second.gateId)
 			&& (!mSceneRoutes.count(intent.id) || SameDoorSelection(mTravelSelection,ContextSelection()));
@@ -664,7 +666,7 @@ void TerrainSystem::AdvanceTravel(uint32_t time) {
 		auto valid=gameSystems->GetObj().IsValidHandle(actor) && party.IsInParty(actor)
 			&& !critterSys.IsDeadOrUnconscious(actor) && CanUseTravelGate(m.gateMap,m.gateId)
 			&& (!mSceneRoutes.count(m.id) || SameDoorSelection(mTravelSelection,ContextSelection()));
-		auto reachable=valid && request.mapId==maps.GetCurrentMapId() && !combatSys.isCombatActive()
+		auto reachable=valid && request.mapId==maps.GetCurrentMapId() && !bgscenecombat::Busy(actor)
 			&& DoorUseReachable(request.actor,request.target,request.reach,m.gateMap==request.mapId ? m.gateId : "");
 		if (reachable && mSceneRoutes.count(m.id)) {
 			auto lead=objects.GetLocationFull(actor).ToInches2D();
@@ -673,7 +675,7 @@ void TerrainSystem::AdvanceTravel(uint32_t time) {
 				if (SceneAreaForActor(member)!=mSceneRoutes.at(m.id).source || OriginalDoorUseDistance({lead.x,lead.y},{p.x,p.y})>360) reachable=false;
 			}
 		}
-		auto action=mTravelQueue.Poll(maps.GetCurrentMapId(),mDoorUseRevision,time,valid,combatSys.isCombatActive(),false,reachable);
+		auto action=mTravelQueue.Poll(maps.GetCurrentMapId(),mDoorUseRevision,time,valid,bgscenecombat::Busy(actor),false,reachable);
 		if (action==OriginalDoorUseQueue::Action::Apply) {
 			StopDoorMovement(request.actor);
 			mTravelReady.Publish(time,request.mapId,request.id,mDoorUseRevision,request.actor);
@@ -685,7 +687,7 @@ void TerrainSystem::AdvanceTravel(uint32_t time) {
 }
 
 void TerrainSystem::RenderOriginalTravel() {
-	if (!HasOriginalTravel() || combatSys.isCombatActive()) return;
+	if (!HasOriginalTravel() || (combatSys.isCombatActive() && !bgscenecombat::FreeSelection())) return;
 	if (HasDoorContext()) {RenderDoorContext();return;}
 	int ox,oy; GetTerrainOrigin(ox,oy); auto zoom=gameView->GetWorldZoom();
 	auto viewport=gameView->GetWorldViewport();

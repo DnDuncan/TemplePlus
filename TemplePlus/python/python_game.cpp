@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "../bgscenecombat.h"
 #include "python_game.h"
 #include <temple/dll.h>
 #include <tio/tio.h>
@@ -1695,6 +1696,22 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
     try {gameSystems->GetTerrain().BindSourceContainer({mapId,id,guid,std::move(outline)},openIcon ? &use:nullptr,openIcon ? &icons:nullptr);Py_RETURN_NONE;}
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
+
+static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(1);}
+static PyObject* PyGame_BgSceneCombatScene(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::Scene());}
+static PyObject* PyGame_BgCivilianBind(PyObject*,PyObject* args) {
+    objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_civilian_bind",&ConvertObjHndl,&actor)) return nullptr;
+    try {bgscenecombat::BindCivilian(actor);Py_RETURN_NONE;} catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgCivilianSleep(PyObject*,PyObject* args) {
+    objHndl actor;int asleep;if (!PyArg_ParseTuple(args,"O&i:bg_civilian_sleep",&ConvertObjHndl,&actor,&asleep)) return nullptr;
+    try {bgscenecombat::Sleep(actor,asleep!=0);Py_RETURN_NONE;} catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgNpcSceneTravel(PyObject*,PyObject* args) {
+    objHndl actor;const char *route;if (!PyArg_ParseTuple(args,"O&s:bg_npc_scene_travel",&ConvertObjHndl,&actor,&route)) return nullptr;
+    try {return PyBool_FromLong(gameSystems->GetTerrain().NpcSceneTravel(actor,route));} catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+
 static PyObject* PyGame_BgNpcMotionVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_npc_motion_version")) return nullptr;return PyInt_FromLong(1);
 }
@@ -2021,6 +2038,11 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_container_version",PyGame_BgSourceContainerVersion,METH_VARARGS,NULL},
 	{"bg_source_container_bind",PyGame_BgSourceContainerBind,METH_VARARGS,NULL},
     {"bg_scene_passage_bind",PyGame_BgScenePassageBind,METH_VARARGS,NULL},
+    {"bg_scene_combat_version",PyGame_BgSceneCombatVersion,METH_VARARGS,NULL},
+    {"bg_scene_combat_scene",PyGame_BgSceneCombatScene,METH_VARARGS,NULL},
+    {"bg_civilian_bind",PyGame_BgCivilianBind,METH_VARARGS,NULL},
+    {"bg_civilian_sleep",PyGame_BgCivilianSleep,METH_VARARGS,NULL},
+    {"bg_npc_scene_travel",PyGame_BgNpcSceneTravel,METH_VARARGS,NULL},
     {"bg_npc_motion_version",PyGame_BgNpcMotionVersion,METH_VARARGS,NULL},
     {"bg_npc_move",PyGame_BgNpcMove,METH_VARARGS,NULL},
     {"bg_npc_moving",PyGame_BgNpcMoving,METH_VARARGS,NULL},

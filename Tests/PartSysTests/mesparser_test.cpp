@@ -23,3 +23,9 @@ TEST(MesFileTest, TestParseFile)
 	ASSERT_EQ(0, content.begin()->first);
 	ASSERT_EQ(18019, (--content.end())->first);
 }
+
+TEST(MesParserTest, HighAnsiByteIsNotEof) {
+    auto parsed=MesFile::ParseString(std::string("{0}{A")+char(0xff)+"B}{29}{attack}","cp1251");
+    EXPECT_EQ(std::string("A")+char(0xff)+"B",parsed[0]);
+    EXPECT_EQ("attack",parsed[29]);
+}

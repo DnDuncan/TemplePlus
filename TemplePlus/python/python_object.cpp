@@ -1,4 +1,6 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
+#include "graphics/mapterrain.h"
 #include "python_object.h"
 #include "python_support.h"
 #include "../maps.h"
@@ -1383,7 +1385,8 @@ static PyObject* PyObjHandle_Attack(PyObject* obj, PyObject* args) {
 		// This apparently causes the NPC to attack ALL of the party, not just the one PC
 		for (uint32_t i = 0; i < party.GroupListGetLen(); ++i) {
 			auto partyMember = party.GroupListGetMemberN(i);
-			if (objects.IsPlayerControlled(partyMember)) {
+			if (objects.IsPlayerControlled(partyMember) && (!bgscenecombat::Enabled() ||
+                gameSystems->GetTerrain().SceneAreaForActor(partyMember.handle)==gameSystems->GetTerrain().SceneAreaForActor(self->handle.handle))) {
 				critterSys.Attack(partyMember, self->handle, 1, 2);
 			}
 		}

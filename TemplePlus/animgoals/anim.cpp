@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "bgscenecombat.h"
 
 #include <infrastructure/vfs.h>
 #include <infrastructure/keyboard.h>
@@ -283,7 +284,7 @@ bool AnimSystem::PushUseSkillOn(objHndl actor, objHndl target,
 
 bool AnimSystem::PushRunNearTile(objHndl actor, LocAndOffsets target,
                                      int radiusFeet) {
-  if (party.IsInParty(actor) && !combatSys.isCombatActive() &&
+  if (party.IsInParty(actor) && !bgscenecombat::Busy(actor) &&
       gameSystems->GetTerrain().HasOriginalDoorInput() && !ShouldRun(actor)) {
     // Native run-near 0x1001C1B0 stores the feet radius in animId.number.
     AnimSlotGoalStackEntry goal(actor, ag_move_near_tile, true);
@@ -352,7 +353,7 @@ bool AnimSystem::PushRunToTile(objHndl handle, LocAndOffsets loc, PathQueryResul
 
 void AnimSystem::RefreshPartyMovement(objHndl actor) {
     if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor) ||
-        combatSys.isCombatActive() || !gameSystems->GetTerrain().HasOriginalDoorInput()) return;
+        bgscenecombat::Busy(actor) || !gameSystems->GetTerrain().HasOriginalDoorInput()) return;
     AnimSlotId id;
     auto found=false;
     for (auto type : {ag_move_to_tile,ag_run_to_tile,ag_move_near_tile,ag_run_near_tile}) {
@@ -371,7 +372,7 @@ void AnimSystem::RefreshPartyMovement(objHndl actor) {
 }
 
 bool AnimSystem::ShouldRun(objHndl handle){
-    if (party.IsInParty(handle) && !combatSys.isCombatActive() &&
+    if (party.IsInParty(handle) && !bgscenecombat::Busy(handle) &&
         gameSystems->GetTerrain().HasOriginalDoorInput() &&
         (config.partyMovementMode == 0 || config.partyMovementMode == 1)) {
         auto &keys = infrastructure::gKeyboard;
@@ -406,7 +407,7 @@ bool AnimSystem::ShouldRun(objHndl handle){
 
 bool AnimSystem::PushPreparedPartyPath(objHndl actor, const PathQueryResult &path) {
     if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)
-        || combatSys.isCombatActive() || path.mover!=actor
+        || bgscenecombat::Busy(actor) || path.mover!=actor
         || !(path.flags & PF_COMPLETE) || path.nodeCount<=0 || path.nodeCount>200) return false;
     const bool running=ShouldRun(actor);
     AnimSlotGoalStackEntry goal(actor,running?ag_run_to_tile:ag_move_to_tile);

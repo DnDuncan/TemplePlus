@@ -10,7 +10,7 @@ def _original_doors(event, filename):
             return
         raise
     handler = getattr(bg2toee_lifecycle, event, None)
-    if handler is None and event in ('map_ready', 'door_trap', 'journal_key', 'source_container_open'):
+    if handler is None and event in ('map_ready', 'door_trap', 'journal_key', 'source_container_open', 'scene_pulse', 'scene_turn', 'scene_begin'):
         return  # older adapter without the optional event
     return handler(filename)
 
@@ -73,3 +73,21 @@ def post_load(filename):
         _co8init.load(filename)
     except:
         print("Co8 Load hook failed\n")
+
+def scene_pulse(now):
+    try:
+        _original_doors('scene_pulse',now)
+    except Exception as exc:
+        print('bg2toee scene_pulse failed: '+str(exc))
+
+def scene_turn(round_number,index,initiative):
+    try:
+        _original_doors('scene_turn',(round_number,index,initiative))
+    except Exception as exc:
+        print('bg2toee scene_turn failed: '+str(exc))
+
+def scene_begin(scene):
+    try:
+        _original_doors('scene_begin',scene)
+    except Exception as exc:
+        print('bg2toee scene_begin failed: '+str(exc))

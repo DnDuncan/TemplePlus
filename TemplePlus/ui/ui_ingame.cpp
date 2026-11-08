@@ -1,4 +1,6 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
+#include "turn_based.h"
 #include "float_line.h"
 
 #include <temple/dll.h>
@@ -105,7 +107,7 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 	if (msg.type == TigMsgType::KEYSTATECHANGE || msg.type == TigMsgType::KEYDOWN
 		|| msg.type == TigMsgType::CHAR || msg.type == TigMsgType::EXIT
 		|| (msg.type == TigMsgType::WIDGET && reinterpret_cast<const TigMsgWidget&>(msg).widgetEventType == TigMsgWidgetEvent::Exited)
-		|| combatSys.isCombatActive() || gameSystems->GetMap().IsClearingMap()
+		|| (combatSys.isCombatActive() && !bgscenecombat::FreeSelection()) || gameSystems->GetMap().IsClearingMap()
 		|| uiSystems->GetDlg().IsActive() || uiSystems->GetChar().IsVisible()
 		|| uiSystems->GetTownmap().IsVisible() || uiSystems->GetLogbook().IsVisible()
 		|| tig->GetConsole().IsOpen()) CancelOriginalDoorInput();
@@ -189,6 +191,23 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
 		if (!viewportIds[viewportIdx+1])
 		{
 			static bool combatModeMsg = false;
+            if (bgscenecombat::Enabled() && combatSys.isCombatActive() && msg.type==TigMsgType::KEYSTATECHANGE) {
+                auto key=reinterpret_cast<const TigKeyStateChangeMsg&>(msg);
+                if (!key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
+                    auto actor=party.GroupListGetMemberN(key.key-0x3b);
+                    if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
+                        party.CurrentlySelectedClear();party.AddToCurrentlySelected(actor);return;
+                    }
+                }
+            }
+			if (combatSys.isCombatActive() && bgscenecombat::FreeSelection()) {
+                if (msg.type==TigMsgType::MOUSE) {
+                    if (bgwalk::HandleMouse(msg)) return;
+                    if (HandleOriginalDoorMessage(msg)) return;
+                    if (msg.arg4&MSF_LMB_RELEASED) {LocAndOffsets target;locSys.GetLocFromScreenLocPrecise(int(msg.arg1),int(msg.arg2),target);bgscenecombat::MoveFreeSelection(target);}
+                }
+                return;
+            }
 			if (combatSys.isCombatActive())
 			{
 				// First message in combat
@@ -278,7 +297,7 @@ void UiInGame::CancelOriginalDoorInput() {
 bool UiInGame::HandleOriginalDoorMessage(const TigMsg &msg) {
 	auto &terrain = gameSystems->GetTerrain();
 	if (!terrain.HasOriginalDoorInput()) { CancelOriginalDoorInput(); return false; }
-	if (gameSystems->GetMap().IsClearingMap() || combatSys.isCombatActive()
+	if (gameSystems->GetMap().IsClearingMap() || (combatSys.isCombatActive() && !bgscenecombat::FreeSelection())
 		|| uiSystems->GetChar().IsVisible() || uiSystems->GetChar().IsLevelingUp()
 		|| uiSystems->GetChar().GetInventoryObject() || uiSystems->GetTownmap().IsVisible()
 		|| uiSystems->GetLogbook().IsVisible() || uiSystems->GetDlg().IsActive()

@@ -113,6 +113,8 @@ public:
     bool CanUseTravelGate(int mapId,const std::string &id) const;
 	void BindSceneRoute(const std::string &route,OriginalSceneRoute definition);
 	int SceneAreaForActor(uint64_t actor) const;
+	int SceneAreaForPoint(OriginalDoorUsePoint p) const {return SceneAreaAt(p);}
+    bool NpcSceneTravel(objHndl actor,const std::string &route);
 	int FocusedSceneArea() const {return mFocusedScene;}
 	bool TravelSelectedInScene(uint32_t serial);
 	void AdvanceTime(uint32_t time) override;
