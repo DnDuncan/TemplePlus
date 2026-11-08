@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "bgscenecombat.h"
 #include "bgscenecombatpolicy.h"
+#include <infrastructure/meshes.h>
 #include "graphics/mapterrain.h"
 #include "dispatcher.h"
 #include "animgoals/anim.h"
@@ -2260,7 +2261,8 @@ void Sleep(objHndl actor,bool sleeping) {
     if (sleeping) {
         if (!FindCondition(actor,"Sleeping")) conds.AddTo(actor,"Sleeping",{});
         obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)|OCF_SLEEPING);
-        if (!objects.IsCritterProne(actor)) {conds.AddTo(actor,"Prone",{});gameSystems->GetAnim().PushFallDown(actor);}
+        if (!objects.IsCritterProne(actor)) conds.AddTo(actor,"Prone",{});
+        if (auto model=objects.GetAnimHandle(actor)) model->SetAnimId(gfx::EncodedAnimId(gfx::NormalAnimType::ProneIdle));
     } else {
         if (auto node=FindCondition(actor,"Sleeping")) conds.ConditionRemove(actor,node);
         obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)&~OCF_SLEEPING);
