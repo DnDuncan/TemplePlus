@@ -36,6 +36,7 @@ static int __cdecl PortraitCombatFor(uint32_t idx) {
 	auto member = party.GroupListGetMemberN(idx);
 	if (bgscenecombat::Free(member)) return 0;
 	if (bgscenecombat::Parked(member)) bgscenecombat::Activate(member);
+	else bgscenecombat::ShowFight(member);
 	return combatSys.isCombatActive() ? 1 : 0;
 }
 static void __declspec(naked) PortraitCombatCheck() {

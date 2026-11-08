@@ -163,6 +163,7 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
                         party.AddToCurrentlySelected(actor);return;
                     }
                     if (bgscenecombat::Parked(actor)) {bgscenecombat::Activate(actor);return;} // show that hero's encounter
+                    if (bgscenecombat::ShowFight(actor)) return; // back to the current turn
                 }
             }
 			if (bgscenecombat::GlobalCombatActive() && bgscenecombat::FreeSelection()) {

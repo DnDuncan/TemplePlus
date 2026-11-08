@@ -825,6 +825,10 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	if (AllPcsUnconscious())
 		return FALSE;
 	
+	if (bgscenecombat::Parked(combatInitiator)) { // its encounter waits; it resumes, not restarts
+		return FALSE;
+	}
+
 	if (forceEndedCombatNow) { // temple+: added this vs. combat start/end loops
 		logger->debug("StartCombat: averted due to forceEndedCombatNow = true");
 		return FALSE;
@@ -2246,6 +2250,7 @@ struct NativeEncounter {
 bgencounters::Registry<objHndl,NativeEncounter> encounters;
 uint32_t displayedEncounter=0;
 unsigned shownGeneration=0;
+uint32_t dialogParkedAt=0;
 }
 void ResetEngagement() {detection.Clear();starter=startingTarget=objHndl::null;starting=false;startingScene=0;}
 bool PrimaryParticipant(objHndl actor) {return starting && actor && (actor==starter || actor==startingTarget);}
@@ -2432,7 +2437,10 @@ static void Event(const char *name,PyObject *args) {
 }
 void Pulse(uint32_t now) {
     static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
-    if (!GlobalCombatActive() && encounters.Size()) ResumeParked();
+    // The dialogue event starts 1ms after begin_dialog; give it a second to open.
+    bool talking=uiSystems->GetDlg().IsActive() || (dialogParkedAt && uint32_t(now-dialogParkedAt)<1000);
+    if (!talking) dialogParkedAt=0;
+    if (!GlobalCombatActive() && encounters.Size() && !talking) ResumeParked();
     RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
@@ -2570,5 +2578,19 @@ bool ResumeParked() {
     displayedEncounter=0;
     return false;
 }
-void DiscardEncounters() {encounters.Clear();displayedEncounter=0;}
+void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;}
+bool ParkForDialog(objHndl hero) {
+    if (!ParkForSeparate(hero)) return false;
+    dialogParkedAt=timeGetTime();
+    logger->info("BG encounter waits while {} talks",hero);
+    return true;
+}
+bool ShowFight(objHndl actor) {
+    if (!Enabled() || !GlobalCombatActive() || !actor || Free(actor) || encounters.Owns(actor) ||
+        !party.IsInParty(actor) || !tbSys.IsInInitiativeList(actor) || !FreeSelection()) return false;
+    auto current=tbSys.turnBasedGetCurrentActor();
+    party.CurrentlySelectedClear();
+    if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    return true;
+}
 }

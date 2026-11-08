@@ -217,10 +217,10 @@ static PyObject* PyObjHandle_BeginDialog(PyObject* obj, PyObject* args) {
 	if (!PyArg_ParseTuple(args, "O&i:begin_dialog", &ConvertObjHndl, &target, &line)) {
 		return 0;
 	}
-    if (bgscenecombat::Free(self->handle)) {
-        // The native PythonDialog event ends global combat. Keep it deferred
-        // until dialogue has an independent context as well.
-        logger->info("BG detached dialogue deferred while another scene is fighting");
+    if (bgscenecombat::Free(self->handle) && !bgscenecombat::ParkForDialog(self->handle)) {
+        // The native PythonDialog event ends global combat. The shown encounter
+        // can wait only on a hero's turn; otherwise the dialogue is deferred.
+        logger->info("BG detached dialogue deferred: the encounter is mid-action");
         Py_RETURN_NONE;
     }
 	if ( critterSys.IsPC(self->handle))

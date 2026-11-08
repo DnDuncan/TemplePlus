@@ -51,4 +51,8 @@ bool Activate(objHndl actor);
 bool ResumeParked();
 unsigned Shown(); // changes whenever another encounter is shown
 void DiscardEncounters();
+// A free hero talks while the shown encounter waits on a hero's turn; it resumes after the dialogue.
+bool ParkForDialog(objHndl hero);
+// Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
+bool ShowFight(objHndl actor);
 }
