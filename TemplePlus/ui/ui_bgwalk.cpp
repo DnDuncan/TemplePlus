@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
 #include "ui_bgwalk.h"
 #include "ui.h"
 #include "ui_render.h"
@@ -34,7 +35,7 @@ bool Scope() {
         gameSystems->GetTerrain().HasOriginalDoorInput();
 }
 bool Available() {
-    return Scope() && !combatSys.isCombatActive() && !bgrolls::IsBusy() &&
+    return Scope() && (!bgscenecombat::GlobalCombatActive() || bgscenecombat::FreeSelection()) && !bgrolls::IsBusy() &&
         !tig->GetConsole().IsOpen() && !uiSystems->GetChar().IsVisible() &&
         !(uiDialog && (uiDialog->IsActive() || uiDialog->IsDialogEngaged())) &&
         !uiPicker.PickerActiveCheck();

@@ -13,6 +13,7 @@
 #include "../../TemplePlus/bgconsumables.h"
 #include "../../TemplePlus/ui/bgdicegeometry.h"
 #include "../../TemplePlus/bgscenecombatpolicy.h"
+#include "../../TemplePlus/bgactorcontext.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -561,5 +562,49 @@ int main() {
     assert(bgscenecombatpolicy::Free(false,true,false,5136,5195));
     assert(bgscenecombatpolicy::Free(false,false,true,5195,5195));
     assert(!bgscenecombatpolicy::Free(true,true,false,5195,5195));
+    assert(bgscenecombatpolicy::SameScene(5195,5195));
+    assert(!bgscenecombatpolicy::SameScene(5195,5136));
+    assert(!bgscenecombatpolicy::SameScene(0,0));
+    BgSequenceReservations<int> reservations;
+    int battle=1,freeAction=2;
+    assert(!reservations.Contains(&battle));
+    {
+        BgSequenceReservations<int>::Scope savedBattle(reservations,&battle);
+        assert(reservations.Contains(&battle));
+        assert(!reservations.Contains(&freeAction));
+        try {
+            BgSequenceReservations<int>::Scope callback(reservations,&freeAction);
+            assert(reservations.Contains(&battle) && reservations.Contains(&freeAction));
+            throw 8;
+        } catch (int) {}
+        assert(reservations.Contains(&battle) && !reservations.Contains(&freeAction));
+        {BgSequenceReservations<int>::Scope nested(reservations,&battle);}
+        assert(reservations.Contains(&battle));
+    }
+    assert(!reservations.Contains(&battle));
+    BgActorContext<int> contexts;
+    bool joined=false;
+    auto freeActor=[&](int actor) {return actor==2 && !joined;};
+    assert(contexts.Combat(true,freeActor)); // the scheduler sees the encounter
+    {
+        BgActorContext<int>::Scope detached(contexts,2);
+        assert(!contexts.Combat(true,freeActor)); // ordinary realtime rules
+        {
+            BgActorContext<int>::Scope combatant(contexts,1);
+            assert(contexts.Combat(true,freeActor)); // nested battle callback
+        }
+        assert(!contexts.Combat(true,freeActor));
+        joined=true;
+        assert(contexts.Combat(true,freeActor)); // membership rechecked, never cached
+        joined=false;
+        assert(!contexts.Combat(false,freeActor)); // encounter ended during callback
+        try {
+            BgActorContext<int>::Scope callback(contexts,1);
+            throw 7;
+        } catch (int) {}
+        assert(!contexts.Combat(true,freeActor)); // unwind restores actor
+    }
+    assert(contexts.Combat(true,freeActor));
+    assert(!contexts.Combat(false,freeActor));
     std::cout << "Original door registry tests passed\n";
 }

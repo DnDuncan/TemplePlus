@@ -155,7 +155,7 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
         && !uiSystems->GetTownmap().IsVisible() && !uiSystems->GetLogbook().IsVisible() && !tig->GetConsole().IsOpen()) {
             if (bgscenecombat::Enabled() && combatSys.isCombatActive() && msg.type==TigMsgType::KEYSTATECHANGE) {
                 auto key=reinterpret_cast<const TigKeyStateChangeMsg&>(msg);
-                if (!key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
+                if (!uiPicker.PickerActiveCheck() && radialMenus.GetActiveRadialMenuNode()==-1 && !key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
                     auto actor=party.GroupListGetMemberN(key.key-0x3b);
                     if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
                         if (!hotkeys.IsKeyPressed(VK_CONTROL) || !bgscenecombat::FreeSelection()) party.CurrentlySelectedClear();
@@ -163,12 +163,12 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
                     }
                 }
             }
-			if (combatSys.isCombatActive() && bgscenecombat::FreeSelection()) {
-                if (msg.type==TigMsgType::MOUSE) {
-                    if (bgwalk::HandleMouse(msg)) return;
-                    if (HandleOriginalDoorMessage(msg)) return;
-                    if (msg.arg4&MSF_LMB_RELEASED) {LocAndOffsets target;locSys.GetLocFromScreenLocPrecise(int(msg.arg1),int(msg.arg2),target);bgscenecombat::MoveFreeSelection(target);}
-                }
+			if (bgscenecombat::GlobalCombatActive() && bgscenecombat::FreeSelection()) {
+                bgscenecombat::ActorActions actorActions(party.GetCurrentlySelected(0),true);
+                if (!actorActions.Ready()) return;
+                if (HandleRadialMenuMessage(msg) || HandlePickerMessage(msg)) return;
+                if (radialMenus.GetActiveRadialMenuNode()!=-1) return;
+                HandleNonCombatMessage(msg);
                 return;
             }
     }
