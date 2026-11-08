@@ -12,6 +12,7 @@
 #include "../../TemplePlus/bgmovementrules.h"
 #include "../../TemplePlus/bgconsumables.h"
 #include "../../TemplePlus/ui/bgdicegeometry.h"
+#include "../../TemplePlus/bgscenecombatpolicy.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -155,7 +156,9 @@ static void TestSave() {
 	state.Bind(5136, "DOOR2616", {{{10,10},{40,10},{40,40}}, {{50,10},{55,10},{55,40}}});
 	state.BindNavigation(5136, "DOOR2616", {{{10,20,0x200}}, {{11,20,0x400}}});
 	state.SetOpen(5136, "DOOR2616", true);
-	auto bytes = originaldoorsave::Encode(state, "{\"transition\":true}");
+	auto largeMetadata=std::string(20*1024,'x');
+    assert(originaldoorsave::Decode(originaldoorsave::Encode(state,largeMetadata)).metadata==largeMetadata);
+    auto bytes = originaldoorsave::Encode(state, "{\"transition\":true}");
 	auto restored = originaldoorsave::Decode(bytes);
 	assert(restored.metadata == "{\"transition\":true}");
 	assert(restored.doors.Patches().size() == 2);
@@ -173,7 +176,7 @@ static void TestSave() {
 	auto bad = bytes; bad.push_back(0); Reject([&]() { originaldoorsave::Decode(bad); });
 	bad = bytes; bad[4] = 2; Reject([&]() { originaldoorsave::Decode(bad); });
 	bad = bytes; bad[8] = 255; bad[9] = 255; Reject([&]() { originaldoorsave::Decode(bad); });
-	Reject([&]() { originaldoorsave::Encode(state, std::string(4097, 'x')); });
+	Reject([&]() { originaldoorsave::Encode(state, std::string(originaldoorsave::MaxMetadataBytes+1, 'x')); });
 	OriginalDoorState empty;
 	assert(originaldoorsave::Decode(originaldoorsave::Encode(empty, "")).doors.Patches().empty());
 }
@@ -550,5 +553,13 @@ int main() {
 	assert(state.Find(5190, "DOOR2616"));
 	state.Clear();
 	assert(state.Patches().empty());
-	std::cout << "Original door registry tests passed\n";
+	assert(bgscenecombatpolicy::Join(5195,5195,false));
+    assert(!bgscenecombatpolicy::Join(5195,5136,false));
+    assert(!bgscenecombatpolicy::Join(5195,5195,true));
+    assert(!bgscenecombatpolicy::Target(5195,5195,true));
+    assert(!bgscenecombatpolicy::Target(5195,5136,false));
+    assert(bgscenecombatpolicy::Free(false,true,false,5136,5195));
+    assert(bgscenecombatpolicy::Free(false,false,true,5195,5195));
+    assert(!bgscenecombatpolicy::Free(true,true,false,5195,5195));
+    std::cout << "Original door registry tests passed\n";
 }

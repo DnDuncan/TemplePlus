@@ -1,4 +1,7 @@
 #include "stdafx.h"
+#include "../bgscenecombat.h"
+#include "../turn_based.h"
+#include "../pathfinding.h"
 #include "mapterrain.h"
 #include "maps.h"
 #include "gameview.h"
@@ -414,11 +417,11 @@ bool TerrainSystem::ScriptNpcMoving(objHndl actor) const {
         || anim.DoesObjHaveGoal(actor,ag_move_near_tile,&slot) || anim.DoesObjHaveGoal(actor,ag_run_near_tile,&slot);
 }
 bool TerrainSystem::StopScriptNpcMove(objHndl actor) {
-    if (!ScriptNpcActor(actor) || combatSys.isCombatActive()) return false;
+    if (!ScriptNpcActor(actor) || (combatSys.isCombatActive() && !bgscenecombat::Free(actor))) return false;
     StopDoorMovement(actor.handle);return true;
 }
 bool TerrainSystem::StartScriptNpcMove(objHndl actor,OriginalDoorUsePoint point) {
-    if (!ScriptNpcActor(actor) || combatSys.isCombatActive() || maps.GetCurrentMapId()!=5136) return false;
+    if (!ScriptNpcActor(actor) || (combatSys.isCombatActive() && !bgscenecombat::Free(actor)) || maps.GetCurrentMapId()!=5136) return false;
     ValidateOriginalDoorUse({{point},60});
     auto source=SceneAreaForActor(actor.handle);
     if (!source || source!=SceneAreaAt(point)) return false;
@@ -490,7 +493,7 @@ void TerrainSystem::UpdateSceneFocus() {
 bool TerrainSystem::TravelSelectedInScene(uint32_t serial) {
 	auto intent=PeekOriginalTravel();if (!intent || intent->serial!=serial) return false;
 	auto route=mSceneRoutes.find(intent->id);if (route==mSceneRoutes.end()) return false;
-	if (!SameDoorSelection(mTravelSelection,ContextSelection()) || combatSys.isCombatActive()) {CancelOriginalDoorUse();return false;}
+	if (!SameDoorSelection(mTravelSelection,ContextSelection()) || (combatSys.isCombatActive() && !bgscenecombat::FreeSelection())) {CancelOriginalDoorUse();return false;}
 	auto selection=mTravelSelection;auto target=route->second.arrival;
 	struct Move {objHndl actor;LocAndOffsets before,after;float radius;};std::vector<Move> plan;
 	std::vector<SceneArrivalActor> actors;
@@ -519,7 +522,32 @@ bool TerrainSystem::TravelSelectedInScene(uint32_t serial) {
 	if (!mTravelReady.Ack(serial)) return false;
 	try {for (const auto &move:plan) objects.Move(move.actor,move.after);}
 	catch (...) {for (const auto &move:plan) objects.Move(move.actor,move.before);CancelOriginalDoorUse();throw;}
-	mTravelSelection.clear();mFocusedScene=0;ClearDoorContextHover();UpdateSceneFocus();
+	for (const auto &move:plan) if (bgscenecombat::Scene() && SceneAreaForActor(move.actor.handle)==bgscenecombat::Scene()) tbSys.AddToInitiative(move.actor);
+    pathfindingSys.PathCacheInit();
+    mTravelSelection.clear();mFocusedScene=0;ClearDoorContextHover();UpdateSceneFocus();
 	logger->info("Selected scene travel: route={} destination={} moved={}",intent->id,route->second.destination,plan.size());
 	return true;
+}
+
+bool TerrainSystem::NpcSceneTravel(objHndl actor,const std::string &id) {
+    if (!ScriptNpcActor(actor) || party.IsInParty(actor) || (combatSys.isCombatActive() && !bgscenecombat::Free(actor))) return false;
+    auto route=mSceneRoutes.find(OriginalDoorState::NormalizeId(id));
+    auto marker=mTravelMarkers.find({5136,OriginalDoorState::NormalizeId(id)});
+    if (route==mSceneRoutes.end() || marker==mTravelMarkers.end() || SceneAreaForActor(actor.handle)!=route->second.source
+        || !CanUseTravelGate(marker->second.gateMap,marker->second.gateId)) return false;
+    auto pos=objects.GetLocationFull(actor).ToInches2D();
+    if (OriginalDoorUseDistance({pos.x,pos.y},marker->second.approach.points.front())>90) return false;
+    std::vector<SceneArrivalSpot> spots;
+    auto canStand=[&](const SceneArrivalActor &candidate,OriginalDoorUsePoint p) {
+        if (SceneAreaAt(p)!=route->second.destination) return false;
+        auto loc=LocAndOffsets::FromInches(float(p.x),float(p.y));RaycastPacket ray;
+        ray.flags=static_cast<RaycastFlags>(StopAfterFirstBlockerFound|HasRadius|HasSourceObj|ExcludeItemObjects);
+        ray.origin=loc;ray.targetLoc=loc;ray.sourceObj=actor;ray.radius=float(candidate.radius);return ray.RaycastShortRange()==0;
+    };
+    if (!PlanSceneArrival({{actor.handle,objects.GetRadius(actor)}},route->second.arrival,canStand,spots)) return false;
+    StopDoorMovement(actor.handle);
+    objects.Move(actor,LocAndOffsets::FromInches(float(spots[0].point.x),float(spots[0].point.y)));
+    pathfindingSys.PathCacheInit();
+    if (combatSys.isCombatActive() && !bgscenecombat::Civilian(actor) && bgscenecombat::MayJoin(actor)) tbSys.AddToInitiative(actor);
+    return true;
 }

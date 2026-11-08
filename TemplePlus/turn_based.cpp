@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "bgscenecombat.h"
 #include "common.h"
 #include "turn_based.h"
 #include "util/fixes.h"
@@ -192,6 +193,7 @@ void TurnBasedSys::ArbitrateInitiativeConflicts()  {
 
 void TurnBasedSys::AddToInitiative(objHndl handle) 
 {
+	if (!bgscenecombat::MayJoin(handle)) return;
 	if (IsInInitiativeList(handle))
 		return;
 	
@@ -253,7 +255,9 @@ void TurnBasedSys::CreateInitiativeListWithParty(){
 		}
 	}
 
+	bgscenecombat::SeedInitiative();
 	auto newTBActor = combatSys.GetInitiativeListMember(0);
+	if (!newTBActor) return;
 	turnBasedSetCurrentActor(newTBActor);
 	temple::GetRef<int>(0x10BCAD80) = objSystem->GetObject(newTBActor)->GetInt32(obj_f_initiative);
 }

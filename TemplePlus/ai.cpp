@@ -1,4 +1,5 @@
 ﻿#include "stdafx.h"
+#include "bgscenecombat.h"
 #include "common.h"
 #include <tig/tig_tabparser.h>
 
@@ -694,7 +695,7 @@ objHndl AiSystem::GetWhoHitMeLast(objHndl npc) {
 
 BOOL AiSystem::ConsiderTarget(objHndl obj, objHndl tgt)
 {
-	if (!tgt || tgt == obj)
+	if (!tgt || tgt == obj || !bgscenecombat::CanTarget(obj,tgt))
 		return 0;
 
 	py::tuple args = py::make_tuple(py::cast<objHndl>(obj), py::cast<objHndl>(tgt));

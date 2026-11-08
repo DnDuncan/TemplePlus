@@ -67,7 +67,7 @@ bool MesLexer::ReadNextToken() {
 
 inline int MesLexer::GetCh() {
 	if (mContentPos < mContent.size()) {
-		char ch = mContent[mContentPos++];
+		auto ch = static_cast<unsigned char>(mContent[mContentPos++]);
 		if (ch == '\n') {
 			mLine++;
 		}
