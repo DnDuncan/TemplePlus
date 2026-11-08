@@ -13,7 +13,9 @@ scenes on map 5136; it does not add several independent encounter schedulers.
   or when they perform a hostile action/help a participant (the PR31 action path).
   Automatic recruitment uses the existing 42.5-foot activation range, scene
   filtering and native sight/hearing/concealment rules. A room match alone is
-  insufficient. Existing members are never expelled or rerolled by recruitment.
+  insufficient. A detecting NPC must actually have a party combat focus or a
+  party member in its native enemy list; allied guards do not enlist heroes.
+  Existing members are never expelled or rerolled by recruitment.
 - An unrelated, already performing free action completes before automatic or
   native-requested recruitment. Focus/perception is rechecked by the scene pulse.
   This avoids switching a healing callback into another hero's combat turn.
@@ -62,6 +64,7 @@ After a successful CI build and manual engine setup, start from before a fight:
 4. Enter with a hidden hero through a door, let several turns pass, and check
    that rectangle scans do not automatically enlist the whole party. An active
    visible foe should still attack valid participants when a hidden PC is closer.
+   An allied guard seeing a free hero must not enlist that hero on its own.
 5. Save/reload into a new slot; test ordinary doors, loot and normal non-BG combat.
 
 No game launch/CUA or automatic deployment. The user installs EXE/DLL manually.

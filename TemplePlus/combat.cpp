@@ -2261,12 +2261,18 @@ bool MayJoin(objHndl actor) {
 }
 namespace {
 bool Observer(objHndl actor,objHndl observer) {
-    return observer && objSystem->IsValidHandle(observer) && objSystem->GetObject(observer)->IsNPC() &&
-        !party.IsInParty(observer) && !Civilian(observer) &&
-        !(objects.GetFlags(observer)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) &&
-        !critterSys.IsDeadOrUnconscious(observer) &&
-        bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(observer.handle),
-            gameSystems->GetTerrain().SceneAreaForActor(actor.handle));
+    if (!observer || !objSystem->IsValidHandle(observer) || !objSystem->GetObject(observer)->IsNPC() ||
+        party.IsInParty(observer) || Civilian(observer) ||
+        (objects.GetFlags(observer)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) ||
+        critterSys.IsDeadOrUnconscious(observer) ||
+        !bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(observer.handle),
+            gameSystems->GetTerrain().SceneAreaForActor(actor.handle))) return false;
+    // IsFriendly treats most NPC/PC pairs as nonfriendly, including allied
+    // guards. Require a real party enemy, even if its current focus is a guard.
+    if (party.IsInParty(aiSys.GetCombatFocus(observer))) return true;
+    for (auto i=0u;i<party.GroupListGetLen();++i)
+        if (aiSys.AiListFind(observer,party.GroupListGetMemberN(i),0)) return true;
+    return false;
 }
 bool Threatens(objHndl actor,objHndl observer) {
     return Observer(actor,observer) && !critterSys.IsFriendly(observer,actor) &&
