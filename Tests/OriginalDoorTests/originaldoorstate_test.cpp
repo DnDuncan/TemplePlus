@@ -587,6 +587,20 @@ int main() {
     assert(!bgengagement::KeepSelection(false,true,true));
     assert(!bgengagement::KeepSelection(true,false,true));
 
+    {
+        using bgengagement::Senses;
+        using bgengagement::Detected;
+        // distance, sight, sneaking, night; spot, listen, hide, move silently; rolls in the same order
+        assert(Detected(Senses{55,true,false,false,0,0,0,0,1,1,20,20})); // open hero in view within 60 ft
+        assert(!Detected(Senses{61,true,false,false,20,20,0,0,20,20,1,1})); // beyond 60 ft nobody is noticed
+        assert(Detected(Senses{20,false,false,false,0,0,0,0,1,12,1,1})); // heard: 12-2 meets DC 10
+        assert(!Detected(Senses{30,false,false,false,0,0,0,0,1,12,1,1})); // 12-3 misses DC 10
+        assert(Detected(Senses{10,true,true,false,5,0,4,0,15,1,10,1})); // spot 15+5-1=19 beats hide 10+4
+        assert(!Detected(Senses{10,true,true,false,5,0,4,0,10,1,10,1})); // 14 ties hide 14: the hero stays hidden
+        assert(!Detected(Senses{10,true,true,true,5,0,4,0,15,1,10,1})); // night: hide 10+4+5 ties spot 19
+        assert(Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,13})); // unseen: listen 15+3-2=16 beats 13+2
+        assert(!Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,14})); // 16 ties move silently 16; no sight, no spot
+    }
     bgengagement::DetectionCache<int> perception;
     int checks=0;
     auto missed=[&]() {++checks;return false;};

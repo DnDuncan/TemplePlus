@@ -8,6 +8,7 @@
 #include "pathfinding.h"
 #include "critter.h"
 #include "party.h"
+#include "bgscenecombat.h"
 #include "obj.h"
 #include "util/fixes.h"
 #include "gameview.h"
@@ -641,6 +642,10 @@ int UiIntegameTurnbasedRepl::UiIntgameMsgHandler(int widId, TigMsg* msg) {
 			
 	}
 	
+
+	// Free BG heroes use ordinary realtime input (UiInGame); never issue it for the fighter.
+	if (bgscenecombat::GlobalCombatActive() && bgscenecombat::FreeSelection())
+		return FALSE;
 
 	auto initialSeq = *actSeqSys.actSeqCur;
 	int result = 0;

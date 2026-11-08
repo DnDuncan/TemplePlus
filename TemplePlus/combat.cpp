@@ -3,6 +3,8 @@
 #include "bgscenecombatpolicy.h"
 #include "bgengagementrules.h"
 #include "bgencounters.h"
+#include "rng.h"
+#include "skill.h"
 #include <infrastructure/meshes.h>
 #include "graphics/mapterrain.h"
 #include "dispatcher.h"
@@ -1196,8 +1198,11 @@ bool LegacyCombatSystem::CombatEnd(){
 		return true;
 
     if (bgscenecombat::Enabled()) {
-        for (auto i=0;i<tbSys.GetInitiativeListLength();++i)
-            d20Sys.d20SendSignal(combatSys.GetInitiativeListMember(i),DK_SIG_Combat_End,0,0);
+        // Only registered objects, as the native broadcast: at shutdown they are already gone.
+        for (auto i=0;i<tbSys.GetInitiativeListLength();++i) {
+            auto member=combatSys.GetInitiativeListMember(i);
+            if (member && d20ObjRegistrySys.Find(member)) d20Sys.d20SendSignal(member,DK_SIG_Combat_End,0,0);
+        }
     } else d20ObjRegistrySys.D20ObjRegistrySendSignalAll(DK_SIG_Combat_End,0,0);
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(nullptr);
 	if (!gameSystems->GetAnim().InterruptAllForTbCombat()){
@@ -2300,19 +2305,29 @@ bool Threatens(objHndl actor,objHndl observer) {
         aiSys.GetCombatFocus(observer)==actor;
 }
 bool Detects(objHndl actor,objHndl observer) {
-    if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor) ||
-        locSys.DistanceToObj(observer,actor)>COMBAT_ACTIVATION_DISTANCE) return false;
+    if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor)) return false;
+    double distance=locSys.DistanceToObj(observer,actor);
+    if (distance>bgengagement::DetectionRangeFeet) return false;
+    BgActorContext<objHndl>::Scope perceptionMode(actorContext,observer);
+    if (critterSys.CanSeeWithBlindsight(observer,actor)) return true;
+    bool sneaking=critterSys.IsMovingSilently(actor) || critterSys.IsConcealed(actor);
+    bool invisible=d20Sys.d20Query(actor,DK_QUE_Critter_Is_Invisible)!=0;
+    bool sight=critterSys.HasLineOfSight(observer,actor)==0 && (!invisible || critterSys.CanSense(observer,actor));
+    bool night=!gameSystems->GetTimeEvent().IsDaytime();
+    // Open heroes in view are noticed at once; rolled checks hold for one round.
+    if (!sneaking && sight) {detection.Forget(observer.handle,actor.handle);return true;}
+    uint32_t signature=(sneaking?1u:0u)|(sight?2u:0u)|(night?4u:0u)|(invisible?8u:0u);
     auto sense=[&]() {
-        BgActorContext<objHndl>::Scope perceptionMode(actorContext,observer);
-        if (critterSys.HasLineOfSight(observer,actor)==0 || critterSys.CanSeeWithBlindsight(observer,actor))
-            return critterSys.CanSense(observer,actor);
-        int open=!critterSys.IsMovingSilently(actor) && !critterSys.IsConcealed(actor);
-        return aiSys.CannotHear(observer,actor,open)==0;
+        bgengagement::Senses senses{distance,sight,sneaking,night,
+            critterSys.SkillLevel(observer,skill_spot),critterSys.SkillLevel(observer,skill_listen),
+            critterSys.SkillLevel(actor,skill_hide),critterSys.SkillLevel(actor,skill_move_silently),
+            rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20)};
+        bool detected=bgengagement::Detected(senses);
+        logger->info("BG perception: {} {} {} at {} ft (sight {}, sneaking {}, night {}; spot {}+{} listen {}+{} vs hide {}+{} move silently {}+{})",
+            observer,detected ? "notices":"misses",actor,int(distance),sight,sneaking,night,
+            senses.spotRoll,senses.spot,senses.listenRoll,senses.listen,senses.hideRoll,senses.hide,senses.moveRoll,senses.moveSilently);
+        return detected;
     };
-    uint32_t signature=(critterSys.IsMovingSilently(actor)?1u:0u) |
-        (critterSys.IsConcealed(actor)?2u:0u) |
-        (d20Sys.d20Query(actor,DK_QUE_Critter_Is_Invisible)?4u:0u);
-    if (!signature) {detection.Forget(observer.handle,actor.handle);return sense();}
     return detection.Observe(observer.handle,actor.handle,timeGetTime(),signature,sense);
 }
 }

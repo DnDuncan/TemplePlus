@@ -10,15 +10,33 @@
 #include "ui_render.h"
 #include <tig/tig_msg.h>
 #include <gamesystems/d20/d20_help.h>
+#include "party.h"
+#include "turn_based.h"
+#include "bgscenecombat.h"
 LegacyUiParty uiParty;
 
 // TODO: merge this with UiParty
+
+// In combat a portrait selects only the fighter whose turn it is. A free BG hero,
+// or a hero whose encounter waits, is selectable as with F1-F8.
+static objHndl portraitMember;
+static objHndl __cdecl PortraitMember(uint32_t idx) {
+	portraitMember = party.GroupListGetMemberN(idx);
+	return portraitMember;
+}
+static objHndl __cdecl PortraitTurnActor() {
+	if (bgscenecombat::Free(portraitMember)) return portraitMember;
+	if (bgscenecombat::Parked(portraitMember)) bgscenecombat::Activate(portraitMember);
+	return tbSys.turnBasedGetCurrentActor();
+}
 
 class UiPartyHooks : public TempleFix {
 public:
 
 
 	void apply() override {
+		redirectCall(0x101335FB, PortraitMember);
+		redirectCall(0x10133607, PortraitTurnActor);
 
 		// hook the buff/debuff icon so it doesn't try to get a spell name if the spellEnum is -2
 		static char* (__cdecl* orgBuffDebuffGetBaseText)(BuffDebuffPacket*, int, int) = 

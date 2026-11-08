@@ -21,6 +21,28 @@ inline bool KeepSelection(bool control,bool selectedFree,bool newActorFree) {
     return control && selectedFree && newActorFree;
 }
 
+// A party enemy notices a hero within 60 feet. An open hero is seen with line of
+// sight, otherwise heard with Listen against DC 10. A sneaking hero opposes Spot
+// with Hide and Listen with Move Silently; Spot and Listen lose 1 per 10 feet and
+// night adds to Hide. Ties go to the hero.
+constexpr double DetectionRangeFeet=60.0;
+constexpr int NightHideBonus=5;
+struct Senses {
+    double distanceFeet;
+    bool sight,sneaking,night;
+    int spot,listen,hide,moveSilently;
+    int spotRoll,listenRoll,hideRoll,moveRoll;
+};
+inline bool Detected(const Senses &senses) {
+    if (senses.distanceFeet>DetectionRangeFeet) return false;
+    int penalty=int(senses.distanceFeet/10.0);
+    int listen=senses.listenRoll+senses.listen-penalty;
+    if (!senses.sneaking) return senses.sight || listen>=10;
+    int hide=senses.hideRoll+senses.hide+(senses.night ? NightHideBonus:0);
+    if (senses.sight && senses.spotRoll+senses.spot-penalty>hide) return true;
+    return listen>senses.moveRoll+senses.moveSilently;
+}
+
 // Native hidden perception includes opposed rolls. Reusing that result for one
 // D20 round prevents a 250ms render pulse from rolling Spot/Listen repeatedly.
 template<class Id> class DetectionCache {
