@@ -703,7 +703,7 @@ bool AnimSystem::InterruptAllForTbCombat(){
 			continue;
 		}
 
-        if (bgscenecombat::Enabled() && !bgscenecombat::MayJoin(slot.animObj)) continue;
+        if (bgscenecombat::Enabled() && !bgscenecombat::MayAutoJoin(slot.animObj)) continue;
 		if (objects.GetType(slot.animObj) == obj_t_portal){
 			continue;
 		}

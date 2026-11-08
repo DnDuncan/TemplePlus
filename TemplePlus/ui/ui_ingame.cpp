@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "bgscenecombat.h"
+#include "bgengagementrules.h"
 #include "turn_based.h"
 #include "float_line.h"
 
@@ -158,7 +159,7 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
                 if (!uiPicker.PickerActiveCheck() && radialMenus.GetActiveRadialMenuNode()==-1 && !key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
                     auto actor=party.GroupListGetMemberN(key.key-0x3b);
                     if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
-                        if (!hotkeys.IsKeyPressed(VK_CONTROL) || !bgscenecombat::FreeSelection()) party.CurrentlySelectedClear();
+                        if (!bgengagement::KeepSelection(hotkeys.IsKeyPressed(VK_CONTROL),bgscenecombat::FreeSelection(),bgscenecombat::Free(actor))) party.CurrentlySelectedClear();
                         party.AddToCurrentlySelected(actor);return;
                     }
                 }

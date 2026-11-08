@@ -14,6 +14,7 @@
 #include "../../TemplePlus/ui/bgdicegeometry.h"
 #include "../../TemplePlus/bgscenecombatpolicy.h"
 #include "../../TemplePlus/bgactorcontext.h"
+#include "../../TemplePlus/bgengagementrules.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -565,6 +566,47 @@ int main() {
     assert(bgscenecombatpolicy::SameScene(5195,5195));
     assert(!bgscenecombatpolicy::SameScene(5195,5136));
     assert(!bgscenecombatpolicy::SameScene(0,0));
+    using bgengagement::AutoJoin;
+    // Sharing a room alone cannot enlist a hidden, uninvolved party member.
+    assert(!AutoJoin({true,false,false,false,false,false}));
+    assert(AutoJoin({true,false,false,false,true,false})); // detected
+    assert(AutoJoin({true,false,false,true,false,false})); // actual enemy focus
+    assert(!AutoJoin({true,false,false,false,true,true})); // healing is still committed
+    assert(AutoJoin({true,false,false,false,true,false})); // joins after completion
+    assert(AutoJoin({true,true,false,false,false,true})); // existing member never leaves
+    assert(AutoJoin({true,false,true,false,false,true})); // native initiating pair
+    assert(!AutoJoin({false,false,true,true,true,false})); // dead/foreign scene excluded
+    using JS=bgengagement::JoinSelection;
+    assert(bgengagement::SelectionAfterJoin(false,false)==JS::Keep);
+    assert(bgengagement::SelectionAfterJoin(false,true)==JS::Keep);
+    assert(bgengagement::SelectionAfterJoin(true,true)==JS::FreeActors);
+    assert(bgengagement::SelectionAfterJoin(true,false)==JS::CurrentTurn);
+    assert(!bgengagement::KeepSelection(true,true,false)); // current fighter is exclusive
+    assert(bgengagement::KeepSelection(true,true,true)); // detached group remains possible
+    assert(!bgengagement::KeepSelection(false,true,true));
+    assert(!bgengagement::KeepSelection(true,false,true));
+
+    bgengagement::DetectionCache<int> perception;
+    int checks=0;
+    auto missed=[&]() {++checks;return false;};
+    assert(!perception.Observe(1,2,100,1,missed));
+    for (uint32_t now=350;now<6100;now+=250)
+        assert(!perception.Observe(1,2,now,1,missed));
+    assert(checks==1); // render pulses do not retry Spot/Listen until the next round
+    assert(perception.Observe(1,2,6100,1,[&]() {++checks;return true;}));
+    assert(checks==2);
+    assert(!perception.Observe(3,2,6100,1,missed)); // observers do not share results
+    assert(!perception.Observe(1,2,6100,5,missed)); // changed concealment/invisibility
+    perception.Forget(1,2);
+    assert(perception.Observe(1,2,6101,5,[]() {return true;}));
+    perception.Clear();
+    assert(!perception.Observe(1,2,6102,5,missed)); // load/new encounter resets cache
+    const auto nearWrap=(std::numeric_limits<uint32_t>::max)()-100;
+    assert(!perception.Observe(4,2,nearWrap,1,missed));
+    int beforeWrap=checks;
+    assert(!perception.Observe(4,2,50,1,missed));
+    assert(checks==beforeWrap); // Windows millisecond counter wrap is harmless
+    assert(perception.Observe(4,2,6000,1,[]() {return true;}));
     BgSequenceReservations<int> reservations;
     int battle=1,freeAction=2;
     assert(!reservations.Contains(&battle));

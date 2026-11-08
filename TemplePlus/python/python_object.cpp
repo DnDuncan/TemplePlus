@@ -1384,6 +1384,13 @@ static PyObject* PyObjHandle_Attack(PyObject* obj, PyObject* args) {
 		Py_RETURN_NONE;
 	}
 
+    if (bgscenecombat::Enabled() && party.IsInParty(target)) {
+        // Native ProvokeHostility takes agitator first. Only the actual target
+        // provokes this NPC; other PCs join when detected or when they act.
+        if (bgscenecombat::CanTarget(target,self->handle))
+            critterSys.Attack(target,self->handle,rangeType,flags);
+        Py_RETURN_NONE;
+    }
 	// This is pretty odd since it causes the opposite oO
 	if (!party.IsInParty(target)) {
 		critterSys.Attack(self->handle, target, 1, 2);

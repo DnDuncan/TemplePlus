@@ -170,6 +170,7 @@ void TerrainSystem::BindContextOutline(int mapId,const std::string &route,Origin
 	mContextOutlines[key]=std::move(outline);ClearDoorContextHover();
 }
 void TerrainSystem::ClearDoorContext() {
+    bgscenecombat::ResetEngagement();
 	if (mSavedSceneLimits && maps.GetCurrentMapId()==5136) {
 		temple::GetRef<int64_t>(0x10307340)=(*mSavedSceneLimits)[0];
 		temple::GetRef<int64_t>(0x10307368)=(*mSavedSceneLimits)[1];
@@ -522,7 +523,7 @@ bool TerrainSystem::TravelSelectedInScene(uint32_t serial) {
 	if (!mTravelReady.Ack(serial)) return false;
 	try {for (const auto &move:plan) objects.Move(move.actor,move.after);}
 	catch (...) {for (const auto &move:plan) objects.Move(move.actor,move.before);CancelOriginalDoorUse();throw;}
-	for (const auto &move:plan) if (bgscenecombat::Scene() && SceneAreaForActor(move.actor.handle)==bgscenecombat::Scene()) tbSys.AddToInitiative(move.actor);
+	for (const auto &move:plan) if (bgscenecombat::GlobalCombatActive() && bgscenecombat::MayAutoJoin(move.actor)) tbSys.AddToInitiative(move.actor);
     pathfindingSys.PathCacheInit();
     mTravelSelection.clear();mFocusedScene=0;ClearDoorContextHover();UpdateSceneFocus();
 	logger->info("Selected scene travel: route={} destination={} moved={}",intent->id,route->second.destination,plan.size());
