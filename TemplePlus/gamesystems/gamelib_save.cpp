@@ -8,6 +8,7 @@
 #include "maps.h"
 #include "critter.h"
 #include "python/python_integration_obj.h"
+#include "bgscenecombat.h"
 #include <tio/tio.h>
 #include "gamesystem.h"
 #include "util/savegame.h"
@@ -126,6 +127,11 @@ static bool SaveGsiData(const GsiData &saveInfo) {
 }
 
 bool GameSystems::SaveGame(const string& filename, const string& displayName) {
+	if (bgscenecombat::Encounters()) {
+		// Parked encounters are not serialized yet; refuse instead of losing their turns.
+		logger->error("Save refused: {} parked BG encounter(s) are waiting.", bgscenecombat::Encounters());
+		return false;
+	}
 
 	InSaveGame inSave;
 	addresses.UiMmRelated(63);

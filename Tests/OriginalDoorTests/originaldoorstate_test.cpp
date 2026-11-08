@@ -15,6 +15,7 @@
 #include "../../TemplePlus/bgscenecombatpolicy.h"
 #include "../../TemplePlus/bgactorcontext.h"
 #include "../../TemplePlus/bgengagementrules.h"
+#include "../../TemplePlus/bgencounters.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -648,5 +649,44 @@ int main() {
     }
     assert(contexts.Combat(true,freeActor));
     assert(!contexts.Combat(false,freeActor));
+    {
+        // A waits in encounter 1 while B opens encounter 2; each keeps its own turn state.
+        struct Turn {int round,actor,budget;};
+        bgencounters::Registry<int,Turn> encounters;
+        Turn first{3,1,2};
+        auto one=encounters.Open();
+        assert(one && !encounters.Park(one,{},first)); // no empty encounter
+        assert(!encounters.Park(one,{0,7},first)); // null actor never owned
+        assert(encounters.Park(one,{1,7},first));
+        assert(encounters.Owns(1) && encounters.Owns(7) && !encounters.Owns(2));
+        assert(encounters.Owner(7)==one && encounters.Owner(2)==0);
+        auto two=encounters.Open();
+        assert(two!=one);
+        assert(!encounters.Park(two,{2,7},Turn{1,2,4})); // one actor, one encounter
+        assert(!encounters.Park(one,{3},Turn{1,3,4})); // ids never fork
+        assert(encounters.Size()==1 && !encounters.Owns(2));
+        // Showing encounter 1 parks encounter 2 with its own round and budget.
+        decltype(encounters)::Parked shown;
+        assert(encounters.Take(one,shown) && !encounters.Owns(1));
+        assert(shown.state.round==3 && shown.state.actor==1 && shown.state.budget==2);
+        assert(encounters.Park(two,{2,8},Turn{1,2,4}));
+        assert(!encounters.Take(one,shown)); // taken once, not duplicated
+        assert(encounters.Park(one,shown.members,shown.state));
+        encounters.Forget(8);
+        assert(!encounters.Owns(8) && encounters.Owns(2));
+        assert(encounters.TakeLatest(shown) && shown.id==one && shown.state.budget==2); // latest parked resumes first
+        assert(encounters.TakeLatest(shown) && shown.id==two && shown.members==std::vector<int>{2});
+        assert(!encounters.TakeLatest(shown) && encounters.Size()==0);
+        encounters.Park(encounters.Open(),{4},first);
+        encounters.Clear();
+        assert(!encounters.Owns(4));
+        using bgencounters::CanPark;
+        assert(CanPark({true,false,false,false,false}));
+        assert(!CanPark({false,false,false,false,false})); // AI turn finishes first
+        assert(!CanPark({true,true,false,false,false})); // animation or projectile pending
+        assert(!CanPark({true,false,true,false,false})); // simultaneous actions pending
+        assert(!CanPark({true,false,false,true,false})); // interrupt or readied action pending
+        assert(!CanPark({true,false,false,false,true})); // dialogue owns the encounter
+    }
     std::cout << "Original door registry tests passed\n";
 }

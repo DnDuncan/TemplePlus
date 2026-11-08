@@ -2,6 +2,7 @@
 #include "bgscenecombat.h"
 #include "bgscenecombatpolicy.h"
 #include "bgengagementrules.h"
+#include "bgencounters.h"
 #include <infrastructure/meshes.h>
 #include "graphics/mapterrain.h"
 #include "dispatcher.h"
@@ -1123,8 +1124,10 @@ void LegacyCombatSystem::CombatAdvanceTurn(objHndl obj)
 	if (combatInitiative <= GetInitiativeListLength())
 	{
 		int initListIdx = tbSys.GetInitiativeListIdx();
+		auto shown = bgscenecombat::Shown();
 		EndTurn();
-		if (isCombatActive())
+		// A parked encounter resumed by this end of combat continues its waiting turn.
+		if (isCombatActive() && shown == bgscenecombat::Shown())
 			TurnStart2(initListIdx);
 	}
 	combatInitiative--;
@@ -1167,6 +1170,7 @@ void LegacyCombatSystem::CritterExitCombatMode(objHndl handle) {
 
 	if (!CombatEnd())
 		return;
+    if (bgscenecombat::GlobalCombatActive()) return; // a parked encounter is shown again
 
 	static auto uiCombatResetCallback = temple::GetRef<int(__cdecl*)()>(0x10AA83F8);
 	uiCombatResetCallback();
@@ -1215,6 +1219,9 @@ bool LegacyCombatSystem::CombatEnd(){
 		auto combatGiveXp = temple::GetRef<void(__cdecl)()>(0x100B88C0);
 		combatGiveXp();
 	}
+    // Only the displayed encounter ended; a waiting one continues where it stopped.
+    if (mResettingCombatSystem) bgscenecombat::DiscardEncounters();
+    else bgscenecombat::ResumeParked();
 	return true;
 }
 
@@ -2221,6 +2228,20 @@ static int startingScene=0;
 static objHndl starter,startingTarget;
 static bool starting=false;
 static bgengagement::DetectionCache<uint64_t> detection;
+namespace {
+// Turn state ToEE keeps in globals for its single displayed encounter.
+struct NativeEncounter {
+    GroupArray initiative;
+    objHndl current,combatActor;
+    int initiativeValue,surprise,round,timeEventSthg,timeEventIndicator,scene;
+    bool hasBudget;
+    TurnBasedStatus budget;
+    ReadiedActionPacket readied[READIED_ACTION_CACHE_SIZE];
+};
+bgencounters::Registry<objHndl,NativeEncounter> encounters;
+uint32_t displayedEncounter=0;
+unsigned shownGeneration=0;
+}
 void ResetEngagement() {detection.Clear();starter=startingTarget=objHndl::null;starting=false;startingScene=0;}
 bool PrimaryParticipant(objHndl actor) {return starting && actor && (actor==starter || actor==startingTarget);}
 bool DeferJoin(objHndl actor) {
@@ -2256,7 +2277,7 @@ void SeedInitiative() {if (starting && starter) tbSys.AddToInitiative(starter);}
 void Started() {starting=false;}
 bool MayJoin(objHndl actor) {
     if (!Enabled()) return true;
-    if (!actor || !objSystem->IsValidHandle(actor)) return false;
+    if (!actor || !objSystem->IsValidHandle(actor) || encounters.Owns(actor)) return false;
     return bgscenecombatpolicy::Join(Scene(),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Civilian(actor));
 }
 namespace {
@@ -2343,7 +2364,7 @@ void RecruitParty() {
     }
 }
 bool Free(objHndl actor) {
-    return Enabled() && GlobalCombatActive() && actor && objSystem->IsValidHandle(actor) && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
+    return Enabled() && GlobalCombatActive() && actor && !encounters.Owns(actor) && objSystem->IsValidHandle(actor) && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
 }
 bool Busy(objHndl actor) {return GlobalCombatActive() && !Free(actor);}
 bool FreeSelection() {
@@ -2353,6 +2374,8 @@ bool FreeSelection() {
 }
 bool CanTarget(objHndl actor,objHndl target) {
     if (!Enabled()) return true;
+    // A waiting encounter is frozen; only a free actor may engage it (and is then moved into it).
+    if (encounters.Owns(actor) || (encounters.Owns(target) && !Free(actor))) return false;
     if (GlobalCombatActive() && !party.IsInParty(actor) && tbSys.IsInInitiativeList(actor) &&
         party.IsInParty(target) && !tbSys.IsInInitiativeList(target)) return false;
     return bgscenecombatpolicy::Target(gameSystems->GetTerrain().SceneAreaForActor(actor.handle),gameSystems->GetTerrain().SceneAreaForActor(target.handle),Civilian(target));
@@ -2394,6 +2417,7 @@ static void Event(const char *name,PyObject *args) {
 }
 void Pulse(uint32_t now) {
     static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
+    if (!GlobalCombatActive() && encounters.Size()) ResumeParked();
     RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
@@ -2419,4 +2443,117 @@ bool MoveFreeSelection(LocAndOffsets target) {
     }
     return true;
 }
+namespace {
+std::vector<objHndl> Members() {
+    std::vector<objHndl> members;
+    for (auto i=0u;i<tbSys.groupInitiativeList->GroupSize;++i) {
+        auto member=tbSys.groupInitiativeList->GroupMembers[i];
+        if (member && objSystem->IsValidHandle(member)) members.push_back(member);
+    }
+    return members;
+}
+ReadiedActionPacket *ReadiedCache() {return temple::GetPointer<ReadiedActionPacket>(0x1186A900);}
+bool DisplayedWaits() {
+    auto current=tbSys.turnBasedGetCurrentActor();
+    bool hero=current && objSystem->IsValidHandle(current) && party.IsInParty(current) &&
+        objects.IsPlayerControlled(current) && !critterSys.IsDeadOrUnconscious(current);
+    bool performing=false;
+    for (auto member:Members()) performing=performing || actSeqSys.isPerforming(member)!=0;
+    return bgencounters::CanPark({hero,performing,*actSeqSys.numSimultPerformers!=0,
+        temple::GetRef<ActnSeq*>(0x118CD574)!=nullptr,uiSystems->GetDlg().IsActive()});
+}
+NativeEncounter Capture() {
+    NativeEncounter state{};
+    state.initiative=*tbSys.groupInitiativeList;
+    state.current=tbSys.turnBasedGetCurrentActor();
+    state.combatActor=*combatAddresses.combatActor;
+    state.initiativeValue=temple::GetRef<int>(0x10BCAD80);
+    state.surprise=temple::GetRef<int>(0x10BCAD90);
+    state.round=*combatAddresses.combatRoundCount;
+    state.timeEventSthg=*combatAddresses.combatTimeEventSthg;
+    state.timeEventIndicator=*combatAddresses.combatTimeEventIndicator;
+    state.scene=Scene();
+    auto sequence=*actSeqSys.actSeqCur;
+    state.hasBudget=sequence && sequence->performer==state.current;
+    if (state.hasBudget) state.budget=sequence->tbStatus;
+    std::copy(ReadiedCache(),ReadiedCache()+READIED_ACTION_CACHE_SIZE,state.readied);
+    return state;
+}
+bool ParkDisplayed() {
+    auto id=displayedEncounter ? displayedEncounter:encounters.Open();
+    if (!encounters.Park(id,Members(),Capture())) return false;
+    displayedEncounter=0;
+    return true;
+}
+// Restores the parked turn exactly where its hero was deciding: same queue,
+// round and remaining action budget. Nothing here starts or advances a turn.
+void Show(const decltype(encounters)::Parked &shown) {
+    const auto &state=shown.state;
+    displayedEncounter=shown.id;++shownGeneration;
+    detection.Clear();starting=false;starter=startingTarget=objHndl::null;startingScene=state.scene;
+    *tbSys.groupInitiativeList=state.initiative;
+    tbSys.turnBasedSetCurrentActor(state.current);
+    *combatAddresses.combatActor=state.combatActor;
+    temple::GetRef<int>(0x10BCAD80)=state.initiativeValue;
+    temple::GetRef<int>(0x10BCAD90)=state.surprise;
+    *combatAddresses.combatRoundCount=state.round;
+    *combatAddresses.combatTimeEventSthg=state.timeEventSthg;
+    *combatAddresses.combatTimeEventIndicator=state.timeEventIndicator;
+    std::copy(state.readied,state.readied+READIED_ACTION_CACHE_SIZE,ReadiedCache());
+    auto current=state.current;
+    if (current && objSystem->IsValidHandle(current) && actSeqSys.AllocSeq(current)) {
+        if (state.hasBudget) (*actSeqSys.actSeqCur)->tbStatus=state.budget;
+        else actSeqSys.TurnBasedStatusInit(current);
+    }
+    party.CurrentlySelectedClear();
+    if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    uiCombat.ActionBarUnsetFlag1(*combatAddresses.barPkt);
+    if (auto refresh=temple::GetRef<void(__cdecl*)()>(0x10AA83F4)) refresh();
+    logger->info("BG encounter {} shown: {} members, round {}, actor {}",shown.id,shown.members.size(),state.round,current);
+}
+}
+bool Parked(objHndl actor) {return Enabled() && actor && encounters.Owns(actor);}
+unsigned Encounters() {return unsigned(encounters.Size());}
+unsigned Shown() {return shownGeneration;}
+bool ParkForSeparate(objHndl initiator) {
+    if (!Enabled() || !GlobalCombatActive() || !Free(initiator) || Civilian(initiator) || !DisplayedWaits() || !ParkDisplayed()) return false;
+    tbSys.groupInitiativeList->Reset();
+    tbSys.turnBasedSetCurrentActor(objHndl::null);
+    *combatSys.combatModeActive=0;
+    logger->info("BG encounter parked; {} opens a separate encounter",initiator);
+    return true;
+}
+bool Activate(objHndl actor) {
+    if (!Enabled() || !GlobalCombatActive()) return false;
+    auto id=encounters.Owner(actor);
+    if (!id) return false;
+    if (!DisplayedWaits()) {logger->info("BG encounter {} waits: the shown encounter is mid-action",id);return false;}
+    decltype(encounters)::Parked shown;
+    auto previous=displayedEncounter ? displayedEncounter:encounters.Open();
+    auto members=Members();auto state=Capture();
+    if (!encounters.Take(id,shown)) return false;
+    if (!encounters.Park(previous,members,state)) {encounters.Park(shown.id,shown.members,shown.state);return false;}
+    Show(shown);
+    return true;
+}
+bool ResumeParked() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    decltype(encounters)::Parked shown;
+    while (encounters.TakeLatest(shown)) {
+        bool alive=false;
+        for (auto member:shown.members)
+            alive=alive || (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member));
+        if (!alive) continue;
+        *combatSys.combatModeActive=1;
+        Show(shown);
+        temple::GetRef<void(__cdecl)(objHndl)>(0x1003C770)(shown.state.current); // combat music
+        auto current=shown.state.current;
+        if (!current || !objSystem->IsValidHandle(current) || critterSys.IsDeadOrUnconscious(current))
+            combatSys.CombatAdvanceTurn(current);
+        return true;
+    }
+    displayedEncounter=0;
+    return false;
+}
+void DiscardEncounters() {encounters.Clear();displayedEncounter=0;}
 }

@@ -162,6 +162,7 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
                         if (!bgengagement::KeepSelection(hotkeys.IsKeyPressed(VK_CONTROL),bgscenecombat::FreeSelection(),bgscenecombat::Free(actor))) party.CurrentlySelectedClear();
                         party.AddToCurrentlySelected(actor);return;
                     }
+                    if (bgscenecombat::Parked(actor)) {bgscenecombat::Activate(actor);return;} // show that hero's encounter
                 }
             }
 			if (bgscenecombat::GlobalCombatActive() && bgscenecombat::FreeSelection()) {

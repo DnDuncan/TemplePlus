@@ -3107,7 +3107,12 @@ void ActionSequenceSystem::sequencePerform()
 {
     auto contextActor=*actSeqCur ? (*actSeqCur)->performer:objHndl::null;
     BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,contextActor);
+    if (bgscenecombat::Parked(contextActor)) {
+        logger->warn("Parked encounter member {} cannot act before its encounter is shown",contextActor);
+        return;
+    }
     bool assistingEncounter=false;
+    objHndl parkedTarget=objHndl::null;
     if (bgscenecombat::Free(contextActor) && *actSeqCur) {
         auto &packet=(*actSeqCur)->spellPktBody;
         auto &terrain=gameSystems->GetTerrain();
@@ -3117,15 +3122,29 @@ void ActionSequenceSystem::sequencePerform()
             if (!target) continue;
             if (!bgscenecombatpolicy::SameScene(scene,terrain.SceneAreaForActor(target.handle))) return;
             assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+            if (bgscenecombat::Parked(target)) parkedTarget=target;
         }
         for (auto i=0;i<(*actSeqCur)->d20ActArrayNum;++i) {
             auto target=(*actSeqCur)->d20ActArray[i].d20ATarget;
             if (target) assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+            if (target && bgscenecombat::Parked(target)) parkedTarget=target;
         }
+    }
+    if (bgscenecombat::Free(contextActor) && *actSeqCur && parkedTarget) {
+        // Engaging a waiting encounter shows it and joins it; the command is repeated on the actor's turn.
+        if (bgscenecombat::Activate(parkedTarget) && bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
+        else logger->warn("Waiting encounter of {} cannot be joined now; action deferred for {}",parkedTarget,contextActor);
+        return;
     }
     if (bgscenecombat::Free(contextActor) && *actSeqCur &&
         (assistingEncounter || ShouldTriggerCombat(*actSeqCur))) {
         if (bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
+        else if (!assistingEncounter && bgscenecombat::ParkForSeparate(contextActor)) {
+            // Native realtime opening: targets enter combat and the opener acts first,
+            // but the opening command is not performed before that first turn.
+            combatTriggerSthg(*actSeqCur);
+            if (!bgscenecombat::GlobalCombatActive()) bgscenecombat::ResumeParked();
+        }
         else logger->warn("Detached hostile action requires a separate encounter; action deferred for {}",contextActor);
         return;
     }

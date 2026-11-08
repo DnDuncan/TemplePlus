@@ -43,4 +43,12 @@ void Sleep(objHndl actor,bool sleeping);
 void Pulse(uint32_t now);
 void Turn();
 bool MoveFreeSelection(LocAndOffsets target);
+// Separate encounters: ToEE shows one, every other one waits parked on a hero's turn.
+bool Parked(objHndl actor);
+unsigned Encounters();
+bool ParkForSeparate(objHndl initiator);
+bool Activate(objHndl actor);
+bool ResumeParked();
+unsigned Shown(); // changes whenever another encounter is shown
+void DiscardEncounters();
 }
