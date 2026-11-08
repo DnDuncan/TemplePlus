@@ -34,6 +34,7 @@ void RecruitParty();
 void AfterJoin(objHndl actor);
 void ResetEngagement();
 bool PrimaryParticipant(objHndl actor);
+bool DeferJoin(objHndl actor);
 bool Free(objHndl actor);
 bool Busy(objHndl actor);
 bool FreeSelection();

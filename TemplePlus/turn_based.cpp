@@ -1,7 +1,6 @@
 
 #include "stdafx.h"
 #include "bgscenecombat.h"
-#include "action_sequence.h"
 #include "common.h"
 #include "turn_based.h"
 #include "util/fixes.h"
@@ -197,8 +196,7 @@ void TurnBasedSys::AddToInitiative(objHndl handle)
     if (!bgscenecombat::MayJoin(handle) || IsInInitiativeList(handle)) return;
     // Unrelated free actions finish before detection changes their turn mode.
     // The initiating pair retains native combat-start interruption rules.
-    if (bgscenecombat::Enabled() && party.IsInParty(handle) &&
-        !bgscenecombat::PrimaryParticipant(handle) && actSeqSys.isPerforming(handle)) return;
+    if (bgscenecombat::DeferJoin(handle)) return;
 	
 	auto obj = gameSystems->GetObj().GetObject(handle);
 	if (critterSys.IsDeadNullDestroyed(handle))

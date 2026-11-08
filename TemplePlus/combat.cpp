@@ -2223,6 +2223,9 @@ static bool starting=false;
 static bgengagement::DetectionCache<uint64_t> detection;
 void ResetEngagement() {detection.Clear();starter=startingTarget=objHndl::null;starting=false;startingScene=0;}
 bool PrimaryParticipant(objHndl actor) {return starting && actor && (actor==starter || actor==startingTarget);}
+bool DeferJoin(objHndl actor) {
+    return Enabled() && party.IsInParty(actor) && !PrimaryParticipant(actor) && actSeqSys.isPerforming(actor);
+}
 constexpr int CivilianMarker=0x42474356;
 bool Enabled() {return maps.GetCurrentMapId()==5136 && gameSystems->GetTerrain().HasOriginalDoorInput();}
 bool Civilian(objHndl actor) {
