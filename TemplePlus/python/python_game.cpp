@@ -1698,7 +1698,7 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 
-static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(1);}
+static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(2);}
 static PyObject* PyGame_BgSceneCombatScene(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::Scene());}
 static PyObject* PyGame_BgCivilianBind(PyObject*,PyObject* args) {
     objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_civilian_bind",&ConvertObjHndl,&actor)) return nullptr;
