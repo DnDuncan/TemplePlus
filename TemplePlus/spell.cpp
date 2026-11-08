@@ -1059,8 +1059,8 @@ int LegacySpellSystem::ParseSpellSpecString(SpellStoreData* spell, char* spellSt
         if (tokens.next() && tokens.token().type==StringTokenType::QuotedString && tokens.next()
             && tokens.token().type==StringTokenType::Identifier) {
             const auto &name=tokens.token().text;
-            if (!_stricmp(name.c_str(),"class_cleric")) spell->classCode=GetSpellClass(stat_level_cleric);
-            else if (!_stricmp(name.c_str(),"class_druid")) spell->classCode=GetSpellClass(stat_level_druid);
+            if (!_stricmp(name,"class_cleric")) spell->classCode=GetSpellClass(stat_level_cleric);
+            else if (!_stricmp(name,"class_druid")) spell->classCode=GetSpellClass(stat_level_druid);
         }
     }
     return result;
