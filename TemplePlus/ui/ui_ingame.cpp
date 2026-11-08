@@ -196,7 +196,8 @@ void UiInGame::ProcessMessage(const TigMsg & source) {
                 if (!key.down && key.key>=0x3b && key.key<=0x42 && key.key-0x3b<party.GroupListGetLen()) {
                     auto actor=party.GroupListGetMemberN(key.key-0x3b);
                     if (bgscenecombat::Free(actor) || actor==tbSys.turnBasedGetCurrentActor()) {
-                        party.CurrentlySelectedClear();party.AddToCurrentlySelected(actor);return;
+                        if (!hotkeys.IsKeyPressed(VK_CONTROL) || !bgscenecombat::FreeSelection()) party.CurrentlySelectedClear();
+                        party.AddToCurrentlySelected(actor);return;
                     }
                 }
             }

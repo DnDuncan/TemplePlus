@@ -1049,6 +1049,8 @@ void LegacyCombatSystem::Subturn()
 
 void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 {
+    std::vector<objHndl> detachedSelection;
+    if (bgscenecombat::FreeSelection()) for (auto i=0u;i<party.CurrentlySelectedNum();++i) detachedSelection.push_back(party.GetCurrentlySelected(i));
 	auto actor = tbSys.turnBasedGetCurrentActor();
 	int curActorInitIdx = tbSys.GetInitiativeListIdx();
 	if (prevInitiativeIdx > curActorInitIdx)
@@ -1086,6 +1088,10 @@ void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 		logger->debug("TurnStart2: \t Actor {} starting turn...(simul)", actor);
 		CombatAdvanceTurn(actor);
 	}
+    if (!detachedSelection.empty()) {
+        party.CurrentlySelectedClear();
+        for (auto member:detachedSelection) if (bgscenecombat::Free(member)) party.AddToCurrentlySelected(member);
+    }
 }
 
 void LegacyCombatSystem::CombatAdvanceTurn(objHndl obj)
@@ -2206,7 +2212,7 @@ bool Enabled() {return maps.GetCurrentMapId()==5136 && gameSystems->GetTerrain()
 bool Civilian(objHndl actor) {
     if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) return false;
     auto obj=objSystem->GetObject(actor);
-    return obj->IsNPC() && (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)==0x42474e00u
+    return obj->IsNPC() && !party.IsInParty(actor) && (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)==0x42474e00u
         && obj->GetInt32(obj_f_critter_pad_i_4)==CivilianMarker;
 }
 int Scene() {
@@ -2214,7 +2220,8 @@ int Scene() {
     if (starting) return startingScene;
     if (!combatSys.isCombatActive()) return 0;
     auto actor=tbSys.turnBasedGetCurrentActor();
-    return actor && objSystem->IsValidHandle(actor) ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):startingScene;
+    auto scene=actor && objSystem->IsValidHandle(actor) ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
+    return scene ? scene:startingScene;
 }
 void Begin(objHndl actor) {
     starting=Enabled();starter=actor;startingScene=starting ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
@@ -2254,6 +2261,7 @@ void BindCivilian(objHndl actor) {
     auto old=obj->GetInt32(obj_f_critter_pad_i_4);
     if (old && old!=CivilianMarker) throw std::invalid_argument("civilian marker occupied");
     obj->SetInt32(obj_f_critter_pad_i_4,CivilianMarker);
+    obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)&~OCF_COMBAT_MODE_ACTIVE);
 }
 void Sleep(objHndl actor,bool sleeping) {
     BindCivilian(actor);auto obj=objSystem->GetObject(actor);
