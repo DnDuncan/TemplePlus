@@ -1,6 +1,26 @@
 #pragma once
 #include "common.h"
+#include <memory>
+#include "bgactorcontext.h"
 namespace bgscenecombat {
+void ResetCombatActions();
+bool GlobalCombatActive();
+bool ContextCombatActive();
+extern BgActorContext<objHndl> actorContext;
+// Preserve the native combat cursor while another actor builds or finishes an action.
+class ActorActions {
+public:
+    explicit ActorActions(objHndl actor,bool prepareInput=false);
+    ~ActorActions();
+    bool Ready() const;
+    ActorActions(const ActorActions&)=delete;
+    ActorActions& operator=(const ActorActions&)=delete;
+private:
+    struct State;
+    BgActorContext<objHndl>::Scope queryScope;
+    std::unique_ptr<State> state;
+    bool ready=true;
+};
 bool Enabled();
 int Scene();
 void Begin(objHndl actor);

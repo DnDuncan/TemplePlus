@@ -828,11 +828,11 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	logger->debug("StartCombat: entering combat mode; initiated by {}", combatInitiator);
 
 	*combatAddresses.combatRoundCount = 0;
+	bgscenecombat::Begin(combatInitiator);
 	if (!gameSystems->GetAnim().InterruptAllForTbCombat()){
 		logger->debug("Combat: TB_Start: Anim-Goal-Interrupt FAILED!");
 	}
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(temple::GetRef<void(__cdecl)()>(0x100628F0));
-	bgscenecombat::Begin(combatInitiator);
 	tbSys.CreateInitiativeListWithParty();
 	*combatModeActive = TRUE;
 	bgscenecombat::Started();
@@ -1096,6 +1096,7 @@ void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 
 void LegacyCombatSystem::CombatAdvanceTurn(objHndl obj)
 {
+    if (bgscenecombat::Free(obj)) return;
 	if (combatAddresses.CheckFleeCombatMap() && combatAddresses.GetFleeStatus())
 	{
 		combatAddresses.CombatPerformFleeCombat(obj);
@@ -1186,14 +1187,16 @@ bool LegacyCombatSystem::CombatEnd(){
 	if (!isCombatActive() )
 		return true;
 
-	d20ObjRegistrySys.D20ObjRegistrySendSignalAll(DK_SIG_Combat_End, 0, 0);
-	*combatSys.combatModeActive = 0;
+    if (bgscenecombat::Enabled()) {
+        for (auto i=0;i<tbSys.GetInitiativeListLength();++i)
+            d20Sys.d20SendSignal(combatSys.GetInitiativeListMember(i),DK_SIG_Combat_End,0,0);
+    } else d20ObjRegistrySys.D20ObjRegistrySendSignalAll(DK_SIG_Combat_End,0,0);
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(nullptr);
 	if (!gameSystems->GetAnim().InterruptAllForTbCombat()){
 		logger->debug("CombatEnd: Anim goal interrupt FAILED!");
 	}
-	static auto actSeqResetOnCombatEnd = temple::GetRef<void(__cdecl)()>(0x10097BE0);
-	actSeqResetOnCombatEnd();
+    bgscenecombat::ResetCombatActions();
+    *combatSys.combatModeActive = 0;
 	auto &mResettingCombatSystem = temple::GetRef<BOOL>(0x10AA8448);
 	if (!mResettingCombatSystem)
 		tbSys.ExecuteExitCombatScriptForInitiativeList();
@@ -1213,7 +1216,7 @@ bool LegacyCombatSystem::CombatEnd(){
 bool LegacyCombatSystem::isCombatActive()
 {
 	auto isActive = *combatSys.combatModeActive;
-	return isActive != 0;
+	return isActive != 0 && bgscenecombat::ContextCombatActive();
 }
 
 bool LegacyCombatSystem::IsAutoAttack(){
@@ -2007,7 +2010,7 @@ int LegacyCombatSystem::GetCombatRoundCount()
 
 uint32_t _isCombatActive()
 {
-	return *combatSys.combatModeActive;
+	return bgscenecombat::ContextCombatActive();
 }
 
 uint64_t _GetCleveVictim(objHndl objHnd)
@@ -2204,6 +2207,11 @@ float VagrantSystem::GetPcGreybarResetCountdownValue()
 
 // BG scenes share map 5136; their combat membership must not share a party list.
 namespace bgscenecombat {
+BgActorContext<objHndl> actorContext;
+bool GlobalCombatActive() {return *combatSys.combatModeActive!=0;}
+bool ContextCombatActive() {
+    return actorContext.Combat(GlobalCombatActive(),[](objHndl actor) {return Free(actor);});
+}
 static int startingScene=0;
 static objHndl starter;
 static bool starting=false;
@@ -2218,7 +2226,7 @@ bool Civilian(objHndl actor) {
 int Scene() {
     if (!Enabled()) return 0;
     if (starting) return startingScene;
-    if (!combatSys.isCombatActive()) return 0;
+    if (!GlobalCombatActive()) return 0;
     auto actor=tbSys.turnBasedGetCurrentActor();
     auto scene=actor && objSystem->IsValidHandle(actor) ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
     return scene ? scene:startingScene;
@@ -2234,11 +2242,11 @@ bool MayJoin(objHndl actor) {
     return bgscenecombatpolicy::Join(Scene(),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Civilian(actor));
 }
 bool Free(objHndl actor) {
-    return Enabled() && combatSys.isCombatActive() && actor && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
+    return Enabled() && GlobalCombatActive() && actor && objSystem->IsValidHandle(actor) && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
 }
-bool Busy(objHndl actor) {return combatSys.isCombatActive() && !Free(actor);}
+bool Busy(objHndl actor) {return GlobalCombatActive() && !Free(actor);}
 bool FreeSelection() {
-    if (!Enabled() || !combatSys.isCombatActive() || !party.CurrentlySelectedNum()) return false;
+    if (!Enabled() || !GlobalCombatActive() || !party.CurrentlySelectedNum()) return false;
     for (auto i=0u;i<party.CurrentlySelectedNum();++i) if (!Free(party.GetCurrentlySelected(i))) return false;
     return true;
 }

@@ -58,7 +58,7 @@ BOOL AnimSystem::PushFidget(objHndl handle) {
     if (!(objBody->GetInt32(obj_f_critter_flags2) & OCF2_AUTO_ANIMATES))
         return FALSE;
 
-    if (combatSys.isCombatActive())
+    if (bgscenecombat::Busy(handle))
         return FALSE;
 
 	return PushFidgetInternal(handle) ? 1 : 0;
@@ -703,6 +703,7 @@ bool AnimSystem::InterruptAllForTbCombat(){
 			continue;
 		}
 
+        if (bgscenecombat::Enabled() && !bgscenecombat::MayJoin(slot.animObj)) continue;
 		if (objects.GetType(slot.animObj) == obj_t_portal){
 			continue;
 		}

@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
 #include "common.h"
 #include "d20.h"
 #include "action_sequence.h"
@@ -191,6 +192,108 @@ void(__cdecl* ActnSeqReplacements::orgTurnStart)(objHndl obj);
 
 ActionSequenceSystem actSeqSys;
 
+namespace bgscenecombat {
+namespace {
+ActnSeq *pendingFreePicker=nullptr;
+BgSequenceReservations<ActnSeq> savedCursors;
+bool Reserved(const ActnSeq *sequence) {
+    if (!*actSeqSys.actSeqPickerActive || !uiPicker.PickerActiveCheck()) pendingFreePicker=nullptr;
+    return sequence==pendingFreePicker || savedCursors.Contains(sequence);
+}
+}
+struct ActorActions::State {
+    ActnSeq *sequence;
+    objHndl performer,turnActor;
+    D20Actn action;
+    ActnSeq *interrupted;
+    uint32_t processing,performingDefault,performedDefault;
+    D20TargetClassification targeting;
+    D20ActionType actionType;
+    int32_t actionData;
+    BgSequenceReservations<ActnSeq>::Scope reservation;
+};
+ActorActions::ActorActions(objHndl actor,bool prepareInput):queryScope(actorContext,actor) {
+    if (!Free(actor)) return;
+    auto current=*actSeqSys.actSeqCur;
+    if (current && current->performer==actor) return;
+    state.reset(new State{current,current ? current->performer:objHndl::null,
+        tbSys.turnBasedGetCurrentActor(),*d20Sys.globD20Action,*addresses.actSeqInterrupted,
+        *actSeqSys.actnProcState,*actSeqSys.performingDefaultAction,*actSeqSys.performedDefaultAction,
+        *actSeqSys.seqPickerTargetingType,*actSeqSys.seqPickerD20ActnType,*actSeqSys.seqPickerD20ActnData1,
+        {savedCursors,current}});
+    *addresses.actSeqInterrupted=nullptr;
+    *actSeqSys.actnProcState=0;
+    *actSeqSys.performingDefaultAction=0;
+    *actSeqSys.performedDefaultAction=0;
+    ActnSeq *owned=nullptr;
+    actSeqSys.isPerforming(actor,&owned);
+    if (!owned && pendingFreePicker && *actSeqSys.actSeqPickerActive &&
+        uiPicker.PickerActiveCheck() && pendingFreePicker->performer==actor) owned=pendingFreePicker;
+    *actSeqSys.actSeqCur=owned;
+    d20Sys.globD20ActnSetPerformer(actor);
+    if (prepareInput && !owned) ready=actSeqSys.TurnBasedStatusInit(actor)!=0;
+    if (prepareInput && ready && *actSeqSys.actSeqCur && !owned)
+        d20Sys.D20ActnInit(actor,d20Sys.globD20Action);
+}
+ActorActions::~ActorActions() {
+    if (!state) return;
+    auto current=*actSeqSys.actSeqCur;
+    if (current && *actSeqSys.actSeqPickerActive &&
+        addresses.actSeqPickerAction->d20APerformer==current->performer && Free(current->performer)) {
+        pendingFreePicker=current;
+    }
+    // A combat end or turn change owns the new cursor; never roll it back.
+    if (!GlobalCombatActive() || tbSys.turnBasedGetCurrentActor()!=state->turnActor ||
+        (state->sequence && state->sequence->performer!=state->performer)) return;
+    *actSeqSys.actSeqCur=state->sequence;
+    *d20Sys.globD20Action=state->action;
+    *addresses.actSeqInterrupted=state->interrupted;
+    *actSeqSys.actnProcState=state->processing;
+    *actSeqSys.performingDefaultAction=state->performingDefault;
+    *actSeqSys.performedDefaultAction=state->performedDefault;
+    *actSeqSys.seqPickerTargetingType=state->targeting;
+    *actSeqSys.seqPickerD20ActnType=state->actionType;
+    *actSeqSys.seqPickerD20ActnData1=state->actionData;
+}
+bool ActorActions::Ready() const {return ready;}
+
+class PreserveDetachedSequences {
+public:
+    PreserveDetachedSequences() {
+        if (!Enabled() || temple::GetRef<BOOL>(0x10AA8448)) return;
+        for (int i=0;i<ACT_SEQ_ARRAY_SIZE;++i) {
+            auto &sequence=actSeqSys.actSeqArray[i];
+            if (!(sequence.seqOccupied&SEQF_PERFORMING) && &sequence!=pendingFreePicker) continue;
+            if (!sequence.performer || !objSystem->IsValidHandle(sequence.performer) ||
+                tbSys.IsInInitiativeList(sequence.performer)) continue;
+            sequences.emplace_back(i,sequence);
+            for (int j=0;j<sequence.d20ActArrayNum;++j) {
+                auto path=sequence.d20ActArray[j].path;
+                if (path && pathfindingSys.pathQueryResultIsValid(path)) paths.emplace_back(path,*path);
+            }
+        }
+        for (const auto &saved:sequences) if (*actSeqSys.actSeqCur==&actSeqSys.actSeqArray[saved.first]) {
+            cursor=*actSeqSys.actSeqCur;
+            action=*d20Sys.globD20Action;
+        }
+    }
+    ~PreserveDetachedSequences() {
+        for (const auto &saved:sequences) actSeqSys.actSeqArray[saved.first]=saved.second;
+        for (const auto &saved:paths) *saved.first=saved.second;
+        if (cursor) {*actSeqSys.actSeqCur=cursor;*d20Sys.globD20Action=action;}
+    }
+private:
+    std::vector<std::pair<int,ActnSeq>> sequences;
+    std::vector<std::pair<PathQueryResult*,PathQueryResult>> paths;
+    ActnSeq *cursor=nullptr;
+    D20Actn action;
+};
+void ResetCombatActions() {
+    PreserveDetachedSequences preserve;
+    temple::GetRef<void(__cdecl)()>(0x10097BE0)();
+}
+}
+
 ActionSequenceSystem::ActionSequenceSystem()
 {
 	d20 = &d20Sys;
@@ -342,6 +445,7 @@ void ActionSequenceSystem::curSeqReset(objHndl obj)
 }
 
 void ActionSequenceSystem::ResetAll(objHndl handle){
+    bgscenecombat::PreserveDetachedSequences preserve;
 	// resets the readied action cache
 	// Clear TBUiIntgameFocus
 	// Set handle to initiative list first entry
@@ -541,6 +645,13 @@ void ActionSequenceSystem::SeqPickerTargetingReset(){
 }
 
 void ActionSequenceSystem::SpellPickerCallback(const PickerResult & result, SpellPacketBody * pkt){
+    auto actor=addresses.actSeqPickerAction->d20APerformer;
+    bgscenecombat::ActorActions actorActions(actor,true);
+    if (!actorActions.Ready()) return;
+    if (result.flags && bgscenecombat::pendingFreePicker) {
+        bgscenecombat::pendingFreePicker=nullptr;
+    }
+
 	if (!result.flags) {
 		*actSeqPickerActive = 1;
 		return;
@@ -832,6 +943,13 @@ void ActionSequenceSystem::TurnStart(objHndl obj)
 
 int ActionSequenceSystem::ActionAddToSeq()
 {
+    auto performer=d20Sys.globD20Action->d20APerformer;
+    auto target=d20Sys.globD20Action->d20ATarget;
+    if (bgscenecombat::Enabled() && target && performer &&
+        gameSystems->GetTerrain().SceneAreaForActor(target.handle)!=
+        gameSystems->GetTerrain().SceneAreaForActor(performer.handle)) return AEC_TARGET_INVALID;
+    BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,performer);
+
 	auto curSeq = *actSeqCur;
 	auto d20ActnType = d20Sys.globD20Action->d20ActType;
 	int actnCheckResult = AEC_OK;
@@ -1410,7 +1528,7 @@ uint32_t ActionSequenceSystem::AllocSeq(objHndl objHnd)
 	}
 	for (auto i = 0; i < ACT_SEQ_ARRAY_SIZE; i++)
 	{
-		if ( (actSeqArray[i].seqOccupied & SEQF_PERFORMING ) == 0)
+		if ( (actSeqArray[i].seqOccupied & SEQF_PERFORMING) == 0 && !bgscenecombat::Reserved(&actSeqArray[i]))
 		{
 			*actSeqCur = &actSeqArray[i];
 			if (combat->isCombatActive())
@@ -1448,6 +1566,7 @@ uint32_t ActionSequenceSystem::AssignSeq(objHndl objHnd)
 
 uint32_t ActionSequenceSystem::TurnBasedStatusInit(objHndl objHnd)
 {
+    BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,objHnd);
 	TurnBasedStatus * tbStatus;
 	DispIOTurnBasedStatus dispIOtB;
 
@@ -1458,7 +1577,7 @@ uint32_t ActionSequenceSystem::TurnBasedStatusInit(objHndl objHnd)
 	{
 		d20->globD20ActnSetPerformer(objHnd);
 		*actSeqCur = nullptr;
-		AssignSeq(objHnd);
+		if (!AssignSeq(objHnd)) return 0;
 		ActnSeq * curSeq = *actSeqCur;
 		tbStatus = &curSeq->tbStatus;
 		tbStatus->hourglassState = 4;
@@ -1556,7 +1675,7 @@ BOOL ActionSequenceSystem::SequenceSwitch(objHndl obj)
 
 	if (seqIdx >= 0)
 	{
-		logger->debug("SequenceSwitch: \t Last performer was {}, seq: {}", (*actSeqCur)->performer, (void*)(*actSeqCur));
+		logger->debug("SequenceSwitch: \t Last performer was {}, seq: {}", (*actSeqCur) ? (*actSeqCur)->performer:objHndl::null, (void*)(*actSeqCur));
 		*actSeqCur = &actSeqArray[seqIdx];
 		logger->debug("\t\t switching to {}. New Current Seq: {}", obj, (void*)(*actSeqCur));
 		return 1;
@@ -2976,10 +3095,19 @@ void ActionSequenceSystem::ActionPerform()
 /* 0x100961C0 */
 void ActionSequenceSystem::sequencePerform()
 {
+    auto contextActor=*actSeqCur ? (*actSeqCur)->performer:objHndl::null;
+    BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,contextActor);
+    if (bgscenecombat::Free(contextActor) && *actSeqCur && ShouldTriggerCombat(*actSeqCur)) {
+        if (bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
+        else logger->warn("Detached hostile action requires a separate encounter; action deferred for {}",contextActor);
+        return;
+    }
+
 	// check if OK to perform
 	if (*actSeqPickerActive){
 		ActnSeq * curSeq = *actSeqCur;
-		if (!curSeq || party.IsInParty(curSeq->performer)) // should solve the issue when casting a spell in the presence of prebuffing NPCs (i.e non-party members can now cast spells while the player's picker is active, so there shouldn't be a lingering spell cast sequence fucking your shit up)
+		if (!curSeq || (party.IsInParty(curSeq->performer) &&
+            (!bgscenecombat::Enabled() || addresses.actSeqPickerAction->d20APerformer==curSeq->performer))) // should solve the issue when casting a spell in the presence of prebuffing NPCs (i.e non-party members can now cast spells while the player's picker is active, so there shouldn't be a lingering spell cast sequence fucking your shit up)
 			return;
 	}
 
@@ -3002,7 +3130,7 @@ void ActionSequenceSystem::sequencePerform()
 
 	// try to perform the sequence and its actions
 	ActnSeq * curSeq = *actSeqCur;
-	if (combat->isCombatActive() || !ShouldTriggerCombat(curSeq) || !combatTriggerSthg(curSeq) )
+	if (bgscenecombat::GlobalCombatActive() || !ShouldTriggerCombat(curSeq) || !combatTriggerSthg(curSeq) )
 	{
 		if (curSeq != *actSeqCur)
 		{
@@ -3067,6 +3195,7 @@ void ActionSequenceSystem::ActionBroadcastAndSignalMoved()
 
 int ActionSequenceSystem::ActionFrameProcess(objHndl obj)
 {
+    bgscenecombat::ActorActions actorActions(obj);
 	logger->debug("ActionFrameProcess: \t for {}", obj);
 	if (!isPerforming(obj))
 	{
@@ -3115,9 +3244,10 @@ int ActionSequenceSystem::ActionFrameProcess(objHndl obj)
 /* 0x10099B10 */
 void ActionSequenceSystem::PerformOnProjectileComplete(objHndl projectile, objHndl thrower)
 {
+    bgscenecombat::ActorActions actorActions(thrower);
 	logger->info("Projectile hit (thrown by {})", thrower);
 	if (!isPerforming(thrower)) {
-		if (isSimultPerformer(thrower)) {
+		if (bgscenecombat::Busy(thrower) && isSimultPerformer(thrower)) {
 			if (IsSimulsCompleted()) {
 				logger->info("\t\t (not performing, but advancing turn anyway)");
 				auto actor = tbSys.turnBasedGetCurrentActor();
@@ -3220,6 +3350,7 @@ unsigned int ActionSequenceSystem::ChargeAttackAddToSeq(D20Actn* d20a, ActnSeq* 
 
 void ActionSequenceSystem::PerformOnAnimComplete(objHndl obj, int animId)
 {
+    bgscenecombat::ActorActions actorActions(obj);
 	// do checks:
 
 	// obj is performing
@@ -3239,7 +3370,7 @@ void ActionSequenceSystem::PerformOnAnimComplete(objHndl obj, int animId)
 	auto curSeq0 = curSeq;
 	if (!curSeq || curSeq->performer != obj || !(curSeq->seqOccupied & SEQF_PERFORMING))
 	{
-		logger->debug("\tCurrent sequence performer is {}, Switching sequence...", curSeq->performer);
+		logger->debug("\tCurrent sequence performer is {}, Switching sequence...", curSeq ? curSeq->performer:objHndl::null);
 		if (!SequenceSwitch(obj))
 		{
 			logger->debug("\tFailed.");
@@ -3591,6 +3722,7 @@ int ActionSequenceSystem::TouchAttackAddToSeq(D20Actn* d20a, ActnSeq* actSeq, Tu
 
 int ActionSequenceSystem::ActionCostProcess(TurnBasedStatus* tbStat, D20Actn* d20a)
 {
+    BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,d20a->d20APerformer);
 	ActionCostPacket actCost;
 	int hourglassCost;
 
