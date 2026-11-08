@@ -876,6 +876,9 @@ objHndl AiSystem::FindSuitableTarget(objHndl handle){
 	for (auto i =0; i < numCritters; i++){
 		auto target = critterList[i];
 		
+        // Detached PCs are recruited by the scene perception pass. Do not
+        // reroll their stealth here or return them to a combat tactic early.
+        if (bgscenecombat::Enabled() && !bgscenecombat::CanTarget(handle,target)) continue;
 		// Added 2019-01 because it was silly
 		if (target == handle)
 			continue;

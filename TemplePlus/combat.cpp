@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "bgscenecombat.h"
 #include "bgscenecombatpolicy.h"
+#include "bgengagementrules.h"
 #include <infrastructure/meshes.h>
 #include "graphics/mapterrain.h"
 #include "dispatcher.h"
@@ -33,6 +34,7 @@
 #include "tutorial.h"
 #include "objlist.h"
 #include "ui/ui_dialog.h"
+#include "ui/ui_systems.h"
 #include "condition.h"
 #include "legacyscriptsystem.h"
 #include "gamesystems/legacysystems.h"
@@ -575,7 +577,7 @@ void LegacyCombatSystem::GetEnemyListInRange(objHndl performer, float rangeFeet,
 		auto resHandle = enemies[i];
 		if (!resHandle)
 			break;
-        if (!bgscenecombat::MayJoin(resHandle)) continue;
+        if (!bgscenecombat::MayJoin(resHandle) || !bgscenecombat::CanTarget(performer,resHandle)) continue;
 
 		if (critterSys.IsDeadNullDestroyed(resHandle))
 			continue;
@@ -724,6 +726,7 @@ void LegacyCombatSystem::AddToInitiativeWithinRect(objHndl handle) const
 		if (!resHandle)
 			break;
 
+        if (bgscenecombat::Enabled() && party.IsInParty(resHandle) && !bgscenecombat::MayAutoJoin(resHandle)) continue;
 		// check if the object is ok to act (not dead, OF_OFF, OF_DONTDRAW (to prevent the naughty Co8 critters from getting into combat), destroyed , unconscious)
 		auto resObj = gameSystems->GetObj().GetObject(resHandle);
 		if (resObj->GetFlags() & ( OF_OFF | OF_DESTROYED | OF_DONTDRAW ))
@@ -840,10 +843,11 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	// Add within rect party to initiative 
 	for (auto i=0u; i < party.GroupListGetLen(); i++){
 		auto partyMember = party.GroupListGetMemberN(i);
-		if (bgscenecombat::MayJoin(partyMember)) AddToInitiativeWithinRect(partyMember);
+		if (bgscenecombat::MayAutoJoin(partyMember)) AddToInitiativeWithinRect(partyMember);
 	}
 
 	AddToInitiative(combatInitiator);
+    bgscenecombat::RecruitParty();
 
 	if (setToFirstInitiativeFlag){
 		actSeqSys.ResetAll(combatInitiator);
@@ -1201,6 +1205,7 @@ bool LegacyCombatSystem::CombatEnd(){
 	if (!mResettingCombatSystem)
 		tbSys.ExecuteExitCombatScriptForInitiativeList();
 	tbSys.TbCombatEnd(mResettingCombatSystem);
+    bgscenecombat::ResetEngagement();
 	if (!mResettingCombatSystem){
 		auto N = party.GroupListGetLen();
 		for (auto i=0u; i < N; i++){
@@ -2213,8 +2218,11 @@ bool ContextCombatActive() {
     return actorContext.Combat(GlobalCombatActive(),[](objHndl actor) {return Free(actor);});
 }
 static int startingScene=0;
-static objHndl starter;
+static objHndl starter,startingTarget;
 static bool starting=false;
+static bgengagement::DetectionCache<uint64_t> detection;
+void ResetEngagement() {detection.Clear();starter=startingTarget=objHndl::null;starting=false;startingScene=0;}
+bool PrimaryParticipant(objHndl actor) {return starting && actor && (actor==starter || actor==startingTarget);}
 constexpr int CivilianMarker=0x42474356;
 bool Enabled() {return maps.GetCurrentMapId()==5136 && gameSystems->GetTerrain().HasOriginalDoorInput();}
 bool Civilian(objHndl actor) {
@@ -2232,14 +2240,97 @@ int Scene() {
     return scene ? scene:startingScene;
 }
 void Begin(objHndl actor) {
+    ResetEngagement();
     starting=Enabled();starter=actor;startingScene=starting ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
+    if (starting && actor && objSystem->IsValidHandle(actor) && objSystem->GetObject(actor)->IsNPC()) {
+        auto target=aiSys.GetCombatFocus(actor);
+        if (target && objSystem->IsValidHandle(target) && party.IsInParty(target) &&
+            gameSystems->GetTerrain().SceneAreaForActor(target.handle)==startingScene) startingTarget=target;
+    }
     if (startingScene) {auto args=Py_BuildValue("(i)",startingScene);auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","scene_begin",args);Py_XDECREF(result);Py_DECREF(args);}
 }
-void SeedInitiative() {if (starting && !tbSys.GetInitiativeListLength() && starter) tbSys.AddToInitiative(starter);}
+void SeedInitiative() {if (starting && starter) tbSys.AddToInitiative(starter);}
 void Started() {starting=false;}
 bool MayJoin(objHndl actor) {
     if (!Enabled()) return true;
+    if (!actor || !objSystem->IsValidHandle(actor)) return false;
     return bgscenecombatpolicy::Join(Scene(),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Civilian(actor));
+}
+namespace {
+bool Observer(objHndl actor,objHndl observer) {
+    return observer && objSystem->IsValidHandle(observer) && objSystem->GetObject(observer)->IsNPC() &&
+        !party.IsInParty(observer) && !Civilian(observer) &&
+        !(objects.GetFlags(observer)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) &&
+        !critterSys.IsDeadOrUnconscious(observer) &&
+        bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(observer.handle),
+            gameSystems->GetTerrain().SceneAreaForActor(actor.handle));
+}
+bool Threatens(objHndl actor,objHndl observer) {
+    return Observer(actor,observer) && !critterSys.IsFriendly(observer,actor) &&
+        aiSys.GetCombatFocus(observer)==actor;
+}
+bool Detects(objHndl actor,objHndl observer) {
+    if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor) ||
+        locSys.DistanceToObj(observer,actor)>COMBAT_ACTIVATION_DISTANCE) return false;
+    auto sense=[&]() {
+        if (critterSys.HasLineOfSight(observer,actor)==0 || critterSys.CanSeeWithBlindsight(observer,actor))
+            return critterSys.CanSense(observer,actor);
+        int open=!critterSys.IsMovingSilently(actor) && !critterSys.IsConcealed(actor);
+        return aiSys.CannotHear(observer,actor,open)==0;
+    };
+    uint32_t signature=(critterSys.IsMovingSilently(actor)?1u:0u) |
+        (critterSys.IsConcealed(actor)?2u:0u) |
+        (d20Sys.d20Query(actor,DK_QUE_Critter_Is_Invisible)?4u:0u);
+    if (!signature) {detection.Forget(observer.handle,actor.handle);return sense();}
+    return detection.Observe(observer.handle,actor.handle,timeGetTime(),signature,sense);
+}
+}
+bool MayAutoJoin(objHndl actor) {
+    if (!Enabled()) return true;
+    if (!MayJoin(actor)) return false;
+    if (!party.IsInParty(actor)) return true;
+    if (!Scene()) return tbSys.IsInInitiativeList(actor) || PrimaryParticipant(actor);
+    bool available=!(objects.GetFlags(actor)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) &&
+        !critterSys.IsDeadOrUnconscious(actor);
+    bgengagement::Candidate candidate{available,tbSys.IsInInitiativeList(actor),PrimaryParticipant(actor),
+        false,false,actSeqSys.isPerforming(actor)!=0};
+    if (!available || candidate.member || candidate.initiating || candidate.actionPending)
+        return bgengagement::AutoJoin(candidate);
+    if (starting) {
+        candidate.threatened=Threatens(actor,starter);
+        candidate.detected=!candidate.threatened && Detects(actor,starter);
+    }
+    for (auto i=0;i<combatSys.GetInitiativeListLength() && !candidate.threatened && !candidate.detected;++i) {
+        auto observer=combatSys.GetInitiativeListMember(i);
+        candidate.threatened=Threatens(actor,observer);
+        candidate.detected=!candidate.threatened && Detects(actor,observer);
+    }
+    return bgengagement::AutoJoin(candidate);
+}
+void AfterJoin(objHndl actor) {
+    if (!Enabled() || !GlobalCombatActive() || !party.IsInParty(actor)) return;
+    bool selected=false;std::vector<objHndl> freeActors;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto member=party.GetCurrentlySelected(i);
+        selected=selected || member==actor;
+        if (Free(member)) freeActors.push_back(member);
+    }
+    auto mode=bgengagement::SelectionAfterJoin(selected,!freeActors.empty());
+    if (mode==bgengagement::JoinSelection::Keep) return;
+    party.CurrentlySelectedClear();
+    if (mode==bgengagement::JoinSelection::FreeActors) {
+        for (auto member:freeActors) party.AddToCurrentlySelected(member);
+    } else {
+        auto current=tbSys.turnBasedGetCurrentActor();
+        if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    }
+}
+void RecruitParty() {
+    if (!Enabled() || !GlobalCombatActive() || uiSystems->GetDlg().IsActive()) return;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto actor=party.GroupListGetMemberN(i);
+        if (!tbSys.IsInInitiativeList(actor) && MayAutoJoin(actor)) tbSys.AddToInitiative(actor);
+    }
 }
 bool Free(objHndl actor) {
     return Enabled() && GlobalCombatActive() && actor && objSystem->IsValidHandle(actor) && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
@@ -2252,6 +2343,8 @@ bool FreeSelection() {
 }
 bool CanTarget(objHndl actor,objHndl target) {
     if (!Enabled()) return true;
+    if (GlobalCombatActive() && !party.IsInParty(actor) && tbSys.IsInInitiativeList(actor) &&
+        party.IsInParty(target) && !tbSys.IsInInitiativeList(target)) return false;
     return bgscenecombatpolicy::Target(gameSystems->GetTerrain().SceneAreaForActor(actor.handle),gameSystems->GetTerrain().SceneAreaForActor(target.handle),Civilian(target));
 }
 static CondNode* FindCondition(objHndl actor,const char *name) {
@@ -2291,6 +2384,7 @@ static void Event(const char *name,PyObject *args) {
 }
 void Pulse(uint32_t now) {
     static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
+    RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
 void Turn() {
