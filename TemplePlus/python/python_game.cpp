@@ -27,6 +27,7 @@
 #include "movies.h"
 #include "textbubbles.h"
 #include "party.h"
+#include "action_sequence.h"
 #include "raycast.h"
 #include "sound.h"
 #include "ui/ui.h"
@@ -1697,11 +1698,15 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 
-static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(1);}
+static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(2);}
 static PyObject* PyGame_BgSceneCombatScene(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::Scene());}
 static PyObject* PyGame_BgCivilianBind(PyObject*,PyObject* args) {
     objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_civilian_bind",&ConvertObjHndl,&actor)) return nullptr;
     try {bgscenecombat::BindCivilian(actor);Py_RETURN_NONE;} catch(const std::exception &e){PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
+}
+static PyObject* PyGame_BgPartyActionsBusy(PyObject*,PyObject*) {
+    for (auto i=0u;i<party.GroupListGetLen();++i) if (actSeqSys.isPerforming(party.GroupListGetMemberN(i))) Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
 }
 static PyObject* PyGame_BgCivilianSleep(PyObject*,PyObject* args) {
     objHndl actor;int asleep;if (!PyArg_ParseTuple(args,"O&i:bg_civilian_sleep",&ConvertObjHndl,&actor,&asleep)) return nullptr;
@@ -2041,6 +2046,7 @@ static PyMethodDef PyGameMethods[]{
     {"bg_scene_combat_version",PyGame_BgSceneCombatVersion,METH_VARARGS,NULL},
     {"bg_scene_combat_scene",PyGame_BgSceneCombatScene,METH_VARARGS,NULL},
     {"bg_civilian_bind",PyGame_BgCivilianBind,METH_VARARGS,NULL},
+    {"bg_party_actions_busy",PyGame_BgPartyActionsBusy,METH_NOARGS,NULL},
     {"bg_civilian_sleep",PyGame_BgCivilianSleep,METH_VARARGS,NULL},
     {"bg_npc_scene_travel",PyGame_BgNpcSceneTravel,METH_VARARGS,NULL},
     {"bg_npc_motion_version",PyGame_BgNpcMotionVersion,METH_VARARGS,NULL},

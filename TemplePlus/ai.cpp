@@ -233,7 +233,9 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 		logger->info("AiStrategy: \t {} attempting {}...", objHnd, aiTac.aiTac->name);
 		auto aiFunc = aiTac.aiTac->aiFunc;
 		if (!aiFunc) continue;
+        if (aiTac.target && aiTac.target!=objHnd && !bgscenecombat::CanTarget(objHnd,aiTac.target)) aiTac.target=objHndl::null;
 		if (aiFunc(&aiTac)) {
+            if (aiTac.target && aiTac.target!=objHnd && !bgscenecombat::CanTarget(objHnd,aiTac.target)) {actSeq->curSeqReset(objHnd);continue;}
 			logger->info("AiStrategy: \t AI tactic succeeded; performing.");
 			actSeq->sequencePerform();
 			return TRUE;
@@ -253,6 +255,7 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 	if (aiTac.target)
 		logger->info("Target: {}", aiTac.target);
 	assert(aiTac.aiTac != nullptr);
+    if (aiTac.target && !bgscenecombat::CanTarget(objHnd,aiTac.target)) aiTac.target=objHndl::null;
 	if (Default(&aiTac))
 	{
 		actSeq->sequencePerform();
@@ -262,7 +265,7 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 	if (!aiTac.target || !combatSys.IsWithinReach(objHnd, aiTac.target)){
 		logger->info("AiStrategy: \t Default FAILED. Attempting to find pathable party member as target...");
 		objHndl pathablePartyMember = pathfindingSys.CanPathToParty(objHnd);
-		if (pathablePartyMember)
+		if (pathablePartyMember && bgscenecombat::CanTarget(objHnd,pathablePartyMember))
 		{
 			aiTac.target = pathablePartyMember;
 			logger->info("New target: {}", pathablePartyMember);

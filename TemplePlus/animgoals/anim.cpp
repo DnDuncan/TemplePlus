@@ -285,13 +285,16 @@ bool AnimSystem::PushUseSkillOn(objHndl actor, objHndl target,
 bool AnimSystem::PushRunNearTile(objHndl actor, LocAndOffsets target,
                                      int radiusFeet) {
   if (party.IsInParty(actor) && !bgscenecombat::Busy(actor) &&
-      gameSystems->GetTerrain().HasOriginalDoorInput() && !ShouldRun(actor)) {
-    // Native run-near 0x1001C1B0 stores the feet radius in animId.number.
-    AnimSlotGoalStackEntry goal(actor, ag_move_near_tile, true);
-    goal.targetTile.location = target;
-    goal.animId.number = radiusFeet;
-    AnimSlotId id;
-    return goal.Push(&id);
+      gameSystems->GetTerrain().HasOriginalDoorInput()) {
+    auto &terrain=gameSystems->GetTerrain();auto targetPoint=target.ToInches2D();
+    if (terrain.SceneAreaForActor(actor.handle)!=terrain.SceneAreaForPoint({targetPoint.x,targetPoint.y})) return false;
+    PathQuery query;query.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_ADJUST_RADIUS|PQF_ADJ_RADIUS_REQUIRE_LOS);
+    query.critter=actor;query.from=objects.GetLocationFull(actor);query.to=target;
+    query.distanceToTargetMin=0;query.tolRadius=float(radiusFeet)*12.0f;query.maxShortPathFindLength=200;
+    PathQueryResult path;pathfindingSys.PathCacheInit();
+    if (!pathfindingSys.FindPath(&query,&path)) return false;
+    if (!path.nodeCount) return true;
+    return PushPreparedPartyPath(actor,path);
   }
   return addresses.PushRunNearTile(actor, target, radiusFeet);
 }
