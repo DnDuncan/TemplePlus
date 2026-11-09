@@ -79,6 +79,10 @@ void Revealed(objHndl hero);
 // world pass (grey unchecked, yellow missed, red noticed; a line splits off the
 // rear half where an unalerted enemy has Spot -5).
 void RenderStealthRanges();
+// Waiting fights travel with the save (persistent object ids). Save returns false
+// only when a member cannot be persisted; Load accepts saves without the file.
+bool SaveEncounters(const char *path);
+void LoadEncounters(const char *path);
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }

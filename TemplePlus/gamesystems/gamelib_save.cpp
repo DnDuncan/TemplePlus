@@ -127,16 +127,16 @@ static bool SaveGsiData(const GsiData &saveInfo) {
 }
 
 bool GameSystems::SaveGame(const string& filename, const string& displayName) {
-	if (bgscenecombat::Encounters()) {
-		// Parked encounters are not serialized yet; refuse instead of losing their turns.
-		logger->error("Save refused: {} parked BG encounter(s) are waiting.", bgscenecombat::Encounters());
-		return false;
-	}
-
 	InSaveGame inSave;
 	addresses.UiMmRelated(63);
 
 	if (!TioDirExists("Save\\Current")) {
+		return false;
+	}
+
+	// Waiting BG fights are packed into the archive with everything in Save\Current.
+	if (!bgscenecombat::SaveEncounters("Save\\Current\\bg_encounters.dat")) {
+		logger->error("Save refused: {} waiting BG fight(s) could not be written.", bgscenecombat::Encounters());
 		return false;
 	}
 

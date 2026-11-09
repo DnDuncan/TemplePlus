@@ -59,14 +59,35 @@ shown encounter. Logical scenes still only filter who may start or join.
   hero ("BG turn skipped"). When every hero of the fight is down and another hero
   is up, the fight is parked unattended ("every hero of the fight is down"): the
   world leaves combat and the fight keeps its own clock, one round per 6 seconds
-  outside dialogue, dispatching BeginRound to its members (dying, durations),
-  logged "round N goes on without its heroes". Selecting a downed hero does not
+  outside dialogue, logged "round N goes on without its heroes" (dying and effect
+  durations are ToEE's own real-time rounds, which run every 6 s out of combat;
+  0.2.158 also dispatched BeginRound, which doubled them and was removed). Selecting a downed hero does not
   show it; a free hero noticed by its enemies joins its order (no restart, no new
   initiative for the others). A raised hero makes it an ordinary waiting fight; it
   ends when its heroes are dead or its enemies are down. While a fight has living
   heroes (downed too), targetless enemies stay in it, and only the fight's own
   heroes count for "enemies far from the party". Subturn keeps a free selection.
-  Enemy turns in an unattended fight are phase 3; for now enemies only wait.
+- **Enemies of a heroless fight (phase 3).** Each of its rounds the enemies act in
+  initiative order: with no conscious hero within 40 ft, an enemy runs to the
+  nearest downed hero of its fight and, once in reach, performs a coup de grace
+  ("finishes downed ... (coup de grace)", float and combat log); otherwise it
+  holds (design 9.1 a).
+- **Stealth feedback.** An attack is judged unseen when the action starts (it was
+  judged after the roll before), with a fresh perception chance. An unalerted
+  enemy (out of every fight, AI not fighting) with the hero in its rear half has
+  Spot -5; sight stays all-round, Listen is unchanged. Text is in
+  tpdata/tpmes/bg_stealth.mes (cp1251): the combat log shows Spot vs Hide and
+  Listen vs Move Silently with every modifier whenever an outcome changes or an
+  attack depends on it; '?' (missed) and '!' (noticed) float over enemies and
+  Hidden/Noticed/Revealed over the hero; "Attack from stealth!" and a log line
+  mark an unseen attack. Holding Shift with a sneaking hero selected draws each
+  nearby enemy's 40 ft range: grey unchecked, yellow missed, red noticed; for an
+  unalerted enemy a line splits off its rear half and a tick shows its facing.
+- **Saving.** Waiting fights are saved in Save\Currentg_encounters.dat inside
+  the archive: members, initiative order, turn, round, surprise, the waiting
+  hero's budget and readied actions, by persistent object ids. Loading restores
+  them after the objects exist (missing members are dropped; a fight with none
+  left is not restored). Older saves have no file and load as before.
 - **Stances and scenes (0.2.160).** A hero's combat stance is its own: entering
   combat no longer sets the whole party's stance in the BG map, and heroes outside
   every fight drop it (on parking and each pulse while a fight exists). A native
@@ -83,9 +104,9 @@ shown encounter. Logical scenes still only filter who may start or join.
 
 - A parked encounter is paused, not running in parallel: its NPC turns advance only
   while it is shown. Every encounter can still advance independently in turn.
-- Saving is refused while any encounter is parked (logged); serialization by stable
-  object IDs is the next step. Saves with one encounter are unchanged. Load and
-  combat-system reset discard parked encounters.
+- A save is refused only if a member of a waiting fight has no persistent id
+  (logged). The unattended round clock restarts at load. Combat-system reset
+  discards waiting fights.
 - GameTime/effect clocks, dialogue and skill-check contexts remain shared.
 - New separate encounters start only from a free actor's hostile action against a
   different logical scene; same-scene separate groups are not opened yet.
@@ -101,7 +122,8 @@ Use a save made before any combat.
 2. F-key on A: A's turn, budget and round are as left. F-key on B: B's encounter as left.
 3. End B's encounter: the world is out of combat; select A: A's encounter continues
    without skipping A or adding a round.
-4. Try to save with a parked encounter: refused (logged). After it ends, saving works.
+4. Save with a waiting fight, load: "BG encounters loaded: N of N"; selecting its
+   hero continues the same turn, round and budget.
 5. Ordinary one-encounter fights, free actions, doors and loot without regressions.
 6. On A's turn select a free hero: combat music and initiative bar end, the hero
    talks, travels and loots; walking into A's room in view of an enemy brings A's

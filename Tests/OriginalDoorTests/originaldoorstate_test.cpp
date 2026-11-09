@@ -732,6 +732,23 @@ int main() {
         rounds=0;
         for (uint32_t now=90250;now<=95250;now+=250) rounds+=clock.Advance(now,true);
         assert(rounds==1); // 1 s before the pause plus 5 s after it
+        {
+            struct Id {uint16_t kind;uint32_t body[5];};
+            bgencounters::Writer out;
+            out.Put(uint32_t(1));out.Put(Id{2,{7,8,9,10,11}});out.Put(uint8_t(1));
+            bgencounters::Reader in(out.Bytes());
+            uint32_t version=0;Id id{};uint8_t flag=0;
+            assert(in.Get(version) && version==1 && in.Get(id) && id.kind==2 && id.body[4]==11 && in.Get(flag) && flag==1);
+            assert(in.Done() && !in.Get(version)); // nothing past the end
+            std::vector<uint8_t> cut(out.Bytes().begin(),out.Bytes().end()-3);
+            bgencounters::Reader truncated(cut);
+            assert(truncated.Get(version) && !truncated.Get(id)); // a truncated record is rejected
+            bgencounters::Registry<int,Turn> saved;
+            saved.Seed(5);
+            assert(saved.Open()==6 && saved.Last()==6); // ids continue after a load
+            saved.Seed(2);
+            assert(saved.Last()==6);
+        }
         using bgencounters::UnattendedEnemy;using bgencounters::EnemyMove;
         assert(UnattendedEnemy(false,false,true)==EnemyMove::Hold); // nobody to finish
         assert(UnattendedEnemy(true,true,true)==EnemyMove::Hold); // a conscious hero is near: no coup de grace

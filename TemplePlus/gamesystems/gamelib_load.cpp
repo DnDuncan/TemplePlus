@@ -194,6 +194,7 @@ bool GameSystems::LoadGame(const string& filename) {
 		logger->error("Loading UI data failed");
 		return false;
 	}
+	bgscenecombat::LoadEncounters("Save\\Current\\bg_encounters.dat"); // objects exist again: resolve the waiting fights
 
 	{
 		// user savehook

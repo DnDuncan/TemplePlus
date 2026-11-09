@@ -1,6 +1,8 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <vector>
 
 namespace bgencounters {
@@ -36,6 +38,9 @@ public:
     template<class Visit> void ForEach(Visit visit) {for (auto &entry:parked) visit(entry);}
     size_t Size() const {return parked.size();}
     void Clear() {parked.clear();}
+    uint32_t Last() const {return last;}
+    // A loaded save continues the ids it was written with.
+    void Seed(uint32_t id) {if (id>last) last=id;}
 private:
     typename std::vector<Parked>::const_iterator Find(Actor actor) const {
         return std::find_if(parked.begin(),parked.end(),[&](const Parked &entry) {
@@ -54,6 +59,34 @@ struct Wait {bool heroTurn,performing,simultaneous,interrupted,picker,dialog;};
 inline bool CanPark(const Wait &wait) {
     return wait.heroTurn && !wait.performing && !wait.simultaneous && !wait.interrupted && !wait.picker && !wait.dialog;
 }
+
+// Waiting fights are saved as plain records (Save\\Current\\bg_encounters.dat).
+// The reader never reads past the data, so a truncated file is rejected.
+class Writer {
+public:
+    template<class T> void Put(const T &value) {
+        static_assert(std::is_trivially_copyable<T>::value,"plain record fields only");
+        auto bytes=reinterpret_cast<const uint8_t*>(&value);
+        data.insert(data.end(),bytes,bytes+sizeof(T));
+    }
+    const std::vector<uint8_t> &Bytes() const {return data;}
+private:
+    std::vector<uint8_t> data;
+};
+class Reader {
+public:
+    explicit Reader(const std::vector<uint8_t> &data):data(data) {}
+    template<class T> bool Get(T &value) {
+        static_assert(std::is_trivially_copyable<T>::value,"plain record fields only");
+        if (data.size()-at<sizeof(T)) return false;
+        std::memcpy(&value,data.data()+at,sizeof(T));at+=sizeof(T);
+        return true;
+    }
+    bool Done() const {return at==data.size();}
+private:
+    const std::vector<uint8_t> &data;
+    size_t at=0;
+};
 
 // A downed hero cannot act. Its turn is skipped while its fight still has an
 // active hero. When every hero of the fight is down but another hero is up, the

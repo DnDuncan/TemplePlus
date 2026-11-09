@@ -21,6 +21,7 @@
 #include "bonus.h"
 #include "history.h"
 #include "description.h"
+#include <tio/tio.h>
 #include <infrastructure/keyboard.h>
 #include <tig/tig_startup.h>
 #include <graphics/shaperenderer3d.h>
@@ -2965,6 +2966,93 @@ void RenderStealthRanges() {
         shapes.DrawLineWithoutDepth({center.x-side.x*radius,center.y,center.z-side.z*radius},{center.x+side.x*radius,center.y,center.z+side.z*radius},line);
         shapes.DrawLineWithoutDepth(center,{center.x+facing.x*radius*0.3f,center.y,center.z+facing.z*radius*0.3f},line);
     }
+}
+namespace {
+constexpr uint32_t EncounterFileVersion=1;
+void PutId(bgencounters::Writer &out,objHndl handle,bool &persistable) {
+    ObjectId id{};
+    if (handle && objSystem->IsValidHandle(handle)) id=objSystem->GetIdByHandle(handle);
+    if (!id.IsPersistable()) {persistable=false;id=ObjectId{};}
+    out.Put(id);
+}
+bool GetId(bgencounters::Reader &in,objHndl &handle) {
+    ObjectId id{};
+    if (!in.Get(id)) return false;
+    handle=id.IsNull() ? objHndl::null:objSystem->GetHandleById(id);
+    if (handle && !objSystem->IsValidHandle(handle)) handle=objHndl::null;
+    return true;
+}
+}
+bool SaveEncounters(const char *path) {
+    bgencounters::Writer out;bool persistable=true;
+    out.Put(EncounterFileVersion);out.Put(GlobalCombatActive() ? displayedEncounter:0u);out.Put(encounters.Last());
+    out.Put(uint32_t(encounters.Size()));
+    encounters.ForEach([&](const decltype(encounters)::Parked &entry) {
+        const auto &state=entry.state;
+        out.Put(entry.id);out.Put(uint8_t(state.unattended ? 1:0));
+        out.Put(uint32_t(entry.members.size()));
+        for (auto member:entry.members) PutId(out,member,persistable);
+        auto size=(std::min)(state.initiative.GroupSize,32u);
+        out.Put(size);
+        for (auto i=0u;i<size;++i) PutId(out,state.initiative.GroupMembers[i],persistable);
+        PutId(out,state.current,persistable);PutId(out,state.combatActor,persistable);
+        out.Put(state.initiativeValue);out.Put(state.surprise);out.Put(state.round);
+        out.Put(state.timeEventSthg);out.Put(state.timeEventIndicator);out.Put(state.scene);
+        out.Put(uint8_t(state.hasBudget ? 1:0));out.Put(state.budget);
+        for (const auto &readied:state.readied) {
+            out.Put(readied.flags);out.Put(readied.field4);PutId(out,readied.interrupter,persistable);
+            out.Put(readied.readyType);out.Put(readied.field14);
+        }
+    });
+    if (!persistable) {logger->error("BG encounters: a member of a waiting fight has no persistent id");return false;}
+    auto file=tio_fopen(path,"wb");
+    if (!file) {logger->error("BG encounters: cannot write {}",path);return false;}
+    const auto &bytes=out.Bytes();
+    bool written=tio_fwrite(bytes.data(),1,bytes.size(),file)==bytes.size();
+    tio_fclose(file);
+    if (written) logger->info("BG encounters saved: {} waiting fight(s)",encounters.Size());
+    return written;
+}
+void LoadEncounters(const char *path) {
+    auto file=tio_fopen(path,"rb");
+    if (!file) return; // an older save: no fights were waiting
+    std::vector<uint8_t> bytes;uint8_t chunk[4096];
+    for (size_t read;(read=tio_fread(chunk,1,sizeof(chunk),file))>0;) bytes.insert(bytes.end(),chunk,chunk+read);
+    tio_fclose(file);
+    bgencounters::Reader in(bytes);
+    uint32_t version=0,displayed=0,last=0,count=0;
+    if (!in.Get(version) || version!=EncounterFileVersion || !in.Get(displayed) || !in.Get(last) || !in.Get(count)) {
+        logger->error("BG encounters: unreadable {}; waiting fights are lost",path);return;
+    }
+    encounters.Seed(last);
+    unsigned restored=0;
+    for (auto n=0u;n<count;++n) {
+        uint32_t id=0,members=0,size=0;uint8_t unattended=0,hasBudget=0;
+        NativeEncounter state{};std::vector<objHndl> owners;
+        if (!in.Get(id) || !in.Get(unattended) || !in.Get(members)) break;
+        bool ok=true;
+        for (auto i=0u;i<members && ok;++i) {objHndl member;ok=GetId(in,member);if (ok && member) owners.push_back(member);}
+        if (!ok || !in.Get(size) || size>32) break;
+        state.initiative.Reset();
+        state.initiative.sortFunc=temple::GetRef<int(__cdecl)(void*,void*)>(0x100DEF20);
+        for (auto i=0u;i<size && ok;++i) {
+            objHndl member;ok=GetId(in,member);
+            if (ok && member) state.initiative.GroupMembers[state.initiative.GroupSize++]=member;
+        }
+        ok=ok && GetId(in,state.current) && GetId(in,state.combatActor) && in.Get(state.initiativeValue) &&
+            in.Get(state.surprise) && in.Get(state.round) && in.Get(state.timeEventSthg) &&
+            in.Get(state.timeEventIndicator) && in.Get(state.scene) && in.Get(hasBudget) && in.Get(state.budget);
+        for (auto &readied:state.readied)
+            ok=ok && in.Get(readied.flags) && in.Get(readied.field4) && GetId(in,readied.interrupter) &&
+                in.Get(readied.readyType) && in.Get(readied.field14);
+        if (!ok) break;
+        state.hasBudget=hasBudget!=0;state.unattended=unattended!=0;state.clock.Start(timeGetTime());
+        if (encounters.Park(id,owners,state)) ++restored;
+        else logger->warn("BG encounter {} could not be restored ({} members found)",id,owners.size());
+    }
+    displayedEncounter=GlobalCombatActive() ? displayed:0;
+    if (!in.Done()) logger->error("BG encounters: {} is damaged; {} of {} waiting fight(s) restored",path,restored,count);
+    else logger->info("BG encounters loaded: {} of {} waiting fight(s)",restored,count);
 }
 void Revealed(objHndl hero) {
     if (!Enabled() || !hero || !party.IsInParty(hero)) return;
