@@ -43,7 +43,7 @@ shown encounter. Logical scenes still only filter who may start or join.
 - **Safety.** Parking/switching happens only while the shown encounter waits for a
   hero: no member performing, no simultaneous actions, no interrupt/readied
   sequence pending, no dialogue. Otherwise the request is ignored and logged.
-- **Downed heroes (0.2.157, phase 1 of encounter-continuity-design.md).** A downed
+- **Downed heroes (0.2.158, phase 1 of encounter-continuity-design.md).** A downed
   hero's turn never waits for input: it is skipped while the fight has an active
   hero ("BG turn skipped"). When every hero of the fight is down and another hero
   is up, the fight is parked unattended ("every hero of the fight is down"): the
