@@ -930,7 +930,7 @@ void LegacyCombatSystem::EndTurn()
 		if (!shouldRemove && combatantObj->IsNPC() && !party.IsInParty(combatant) && !combatSys.IsBrawlInProgress()){
 			auto aifs = AIFS_NONE;
 			aiSys.GetAiFightStatus(combatant, &aifs, nullptr);
-			if (aifs == AIFS_NONE){
+			if (aifs == AIFS_NONE && !bgscenecombat::StaysEngaged(combatant)){
 				shouldRemove = true;
 			}
 			
@@ -1007,17 +1007,20 @@ void LegacyCombatSystem::Subturn()
 		CombatEnd();
 		return;
 	}
+	if (objects.IsPlayerControlled(actor) && bgscenecombat::DownedHeroTurn(actor))
+		return; // a downed hero never waits for input
 
 	auto & combatSubturnTimeEvent = temple::GetRef<int>(0x10AA8420);
 	combatSubturnTimeEvent = 10;
 	static auto uiCombatInitiativePortraitsReset = temple::GetRef<int(__cdecl*)(int)>(0x10AA83FC);
-	party.CurrentlySelectedClear();
+	auto keepFree = bgscenecombat::FreeSelection(); // free heroes stay in control; their fight waits
+	if (!keepFree) party.CurrentlySelectedClear();
 
 	if (objects.IsPlayerControlled(actor)){
 		
 		uiCombatInitiativePortraitsReset(combatSubturnTimeEvent);
 
-		party.AddToCurrentlySelected(actor, dmSys.IsControllingNpcs());
+		if (!keepFree) party.AddToCurrentlySelected(actor, dmSys.IsControllingNpcs());
 		temple::GetRef<objHndl>(0x10AA8430) = actor; // looks like a write-only debug thing?
 
 		// there was a call to some nullsub here
@@ -1278,6 +1281,8 @@ bool LegacyCombatSystem::AllCombatantsFarFromParty()
 		auto Nparty = party.GroupListGetLen();
 		for (auto j=0u; j < Nparty; j++){
 			auto partyMem = party.GroupListGetMemberN(j);
+			if (bgscenecombat::Enabled() && !tbSys.IsInInitiativeList(partyMem))
+				continue; // only the fight's own heroes keep it going, downed ones too
 			if (locSys.DistanceToObj(combatant, partyMem) < PEACEOUT_DISTANCE){
 				return false;
 			}
@@ -2256,6 +2261,8 @@ struct NativeEncounter {
     bool hasBudget;
     TurnBasedStatus budget;
     ReadiedActionPacket readied[READIED_ACTION_CACHE_SIZE];
+    bool unattended=false; // every hero of the fight is down; it goes on by its own clock
+    bgencounters::RoundClock clock;
 };
 bgencounters::Registry<objHndl,NativeEncounter> encounters;
 uint32_t displayedEncounter=0;
@@ -2446,6 +2453,8 @@ bool DetachForFreeHeroes();
 bool ResumeOwner(objHndl actor);
 bool ResumeForSelection();
 bool ResumeOnDetection();
+bool SettleDownedTurn();
+void TickUnattended(uint32_t now,bool running);
 static void Event(const char *name,PyObject *args) {
     auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook",name,args);Py_XDECREF(result);
 }
@@ -2455,9 +2464,10 @@ void Pulse(uint32_t now) {
     bool talking=uiSystems->GetDlg().IsActive() || (dialogParkedAt && uint32_t(now-dialogParkedAt)<1000);
     if (!talking) {
         dialogParkedAt=0;
-        if (GlobalCombatActive()) {if (!EndEmptyCombat("found in the pulse")) DetachForFreeHeroes();}
+        if (GlobalCombatActive()) {if (!EndEmptyCombat("found in the pulse") && !SettleDownedTurn()) DetachForFreeHeroes();}
         else if (encounters.Size() && !ResumeForSelection()) ResumeOnDetection();
     }
+    TickUnattended(now,!talking);
     RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
@@ -2493,14 +2503,29 @@ std::vector<objHndl> Members() {
     return members;
 }
 ReadiedActionPacket *ReadiedCache() {return temple::GetPointer<ReadiedActionPacket>(0x1186A900);}
-bool DisplayedWaits() {
-    auto current=tbSys.turnBasedGetCurrentActor();
-    bool hero=current && objSystem->IsValidHandle(current) && party.IsInParty(current) &&
-        objects.IsPlayerControlled(current) && !critterSys.IsDeadOrUnconscious(current);
+// Nothing of the shown fight is in flight: no action, simultaneous action,
+// interrupt or dialogue. Its turn state can be captured as it is.
+bool Quiet(bool heroTurn=true) {
     bool performing=false;
     for (auto member:Members()) performing=performing || actSeqSys.isPerforming(member)!=0;
-    return bgencounters::CanPark({hero,performing,*actSeqSys.numSimultPerformers!=0,
+    return bgencounters::CanPark({heroTurn,performing,*actSeqSys.numSimultPerformers!=0,
         temple::GetRef<ActnSeq*>(0x118CD574)!=nullptr,false,uiSystems->GetDlg().IsActive()});
+}
+bool DisplayedWaits() {
+    auto current=tbSys.turnBasedGetCurrentActor();
+    return Quiet(current && objSystem->IsValidHandle(current) && party.IsInParty(current) &&
+        objects.IsPlayerControlled(current) && !critterSys.IsDeadOrUnconscious(current));
+}
+bool Active(objHndl hero) {
+    return hero && objSystem->IsValidHandle(hero) && !critterSys.IsDeadOrUnconscious(hero) &&
+        !(objects.GetFlags(hero)&(OF_OFF|OF_DESTROYED));
+}
+bgencounters::DownedTurn DownedTurnOf(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor) || !party.IsInParty(actor)) return bgencounters::DownedTurn::Act;
+    bool fightHero=false,partyHero=false;
+    for (auto member:Members()) fightHero=fightHero || (party.IsInParty(member) && Active(member));
+    for (auto i=0u;i<party.GroupListGetLen();++i) partyHero=partyHero || Active(party.GroupListGetMemberN(i));
+    return bgencounters::OnHeroTurn(critterSys.IsDeadOrUnconscious(actor),fightHero,partyHero);
 }
 NativeEncounter Capture() {
     NativeEncounter state{};
@@ -2519,9 +2544,11 @@ NativeEncounter Capture() {
     std::copy(ReadiedCache(),ReadiedCache()+READIED_ACTION_CACHE_SIZE,state.readied);
     return state;
 }
-bool ParkDisplayed() {
+bool ParkDisplayed(bool unattended=false) {
     auto id=displayedEncounter ? displayedEncounter:encounters.Open();
-    if (!encounters.Park(id,Members(),Capture())) return false;
+    auto state=Capture();
+    state.unattended=unattended;state.clock.Start(timeGetTime());
+    if (!encounters.Park(id,Members(),state)) return false;
     displayedEncounter=0;
     return true;
 }
@@ -2587,13 +2614,19 @@ void Resume(const decltype(encounters)::Parked &shown) {
     *combatSys.combatModeActive=1;
     Show(shown);
     temple::GetRef<void(__cdecl)(objHndl)>(0x1003C770)(shown.state.current); // combat music
+    // A downed hero's turn is settled by the pulse, after a joining hero entered the order.
     auto current=shown.state.current;
-    if (!current || !objSystem->IsValidHandle(current) || critterSys.IsDeadOrUnconscious(current))
+    if (!current || !objSystem->IsValidHandle(current) || (!party.IsInParty(current) && critterSys.IsDeadOrUnconscious(current)))
         combatSys.CombatAdvanceTurn(current);
 }
+bool Unattended(objHndl actor) {
+    bool unattended=false;auto id=encounters.Owner(actor);
+    encounters.ForEach([&](const decltype(encounters)::Parked &entry) {if (entry.id==id) unattended=entry.state.unattended;});
+    return unattended;
+}
 // The rest of the world leaves combat: its music, initiative UI and turn input.
-bool Detach(const char *why) {
-    if (!Enabled() || !GlobalCombatActive() || starting || !DisplayedWaits() || !ParkDisplayed()) return false;
+bool Leave(const char *why,bool unattended) {
+    if (!ParkDisplayed(unattended)) return false;
     tbSys.groupInitiativeList->Reset();
     tbSys.turnBasedSetCurrentActor(objHndl::null);
     *combatSys.combatModeActive=0;
@@ -2602,6 +2635,79 @@ bool Detach(const char *why) {
     logger->info("BG encounter parked: {}",why);
     return true;
 }
+bool Detach(const char *why) {
+    return Enabled() && GlobalCombatActive() && !starting && DisplayedWaits() && Leave(why,false);
+}
+}
+bool DownedHeroTurn(objHndl actor) {
+    switch (DownedTurnOf(actor)) {
+    case bgencounters::DownedTurn::Skip:
+        logger->info("BG turn skipped: {} is down",actor);
+        combatSys.CombatAdvanceTurn(actor);
+        return true;
+    case bgencounters::DownedTurn::Hold:
+        logger->info("BG turn held: every hero of the fight is down ({})",actor);
+        return true;
+    default:
+        return false;
+    }
+}
+// The shown fight sits on a downed hero's turn (held, or shown again with a new
+// hero): skip that turn, or park the fight to go on without its heroes.
+bool SettleDownedTurn() {
+    if (!Enabled() || starting || !Quiet()) return false;
+    auto current=tbSys.turnBasedGetCurrentActor();
+    switch (DownedTurnOf(current)) {
+    case bgencounters::DownedTurn::Skip:
+        logger->info("BG turn skipped: {} is down",current);
+        combatSys.CombatAdvanceTurn(current);
+        return true;
+    case bgencounters::DownedTurn::Hold:
+        return Leave("every hero of the fight is down",true);
+    default:
+        return false;
+    }
+}
+bool StaysEngaged(objHndl npc) {
+    if (!Enabled()) return false;
+    for (auto member:Members())
+        if (party.IsInParty(member) && objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member) &&
+            !critterSys.IsFriendly(npc,member)) return true;
+    return false;
+}
+// Fights whose heroes are all down: a round per 6 seconds for every member
+// (dying, effect durations). A raised hero makes it an ordinary waiting fight
+// again; it ends when its heroes are dead or its enemies are down.
+void TickUnattended(uint32_t now,bool running) {
+    if (!Enabled() || !encounters.Size()) return;
+    std::vector<objHndl> due;std::vector<uint32_t> ended;
+    encounters.ForEach([&](decltype(encounters)::Parked &entry) {
+        if (!entry.state.unattended) return;
+        bool heroUp=false,heroAlive=false,enemyUp=false;
+        for (auto member:entry.members) {
+            if (!objSystem->IsValidHandle(member) || critterSys.IsDeadNullDestroyed(member)) continue;
+            if (party.IsInParty(member)) {heroAlive=true;heroUp=heroUp || Active(member);}
+            else enemyUp=enemyUp || !critterSys.IsDeadOrUnconscious(member);
+        }
+        if (heroUp) {
+            entry.state.unattended=false;
+            logger->info("BG encounter {} waits again: one of its heroes is up",entry.id);
+            return;
+        }
+        if (!heroAlive || !enemyUp) {ended.push_back(entry.id);return;}
+        for (auto rounds=entry.state.clock.Advance(now,running);rounds;--rounds) {
+            ++entry.state.round;
+            for (auto member:entry.members)
+                if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) due.push_back(member);
+            logger->info("BG encounter {} round {} goes on without its heroes",entry.id,entry.state.round);
+        }
+    });
+    for (auto id:ended) {
+        decltype(encounters)::Parked gone;
+        if (encounters.Take(id,gone)) logger->info("BG encounter {} ended without its heroes",id);
+    }
+    // Outside the registry walk: a dying hero may die here.
+    for (auto member:due) if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) dispatch.Dispatch48BeginRound(member,1);
 }
 bool ResumeOwner(objHndl actor) {
     decltype(encounters)::Parked shown;
@@ -2626,7 +2732,7 @@ bool ResumeForSelection() {
     if (!Enabled() || GlobalCombatActive()) return false;
     for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
         auto member=party.GetCurrentlySelected(i);
-        if (encounters.Owns(member) && ResumeOwner(member)) {
+        if (encounters.Owns(member) && !Unattended(member) && ResumeOwner(member)) {
             logger->info("BG encounter shown again: {} was selected",member);
             return true;
         }

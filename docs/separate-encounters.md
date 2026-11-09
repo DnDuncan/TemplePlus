@@ -43,6 +43,19 @@ shown encounter. Logical scenes still only filter who may start or join.
 - **Safety.** Parking/switching happens only while the shown encounter waits for a
   hero: no member performing, no simultaneous actions, no interrupt/readied
   sequence pending, no dialogue. Otherwise the request is ignored and logged.
+- **Downed heroes (0.2.157, phase 1 of encounter-continuity-design.md).** A downed
+  hero's turn never waits for input: it is skipped while the fight has an active
+  hero ("BG turn skipped"). When every hero of the fight is down and another hero
+  is up, the fight is parked unattended ("every hero of the fight is down"): the
+  world leaves combat and the fight keeps its own clock, one round per 6 seconds
+  outside dialogue, dispatching BeginRound to its members (dying, durations),
+  logged "round N goes on without its heroes". Selecting a downed hero does not
+  show it; a free hero noticed by its enemies joins its order (no restart, no new
+  initiative for the others). A raised hero makes it an ordinary waiting fight; it
+  ends when its heroes are dead or its enemies are down. While a fight has living
+  heroes (downed too), targetless enemies stay in it, and only the fight's own
+  heroes count for "enemies far from the party". Subturn keeps a free selection.
+  Enemy turns in an unattended fight are phase 3; for now enemies only wait.
 - **Empty fights (0.2.156).** Civilians never start a fight. A fight that starts
   with nobody in it (everyone it could involve waits in a parked fight or is in
   another scene) ends at once; one found later by the pulse ends too, logged

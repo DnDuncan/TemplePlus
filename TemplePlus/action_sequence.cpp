@@ -920,6 +920,7 @@ void ActionSequenceSystem::TurnStart(objHndl obj)
 	simulsEnqueue();
 
 	if (objects.IsPlayerControlled(obj) && critterSys.IsDeadOrUnconscious(obj)) {
+		if (bgscenecombat::DownedHeroTurn(obj)) return;
 		logger->info("Action for {} ending turn (unconscious)...", d20Sys.globD20Action->d20APerformer);
 		combatSys.CombatAdvanceTurn(obj);
 		return;

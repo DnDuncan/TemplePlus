@@ -33,6 +33,7 @@ public:
         for (auto &entry:parked) entry.members.erase(std::remove(entry.members.begin(),entry.members.end(),actor),entry.members.end());
     }
     template<class Visit> void ForEach(Visit visit) const {for (const auto &entry:parked) visit(entry);}
+    template<class Visit> void ForEach(Visit visit) {for (auto &entry:parked) visit(entry);}
     size_t Size() const {return parked.size();}
     void Clear() {parked.clear();}
 private:
@@ -53,4 +54,30 @@ struct Wait {bool heroTurn,performing,simultaneous,interrupted,picker,dialog;};
 inline bool CanPark(const Wait &wait) {
     return wait.heroTurn && !wait.performing && !wait.simultaneous && !wait.interrupted && !wait.picker && !wait.dialog;
 }
+
+// A downed hero cannot act. Its turn is skipped while its fight still has an
+// active hero. When every hero of the fight is down but another hero is up, the
+// fight is held and goes on without them instead of waiting on that turn.
+enum class DownedTurn {Act,Skip,Hold};
+inline DownedTurn OnHeroTurn(bool downed,bool fightHasActiveHero,bool partyHasActiveHero) {
+    if (!downed) return DownedTurn::Act;
+    return !fightHasActiveHero && partyHasActiveHero ? DownedTurn::Hold:DownedTurn::Skip;
+}
+
+// A fight without an active hero keeps its own time: one round per 6 seconds
+// while it runs. A gap between pulses (dialogue, menus, loading) counts at most
+// one step, so nothing is caught up at once.
+class RoundClock {
+public:
+    static constexpr uint32_t Period=6000,MaxStep=1000;
+    void Start(uint32_t now) {last=now;elapsed=0;}
+    unsigned Advance(uint32_t now,bool running) {
+        auto step=(std::min)(uint32_t(now-last),MaxStep);last=now;
+        if (!running) return 0;
+        elapsed+=step;auto rounds=unsigned(elapsed/Period);elapsed%=Period;
+        return rounds;
+    }
+private:
+    uint32_t last=0,elapsed=0;
+};
 }

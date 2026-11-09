@@ -59,6 +59,11 @@ bool ParkForDialog(objHndl hero);
 // Ends a world fight with nobody in it (its people are parked, civilians or in
 // another scene), so it cannot hold the world in combat without a turn.
 bool EndEmptyCombat(const char *why);
+// Turn entry for a downed hero: true when the caller must not run the turn
+// (it was skipped, or the fight goes on without its heroes).
+bool DownedHeroTurn(objHndl actor);
+// An enemy without a target stays while living (also downed) heroes are in its fight.
+bool StaysEngaged(objHndl npc);
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }

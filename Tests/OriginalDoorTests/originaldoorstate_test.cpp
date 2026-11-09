@@ -706,6 +706,24 @@ int main() {
         assert(!CanPark({true,false,false,true,false,false})); // interrupt or readied action pending
         assert(!CanPark({true,false,false,false,true,false})); // a target picker is open
         assert(!CanPark({true,false,false,false,false,true})); // dialogue owns the encounter
+        encounters.Park(encounters.Open(),{5},first);
+        encounters.ForEach([](decltype(encounters)::Parked &entry) {++entry.state.round;}); // a waiting fight keeps time
+        assert(encounters.Take(encounters.Owner(5),shown) && shown.state.round==4);
+        using bgencounters::OnHeroTurn;using bgencounters::DownedTurn;
+        assert(OnHeroTurn(false,false,false)==DownedTurn::Act);
+        assert(OnHeroTurn(true,true,true)==DownedTurn::Skip); // another hero of the fight acts
+        assert(OnHeroTurn(true,false,true)==DownedTurn::Hold); // the fight goes on without its heroes
+        assert(OnHeroTurn(true,false,false)==DownedTurn::Skip); // the whole party is down: native rules
+        bgencounters::RoundClock clock;clock.Start(1000);
+        assert(clock.Advance(1250,true)==0);
+        unsigned rounds=0;
+        for (uint32_t now=1500;now<=13000;now+=250) rounds+=clock.Advance(now,true);
+        assert(rounds==2); // 12 seconds are two rounds
+        assert(clock.Advance(60000,true)==0); // a long gap is one step, not eight rounds
+        for (uint32_t now=60250;now<=90000;now+=250) assert(clock.Advance(now,false)==0); // paused in dialogue
+        rounds=0;
+        for (uint32_t now=90250;now<=95250;now+=250) rounds+=clock.Advance(now,true);
+        assert(rounds==1); // 1 s before the pause plus 5 s after it
     }
     std::cout << "Original door registry tests passed\n";
 }
