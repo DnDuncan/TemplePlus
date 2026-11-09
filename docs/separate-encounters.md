@@ -24,12 +24,22 @@ shown encounter. Logical scenes still only filter who may start or join.
   encounter through the normal realtime combat trigger. Its targets enter combat
   and the opener goes first; the opening command is not performed for free and is
   repeated on that turn. If the new encounter fails to start, the parked one resumes.
-- **Switching.** F1–F8 on a parked hero shows that hero's encounter and parks the
-  shown one. The waiting hero keeps its queue position, round and remaining budget.
+- **The world outside a fight (0.2.153).** A fight belongs to its members. While
+  only free heroes are selected and the shown fight waits on a hero's turn, it is
+  parked and global combat ends: normal music, no initiative bar, no turn path
+  preview, native dialogue, travel and interactions for everyone else. A free
+  hero's dialogue parks it the same way. The parked fight is shown again when one
+  of its heroes is selected (portrait, F-key or click in the world) or when one of
+  its enemies threatens or notices a free hero (60 ft, Perception vs Stealth);
+  that hero then joins its initiative.
+- **Switching.** F1–F8 or a portrait on a parked hero shows that hero's encounter
+  and parks the shown one. The waiting hero keeps its queue position, round and
+  remaining budget.
 - **Joining a waiting encounter.** A free hero's hostile or assisting action on a
   parked member shows that encounter and enters its initiative.
-- **End.** When the shown encounter ends, the most recently parked one with living
-  members is shown again without a new turn start, round or GameTime step.
+- **End.** When the shown encounter ends, waiting ones stay parked (the world is
+  out of combat) until one of their heroes is selected or a free hero is noticed;
+  then it continues without a new turn start, round or GameTime step.
 - **Safety.** Parking/switching happens only while the shown encounter waits for a
   hero: no member performing, no simultaneous actions, no interrupt/readied
   sequence pending, no dialogue. Otherwise the request is ignored and logged.
@@ -44,7 +54,8 @@ shown encounter. Logical scenes still only filter who may start or join.
 - GameTime/effect clocks, dialogue and skill-check contexts remain shared.
 - New separate encounters start only from a free actor's hostile action against a
   different logical scene; same-scene separate groups are not opened yet.
-- Switching is bound to F1–F8; portrait clicks keep native behavior.
+- While a fight waits on an NPC's turn it stays shown; it is parked only on a
+  hero's turn, so free heroes see combat music/UI during enemy turns.
 
 ## Manual checks (user)
 
@@ -53,6 +64,10 @@ Use a save made before any combat.
 1. A fights in one room; B, in another room, attacks a hostile NPC. A second
    encounter starts with B first; A's encounter waits on A's turn.
 2. F-key on A: A's turn, budget and round are as left. F-key on B: B's encounter as left.
-3. End B's encounter: A's encounter continues without skipping A or adding a round.
+3. End B's encounter: the world is out of combat; select A: A's encounter continues
+   without skipping A or adding a round.
+6. On A's turn select a free hero: combat music and initiative bar end, the hero
+   talks, travels and loots; walking into A's room in view of an enemy brings A's
+   fight back with the hero in its initiative.
 4. Try to save with two encounters: refused. After one ends, saving works.
 5. Ordinary one-encounter fights, free actions, doors and loot without regressions.
