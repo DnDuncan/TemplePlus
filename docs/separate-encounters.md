@@ -30,7 +30,7 @@ shown encounter. Logical scenes still only filter who may start or join.
   preview, native dialogue, travel and interactions for everyone else. A free
   hero's dialogue parks it the same way. The parked fight is shown again when one
   of its heroes is selected (portrait, F-key or click in the world) or when one of
-  its enemies threatens or notices a free hero (60 ft, Perception vs Stealth);
+  its enemies threatens or notices a free hero (40 ft since 0.2.164, Perception vs Stealth);
   that hero then joins its initiative.
 - **Switching.** F1–F8 or a portrait on a parked hero shows that hero's encounter
   and parks the shown one. The waiting hero keeps its queue position, round and

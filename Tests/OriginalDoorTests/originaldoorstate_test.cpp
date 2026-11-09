@@ -591,8 +591,8 @@ int main() {
         using bgengagement::Senses;
         using bgengagement::Detected;
         // distance, sight, sneaking, night; spot, listen, hide, move silently; rolls in the same order
-        assert(Detected(Senses{55,true,false,false,0,0,0,0,1,1,20,20})); // open hero in view within 60 ft
-        assert(!Detected(Senses{61,true,false,false,20,20,0,0,20,20,1,1})); // beyond 60 ft nobody is noticed
+        assert(Detected(Senses{35,true,false,false,0,0,0,0,1,1,20,20})); // open hero in view within 40 ft
+        assert(!Detected(Senses{41,true,false,false,20,20,0,0,20,20,1,1})); // beyond 40 ft nobody is noticed
         assert(Detected(Senses{20,false,false,false,0,0,0,0,1,12,1,1})); // heard: 12-2 meets DC 10
         assert(!Detected(Senses{30,false,false,false,0,0,0,0,1,12,1,1})); // 12-3 misses DC 10
         assert(Detected(Senses{10,true,true,false,5,0,4,0,15,1,10,1})); // spot 15+5-1=19 beats hide 10+4
