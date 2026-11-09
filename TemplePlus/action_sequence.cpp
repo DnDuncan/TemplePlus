@@ -2770,6 +2770,7 @@ uint32_t ActionSequenceSystem::curSeqNext()
 				if (d20aTarget){
 					d20Sys.d20SendSignal(d20aTarget, DK_SIG_Action_Recipient,(int)d20a, 0);
 				}
+				bgscenecombat::NoteOpening(performer, d20aTarget); // before the attack reveals a sneaking hero
 				if (critterSys.IsMovingSilently(performer)){
 					critterSys.SetMovingSilently(performer, FALSE);
 				}
@@ -3114,7 +3115,8 @@ void ActionSequenceSystem::sequencePerform()
     }
     bool assistingEncounter=false;
     objHndl parkedTarget=objHndl::null;
-    if (bgscenecombat::Free(contextActor) && *actSeqCur) {
+    bool outsideFights=bgscenecombat::Free(contextActor) || bgscenecombat::Engages(contextActor);
+    if (outsideFights && *actSeqCur) {
         auto &packet=(*actSeqCur)->spellPktBody;
         auto &terrain=gameSystems->GetTerrain();
         auto scene=terrain.SceneAreaForActor(contextActor.handle);
@@ -3131,7 +3133,7 @@ void ActionSequenceSystem::sequencePerform()
             if (target && bgscenecombat::Parked(target)) parkedTarget=target;
         }
     }
-    if (bgscenecombat::Free(contextActor) && *actSeqCur && parkedTarget) {
+    if (outsideFights && *actSeqCur && parkedTarget) {
         // Engaging a waiting encounter shows it and joins it; the command is repeated on the actor's turn.
         if (bgscenecombat::Activate(parkedTarget) && bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
         else logger->warn("Waiting encounter of {} cannot be joined now; action deferred for {}",parkedTarget,contextActor);

@@ -66,6 +66,13 @@ bool DownedHeroTurn(objHndl actor);
 bool StaysEngaged(objHndl npc);
 // A native spread-out move never leaves the actor's isolated scene.
 void KeepInScene(objHndl actor,LocAndOffsets before);
+// The world is out of combat while fights wait: a hero outside them may engage one.
+bool Engages(objHndl actor);
+// A join into a fight that already runs: no surprise round for the newcomer.
+bool JoinsRunningFight();
+// A hostile action starts: remembers whether the hero strikes unseen.
+void NoteOpening(objHndl attacker,objHndl target);
+bool UnseenStrike(objHndl attacker,objHndl target);
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }

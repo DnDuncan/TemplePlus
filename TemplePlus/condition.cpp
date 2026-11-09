@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "bgscenecombat.h"
 
 #include <graphics/math.h>
 #include <infrastructure/meshes.h>
@@ -8659,7 +8660,8 @@ int ClassAbilityCallbacks::SneakAttackDamage(DispatcherCallbackArgs args) {
 	bool sneakAttackCondition = atkPkt.flags & D20CAF_FLANKED
 		|| d20Sys.d20Query(tgt, DK_QUE_SneakAttack)
 		|| d20Sys.d20QueryWithData(atkPkt.attacker, DK_QUE_OpponentSneakAttack, (uint32_t)dispIo, 0)
-		|| !critterSys.CanSenseForSneakAttack(tgt, atkPkt.attacker);
+		|| !critterSys.CanSenseForSneakAttack(tgt, atkPkt.attacker)
+		|| bgscenecombat::UnseenStrike(atkPkt.attacker, tgt);
 
 	// From the SRD:  The rogue must be able to see the target well enough to pick out a vital 
 	// spot and must be able to reach such a spot. A rogue cannot sneak attack while striking a 

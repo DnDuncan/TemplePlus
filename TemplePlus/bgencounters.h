@@ -64,6 +64,26 @@ inline DownedTurn OnHeroTurn(bool downed,bool fightHasActiveHero,bool partyHasAc
     return !fightHasActiveHero && partyHasActiveHero ? DownedTurn::Hold:DownedTurn::Skip;
 }
 
+// A hidden hero's attack on an enemy that has not noticed it is an unseen
+// attack (3.5): +2 to hit, the target loses its Dex and dodge bonuses to AC and
+// sneak attack applies. It is noted when the action starts, before attacking
+// reveals the hero, and holds for that action's attacks only.
+template<class Actor> class Opening {
+public:
+    static constexpr uint32_t Lifetime=6000;
+    void Note(Actor attacker,Actor target,bool unseen,uint32_t now) {
+        this->attacker=attacker;this->target=target;this->unseen=unseen;at=now;
+    }
+    bool Unseen(Actor attacker,Actor target,uint32_t now) const {
+        return unseen && attacker==this->attacker && target==this->target && uint32_t(now-at)<Lifetime;
+    }
+    void Clear() {unseen=false;}
+private:
+    Actor attacker{},target{};
+    bool unseen=false;
+    uint32_t at=0;
+};
+
 // A fight without an active hero keeps its own time: one round per 6 seconds
 // while it runs. A gap between pulses (dialogue, menus, loading) counts at most
 // one step, so nothing is caught up at once.

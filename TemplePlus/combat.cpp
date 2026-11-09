@@ -1848,11 +1848,17 @@ void LegacyCombatSystem::ToHitProcessing(D20Actn& d20a){
 	dispIoToHitBon.attackPacket.ammoItem = CheckRangedWeaponAmmo(performer);
 	dispIoToHitBon.attackPacket.flags = (D20CAF) (dispIoToHitBon.attackPacket.flags | D20CAF_FINAL_ATTACK_ROLL);
 	dispIoToHitBon.Dispatch(performer, objHndl::null, dispTypeToHitBonus2, DK_NONE); // note: the "Global" condition has ToHitBonus2 hook that dispatches the ToHitBonusBase
+	auto unseen = bgscenecombat::UnseenStrike(performer, tgt);
+	if (unseen) dispIoToHitBon.bonlist.AddBonus(2, 0, 357); // Unseen Attacker
 	auto toHitBonFinal = dispIoToHitBon.Dispatch(tgt, objHndl::null, dispTypeToHitBonusFromDefenderCondition, DK_NONE);
 
 	dispIoTgtAc.attackPacket = dispIoToHitBon.attackPacket;
 	dispIoTgtAc.field_4 = dispIoToHitBon.field_4;
 	critterSys.GetArmorClass(tgt, &dispIoTgtAc);
+	if (unseen) { // the target loses its Dexterity (3) and dodge (8) bonuses to AC
+		dispIoTgtAc.bonlist.AddCap(3, 0, 357);
+		dispIoTgtAc.bonlist.AddCap(8, 0, 357);
+	}
 	auto tgtAcFinal = dispIoTgtAc.Dispatch(performer, objHndl::null, dispTypeAcModifyByAttacker, DK_NONE);
 
 	auto toHitRoll = Dice::Roll(1, 20);
@@ -2279,6 +2285,7 @@ struct NativeEncounter {
 };
 bgencounters::Registry<objHndl,NativeEncounter> encounters;
 uint32_t displayedEncounter=0;
+bgencounters::Opening<objHndl> opening;
 unsigned shownGeneration=0;
 uint32_t dialogParkedAt=0;
 }
@@ -2425,7 +2432,7 @@ bool FreeSelection() {
 bool CanTarget(objHndl actor,objHndl target) {
     if (!Enabled()) return true;
     // A waiting encounter is frozen; only a free actor may engage it (and is then moved into it).
-    if (encounters.Owns(actor) || (encounters.Owns(target) && !Free(actor))) return false;
+    if (encounters.Owns(actor) || (encounters.Owns(target) && !Free(actor) && !Engages(actor))) return false;
     if (GlobalCombatActive() && !party.IsInParty(actor) && tbSys.IsInInitiativeList(actor) &&
         party.IsInParty(target) && !tbSys.IsInInitiativeList(target)) return false;
     return bgscenecombatpolicy::Target(gameSystems->GetTerrain().SceneAreaForActor(actor.handle),gameSystems->GetTerrain().SceneAreaForActor(target.handle),Civilian(target));
@@ -2795,7 +2802,23 @@ bool ResumeOnDetection() {
     }
     return false;
 }
-void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;}
+void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;opening.Clear();}
+bool Engages(objHndl actor) {
+    return Enabled() && !GlobalCombatActive() && encounters.Size() && actor && objSystem->IsValidHandle(actor) &&
+        party.IsInParty(actor) && !encounters.Owns(actor);
+}
+bool JoinsRunningFight() {return Enabled() && GlobalCombatActive() && !starting;}
+void NoteOpening(objHndl attacker,objHndl target) {
+    if (!Enabled()) return;
+    bool hidden=attacker && objSystem->IsValidHandle(attacker) && party.IsInParty(attacker) &&
+        (critterSys.IsMovingSilently(attacker) || critterSys.IsConcealed(attacker));
+    bool enemy=target && objSystem->IsValidHandle(target) && objSystem->GetObject(target)->IsNPC() &&
+        !party.IsInParty(target) && !critterSys.IsFriendly(target,attacker);
+    bool unseen=hidden && enemy && !Detects(attacker,target);
+    opening.Note(attacker,target,unseen,timeGetTime());
+    if (unseen) logger->info("BG unseen attack: {} strikes {} before being noticed",attacker,target);
+}
+bool UnseenStrike(objHndl attacker,objHndl target) {return Enabled() && opening.Unseen(attacker,target,timeGetTime());}
 bool EndEmptyCombat(const char *why) {
     if (!Enabled() || !GlobalCombatActive() || tbSys.GetInitiativeListLength()) return false;
     BgActorContext<objHndl>::Scope world(actorContext,objHndl::null); // a free hero's view must not hide it

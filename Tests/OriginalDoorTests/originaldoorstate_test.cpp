@@ -724,6 +724,16 @@ int main() {
         rounds=0;
         for (uint32_t now=90250;now<=95250;now+=250) rounds+=clock.Advance(now,true);
         assert(rounds==1); // 1 s before the pause plus 5 s after it
+        bgencounters::Opening<int> opening;
+        assert(!opening.Unseen(1,2,0));
+        opening.Note(1,2,true,1000);
+        assert(opening.Unseen(1,2,3000)); // every attack of that action
+        assert(!opening.Unseen(1,3,3000) && !opening.Unseen(4,2,3000)); // only that attacker and target
+        assert(!opening.Unseen(1,2,7000)); // not a later round
+        opening.Note(1,2,false,8000);
+        assert(!opening.Unseen(1,2,8000)); // the next action was seen
+        opening.Note(1,2,true,9000);opening.Clear();
+        assert(!opening.Unseen(1,2,9000));
     }
     std::cout << "Original door registry tests passed\n";
 }
