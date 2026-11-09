@@ -36,13 +36,13 @@ shown encounter. Logical scenes still only filter who may start or join.
   and parks the shown one. The waiting hero keeps its queue position, round and
   remaining budget.
 - **Joining a waiting encounter.** A free hero's hostile or assisting action on a
-  parked member shows that encounter and enters its initiative. Since 0.2.162
+  parked member shows that encounter and enters its initiative. Since 0.2.163
   (phase 2) this also works while the world is out of combat (before, a parked
   member could not be targeted then). The newcomer rolls initiative (d20 + mods)
   into the existing order: a slot already passed this round acts next round.
   It is flat-footed until its first turn, never Surprised, and the others keep
   their initiative, round and turn.
-- **Unseen attacker (0.2.162).** A sneaking or hidden hero whose target has not
+- **Unseen attacker (0.2.163).** A sneaking or hidden hero whose target has not
   noticed it (BG perception, Spot vs Hide / Listen vs Move Silently) strikes
   unseen for that action: +2 to hit, the target loses its Dexterity and dodge AC
   bonuses ("Unseen Attacker", bonus.mes 357) and sneak attack applies. It is
