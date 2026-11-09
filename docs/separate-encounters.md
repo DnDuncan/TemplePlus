@@ -43,6 +43,12 @@ shown encounter. Logical scenes still only filter who may start or join.
 - **Safety.** Parking/switching happens only while the shown encounter waits for a
   hero: no member performing, no simultaneous actions, no interrupt/readied
   sequence pending, no dialogue. Otherwise the request is ignored and logged.
+- **Empty fights (0.2.156).** Civilians never start a fight. A fight that starts
+  with nobody in it (everyone it could involve waits in a parked fight or is in
+  another scene) ends at once; one found later by the pulse ends too, logged
+  "BG combat ended: nobody is in it". In 0.2.155 such a fight, started by a
+  civilian right after parking, held the world in combat with no turn: no
+  dialogue, no joining, and the parked fight could not be shown again.
 
 ## Limits
 

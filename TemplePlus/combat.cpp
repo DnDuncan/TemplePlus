@@ -828,6 +828,9 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	if (bgscenecombat::Parked(combatInitiator)) { // its encounter waits; it resumes, not restarts
 		return FALSE;
 	}
+	if (bgscenecombat::Civilian(combatInitiator)) { // civilians never take part in a fight
+		return FALSE;
+	}
 
 	if (forceEndedCombatNow) { // temple+: added this vs. combat start/end loops
 		logger->debug("StartCombat: averted due to forceEndedCombatNow = true");
@@ -855,6 +858,10 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 
 	AddToInitiative(combatInitiator);
     bgscenecombat::RecruitParty();
+    if (bgscenecombat::EndEmptyCombat("nobody joined its start")) {
+        forceEndedCombatNow = true; // no restart before the next time event
+        return FALSE;
+    }
 
 	if (setToFirstInitiativeFlag){
 		actSeqSys.ResetAll(combatInitiator);
@@ -995,6 +1002,8 @@ void LegacyCombatSystem::Subturn()
 
 	if (!actor){
 		logger->error("Combat Subturn: Coudn't start TB combat Turn due to no Active Critters!");
+		if (bgscenecombat::EndEmptyCombat("no turn to start")) return;
+		BgActorContext<objHndl>::Scope world(bgscenecombat::actorContext, objHndl::null); // the world's fight, not the caller's view
 		CombatEnd();
 		return;
 	}
@@ -2446,7 +2455,7 @@ void Pulse(uint32_t now) {
     bool talking=uiSystems->GetDlg().IsActive() || (dialogParkedAt && uint32_t(now-dialogParkedAt)<1000);
     if (!talking) {
         dialogParkedAt=0;
-        if (GlobalCombatActive()) DetachForFreeHeroes();
+        if (GlobalCombatActive()) {if (!EndEmptyCombat("found in the pulse")) DetachForFreeHeroes();}
         else if (encounters.Size() && !ResumeForSelection()) ResumeOnDetection();
     }
     RecruitParty();
@@ -2645,6 +2654,15 @@ bool ResumeOnDetection() {
     return false;
 }
 void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;}
+bool EndEmptyCombat(const char *why) {
+    if (!Enabled() || !GlobalCombatActive() || tbSys.GetInitiativeListLength()) return false;
+    BgActorContext<objHndl>::Scope world(actorContext,objHndl::null); // a free hero's view must not hide it
+    combatSys.CombatEnd();
+    if (auto reset=temple::GetRef<int(__cdecl*)()>(0x10AA83F8)) reset(); // combat UI
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C8B0)(party.GetConsciousPartyLeader()); // combat music ends
+    logger->info("BG combat ended: nobody is in it ({})",why);
+    return true;
+}
 bool ParkForDialog(objHndl hero) {
     if (!Free(hero) || Civilian(hero) || !Detach("a free hero talks")) return false;
     dialogParkedAt=timeGetTime();

@@ -56,6 +56,9 @@ void DiscardEncounters();
 // leaves combat (music, initiative UI, dialogue, travel). It is shown again when
 // one of its heroes is selected or one of its enemies notices a free hero.
 bool ParkForDialog(objHndl hero);
+// Ends a world fight with nobody in it (its people are parked, civilians or in
+// another scene), so it cannot hold the world in combat without a turn.
+bool EndEmptyCombat(const char *why);
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }
