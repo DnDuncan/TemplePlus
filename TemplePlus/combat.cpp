@@ -2785,12 +2785,57 @@ bool StaysEngaged(objHndl npc) {
             !critterSys.IsFriendly(npc,member)) return true;
     return false;
 }
-// Fights whose heroes are all down: a round per 6 seconds for every member
-// (dying, effect durations). A raised hero makes it an ordinary waiting fight
-// again; it ends when its heroes are dead or its enemies are down.
+// One round of an unattended fight's enemies, in initiative order (members are
+// kept in that order). The world is out of combat, so nothing is rolled through
+// the turn system: an enemy runs to a downed hero, and once in reach performs a
+// coup de grace, which a dying (helpless, at most -1 hp) hero cannot survive.
+void EnemyRound(uint32_t id,const std::vector<objHndl> &members) {
+    std::vector<objHndl> downed;
+    for (auto member:members)
+        if (objSystem->IsValidHandle(member) && party.IsInParty(member) && critterSys.IsDeadOrUnconscious(member) &&
+            !critterSys.IsDeadNullDestroyed(member)) downed.push_back(member);
+    for (auto enemy:members) {
+        if (!objSystem->IsValidHandle(enemy) || party.IsInParty(enemy) || critterSys.IsDeadOrUnconscious(enemy) ||
+            (objects.GetFlags(enemy)&(OF_OFF|OF_DESTROYED))) continue;
+        bool heroNearby=false;
+        for (auto i=0u;i<party.GroupListGetLen();++i) {
+            auto hero=party.GroupListGetMemberN(i);
+            heroNearby=heroNearby || (Active(hero) && bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(hero.handle),
+                gameSystems->GetTerrain().SceneAreaForActor(enemy.handle)) && locSys.DistanceToObj(enemy,hero)<=bgengagement::DetectionRangeFeet);
+        }
+        objHndl target{};float best=0;
+        for (auto hero:downed) {
+            if (critterSys.IsDeadNullDestroyed(hero)) continue;
+            auto distance=locSys.DistanceToObj(enemy,hero);
+            if (!target || distance<best) {target=hero;best=distance;}
+        }
+        switch (bgencounters::UnattendedEnemy(target!=objHndl::null,heroNearby,target && combatSys.CanMeleeTarget(enemy,target))) {
+        case bgencounters::EnemyMove::Approach:
+            gameSystems->GetAnim().PushRunNearTile(enemy,objects.GetLocationFull(target),5);
+            logger->info("BG encounter {}: {} closes on downed {}",id,enemy,target);
+            break;
+        case bgencounters::EnemyMove::Finish: {
+            gameSystems->GetAnim().PushRotate(enemy,objects.GetRotationTowards(enemy,target));
+            logger->info("BG encounter {}: {} finishes downed {} (coup de grace)",id,enemy,target);
+            FloatStealth(enemy,30,FloatLineColor::Red);
+            histSys.CreateFromFreeText(fmt::format("{} {} {}\n",description.getDisplayName(enemy),StealthText(31),
+                description.getDisplayName(target)).c_str());
+            critterSys.Kill(target,enemy);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+// Fights whose heroes are all down keep their own clock: a round per 6 seconds,
+// in which their enemies act (EnemyRound). Dying and effect durations are left to
+// ToEE's own real-time rounds, which already run for everyone out of combat. A
+// raised hero makes it an ordinary waiting fight again; it ends when its heroes
+// are dead or its enemies are down.
 void TickUnattended(uint32_t now,bool running) {
     if (!Enabled() || !encounters.Size()) return;
-    std::vector<objHndl> due;std::vector<uint32_t> ended;
+    std::vector<std::pair<uint32_t,std::vector<objHndl>>> due;std::vector<uint32_t> ended;
     encounters.ForEach([&](decltype(encounters)::Parked &entry) {
         if (!entry.state.unattended) return;
         bool heroUp=false,heroAlive=false,enemyUp=false;
@@ -2807,8 +2852,7 @@ void TickUnattended(uint32_t now,bool running) {
         if (!heroAlive || !enemyUp) {ended.push_back(entry.id);return;}
         for (auto rounds=entry.state.clock.Advance(now,running);rounds;--rounds) {
             ++entry.state.round;
-            for (auto member:entry.members)
-                if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) due.push_back(member);
+            due.emplace_back(entry.id,entry.members);
             logger->info("BG encounter {} round {} goes on without its heroes",entry.id,entry.state.round);
         }
     });
@@ -2816,8 +2860,8 @@ void TickUnattended(uint32_t now,bool running) {
         decltype(encounters)::Parked gone;
         if (encounters.Take(id,gone)) logger->info("BG encounter {} ended without its heroes",id);
     }
-    // Outside the registry walk: a dying hero may die here.
-    for (auto member:due) if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) dispatch.Dispatch48BeginRound(member,1);
+    // Outside the registry walk: a hero may die here.
+    for (const auto &round:due) EnemyRound(round.first,round.second);
 }
 bool ResumeOwner(objHndl actor) {
     decltype(encounters)::Parked shown;

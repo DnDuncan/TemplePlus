@@ -84,6 +84,15 @@ private:
     uint32_t at=0;
 };
 
+// An enemy's round in a fight whose heroes are all down (design 9.1 a): with no
+// conscious hero near it, it finishes a downed hero of its fight (3.5 coup de
+// grace on a helpless target) or runs to one; otherwise it holds its ground.
+enum class EnemyMove {Hold,Approach,Finish};
+inline EnemyMove UnattendedEnemy(bool downedTarget,bool heroNearby,bool inReach) {
+    if (!downedTarget || heroNearby) return EnemyMove::Hold;
+    return inReach ? EnemyMove::Finish:EnemyMove::Approach;
+}
+
 // A fight without an active hero keeps its own time: one round per 6 seconds
 // while it runs. A gap between pulses (dialogue, menus, loading) counts at most
 // one step, so nothing is caught up at once.

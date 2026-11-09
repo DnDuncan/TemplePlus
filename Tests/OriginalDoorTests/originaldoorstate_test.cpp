@@ -732,6 +732,11 @@ int main() {
         rounds=0;
         for (uint32_t now=90250;now<=95250;now+=250) rounds+=clock.Advance(now,true);
         assert(rounds==1); // 1 s before the pause plus 5 s after it
+        using bgencounters::UnattendedEnemy;using bgencounters::EnemyMove;
+        assert(UnattendedEnemy(false,false,true)==EnemyMove::Hold); // nobody to finish
+        assert(UnattendedEnemy(true,true,true)==EnemyMove::Hold); // a conscious hero is near: no coup de grace
+        assert(UnattendedEnemy(true,false,false)==EnemyMove::Approach);
+        assert(UnattendedEnemy(true,false,true)==EnemyMove::Finish);
         bgencounters::Opening<int> opening;
         assert(!opening.Unseen(1,2,0));
         opening.Note(1,2,true,1000);
