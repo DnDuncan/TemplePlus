@@ -64,6 +64,8 @@ bool EndEmptyCombat(const char *why);
 bool DownedHeroTurn(objHndl actor);
 // An enemy without a target stays while living (also downed) heroes are in its fight.
 bool StaysEngaged(objHndl npc);
+// A native spread-out move never leaves the actor's isolated scene.
+void KeepInScene(objHndl actor,LocAndOffsets before);
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }

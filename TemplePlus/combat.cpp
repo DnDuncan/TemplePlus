@@ -91,6 +91,8 @@ struct CombatSystemAddresses : temple::AddressTable
 	void (*CombatPerformFleeCombat)(objHndl obj);
 } combatAddresses;
 
+static BOOL(__cdecl *orgForceSpreadOut)(objHndl, LocAndOffsets*) = nullptr;
+
 class CombatSystemReplacements : public TempleFix
 {
 public:
@@ -137,6 +139,12 @@ public:
 
 	void apply() override{
 		
+		orgForceSpreadOut = replaceFunction<BOOL(__cdecl)(objHndl, LocAndOffsets*)>(0x1005A640, [](objHndl handle, LocAndOffsets *location)->BOOL {
+			auto before = objects.GetLocationFull(handle);
+			auto result = orgForceSpreadOut(handle, location);
+			bgscenecombat::KeepInScene(handle, before);
+			return result;
+		});
 		replaceFunction(0x100628D0, _isCombatActive);
 		replaceFunction(0x100B82E0, _GetCleveVictim);
 
@@ -1676,7 +1684,12 @@ void LegacyCombatSystem::enterCombat(objHndl objHnd, bool regardDistance){
 
 
 	if (objects.IsPlayerControlled(objHnd)){
-		
+		if (bgscenecombat::Enabled()) { // a hero's stance is its own; heroes outside its fight stay at ease
+			if (!critterSys.IsCombatModeActive(objHnd))
+				temple::GetRef<void(__cdecl)(objHndl)>(0x10062740)(objHnd); // set combat mode active and force spreadout
+			return;
+		}
+
 		auto partyCount = party.GroupListGetLen();
 		for (auto i=0u; i < partyCount; i++){
 			auto partyMember = party.GroupListGetMemberN(i);
@@ -2455,6 +2468,7 @@ bool ResumeForSelection();
 bool ResumeOnDetection();
 bool SettleDownedTurn();
 void TickUnattended(uint32_t now,bool running);
+void RelaxFreeHeroes();
 static void Event(const char *name,PyObject *args) {
     auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook",name,args);Py_XDECREF(result);
 }
@@ -2468,6 +2482,7 @@ void Pulse(uint32_t now) {
         else if (encounters.Size() && !ResumeForSelection()) ResumeOnDetection();
     }
     TickUnattended(now,!talking);
+    if (GlobalCombatActive() || encounters.Size()) RelaxFreeHeroes();
     RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
@@ -2628,6 +2643,7 @@ bool Unattended(objHndl actor) {
 bool Leave(const char *why,bool unattended) {
     if (!ParkDisplayed(unattended)) return false;
     tbSys.groupInitiativeList->Reset();
+    RelaxFreeHeroes();
     tbSys.turnBasedSetCurrentActor(objHndl::null);
     *combatSys.combatModeActive=0;
     if (auto reset=temple::GetRef<int(__cdecl*)()>(0x10AA83F8)) reset(); // combat UI
@@ -2667,6 +2683,26 @@ bool SettleDownedTurn() {
     default:
         return false;
     }
+}
+// Heroes outside every fight drop their combat stance (a fight is its members'
+// only); one starting an action keeps it until the action has opened its fight.
+void RelaxFreeHeroes() {
+    if (!Enabled()) return;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto hero=party.GroupListGetMemberN(i);
+        if (!hero || !objSystem->IsValidHandle(hero) || encounters.Owns(hero) || tbSys.IsInInitiativeList(hero) ||
+            actSeqSys.isPerforming(hero)) continue;
+        auto obj=objSystem->GetObject(hero);auto flags=uint32_t(obj->GetInt32(obj_f_critter_flags));
+        if (flags&OCF_COMBAT_MODE_ACTIVE) obj->SetInt32(obj_f_critter_flags,flags&~OCF_COMBAT_MODE_ACTIVE);
+    }
+}
+void KeepInScene(objHndl actor,LocAndOffsets before) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) return;
+    auto &terrain=gameSystems->GetTerrain();auto from=before.ToInches2D();
+    auto scene=terrain.SceneAreaForPoint({from.x,from.y});
+    if (!scene || terrain.SceneAreaForActor(actor.handle)==scene) return;
+    objects.Move(actor,before);
+    logger->info("BG spread-out kept {} in scene {}",actor,scene);
 }
 bool StaysEngaged(objHndl npc) {
     if (!Enabled()) return false;

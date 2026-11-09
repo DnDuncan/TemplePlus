@@ -247,8 +247,10 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 				if (ttLen > 0 && tooltipText[ttLen - 1] == '\n')
 					tooltipText[ttLen - 1] = 0;
 
-				int x = (int)(*intgameAddresses.screenXfromMouseEvent);
-				int y = (int)(*intgameAddresses.screenYfromMouseEvent);
+				// The stored mouse position is in logical world pixels; the tooltip is HUD text.
+				auto display = gameView->ToDisplayScreen((double)*intgameAddresses.screenXfromMouseEvent, (double)*intgameAddresses.screenYfromMouseEvent);
+				int x = (int)std::round(display.x);
+				int y = (int)std::round(display.y);
 
 				auto ttStyle = tooltips.GetStyle(0);
 				UiRenderer::PushFont(ttStyle.fontName, ttStyle.fontSize);
@@ -281,6 +283,7 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 			}
 
 
+			ScopedWorldPresentation worldShapes;
 			UiDrawAoOThreatRanges();
 
 			// draw circle at waypoint / destination location
@@ -395,6 +398,7 @@ int UiIntegameTurnbasedRepl::UiIntgamePathSequenceHandler(TigMsgMouse* msg) {
 
 /* 0x10174100 */
 void UiIntegameTurnbasedRepl::UiIntgameGenerateSequence(int isUnnecessary) {
+	ScopedWorldInput worldInput; // also reached from the hover time event, outside the message handler
 	auto curSeq = *actSeqSys.actSeqCur;
 	// replacing this just for debug purposes really
 
@@ -1166,6 +1170,7 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 }
 
 void UiIntegameTurnbasedRepl::HourglassUpdate(int intgameAcquireOn, int intgameSelectionConfirmed, int showPathPreview) {
+	ScopedWorldPresentation worldShapes; // path preview: drawn in the UI pass, placed in the zoomed world
 	int _showPathPreview = showPathPreview;
 	int v33 = 0;
 	float greenMoveLength = 0.0;

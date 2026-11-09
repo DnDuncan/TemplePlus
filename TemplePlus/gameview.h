@@ -91,6 +91,7 @@ public:
 private:
 	friend class GameLoop;
 	friend class ScopedWorldInput;
+	friend class ScopedWorldPresentation;
 
 	gfx::ResizeListenerRegistration mResizeListener;
 	MainWindow &mMainWindow;
@@ -121,5 +122,20 @@ private:
 	TigMsg *mMessage = nullptr;
 	int mX = 0, mY = 0;
 	uint32_t mMsgX = 0, mMsgY = 0;
+	bool mApplied = false;
+};
+
+// World shapes drawn during the UI pass (turn-based path preview, attack of
+// opportunity markers, waypoint circle) use the zoomed world camera and logical
+// mouse pixels, exactly as the world render does.
+class ScopedWorldPresentation {
+public:
+	ScopedWorldPresentation();
+	~ScopedWorldPresentation();
+	ScopedWorldPresentation(const ScopedWorldPresentation&) = delete;
+	ScopedWorldPresentation& operator=(const ScopedWorldPresentation&) = delete;
+private:
+	ScopedWorldInput mInput;
+	float mOldZoom = 1.0f;
 	bool mApplied = false;
 };

@@ -195,3 +195,14 @@ ScopedWorldInput::~ScopedWorldInput() {
 	mouseState->x = mX; mouseState->y = mY;
 	if (mMessage && mMessage->type == TigMsgType::MOUSE) { mMessage->arg1 = mMsgX; mMessage->arg2 = mMsgY; }
 }
+
+ScopedWorldPresentation::ScopedWorldPresentation() {
+	if (!gameView || !gameView->mCamera) return;
+	mApplied = true;
+	mOldZoom = gameView->mCamera->GetPresentationZoom();
+	gameView->mCamera->SetPresentationZoom(gameView->GetWorldZoom());
+}
+
+ScopedWorldPresentation::~ScopedWorldPresentation() {
+	if (mApplied && gameView && gameView->mCamera) gameView->mCamera->SetPresentationZoom(mOldZoom);
+}
