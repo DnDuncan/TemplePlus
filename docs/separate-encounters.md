@@ -66,8 +66,8 @@ Use a save made before any combat.
 2. F-key on A: A's turn, budget and round are as left. F-key on B: B's encounter as left.
 3. End B's encounter: the world is out of combat; select A: A's encounter continues
    without skipping A or adding a round.
+4. Try to save with a parked encounter: refused (logged). After it ends, saving works.
+5. Ordinary one-encounter fights, free actions, doors and loot without regressions.
 6. On A's turn select a free hero: combat music and initiative bar end, the hero
    talks, travels and loots; walking into A's room in view of an enemy brings A's
    fight back with the hero in its initiative.
-4. Try to save with two encounters: refused. After one ends, saving works.
-5. Ordinary one-encounter fights, free actions, doors and loot without regressions.
