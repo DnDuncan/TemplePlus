@@ -56,7 +56,7 @@ shown encounter. Logical scenes still only filter who may start or join.
   heroes (downed too), targetless enemies stay in it, and only the fight's own
   heroes count for "enemies far from the party". Subturn keeps a free selection.
   Enemy turns in an unattended fight are phase 3; for now enemies only wait.
-- **Stances and scenes (0.2.159).** A hero's combat stance is its own: entering
+- **Stances and scenes (0.2.160).** A hero's combat stance is its own: entering
   combat no longer sets the whole party's stance in the BG map, and heroes outside
   every fight drop it (on parking and each pulse while a fight exists). A native
   spread-out move that would leave the actor's isolated scene is undone (logged
