@@ -72,15 +72,15 @@ template<class Actor> class Opening {
 public:
     static constexpr uint32_t Lifetime=6000;
     void Note(Actor attacker,Actor target,bool unseen,uint32_t now) {
-        this->attacker=attacker;this->target=target;this->unseen=unseen;at=now;
+        striker=attacker;struck=target;hidden=unseen;at=now;
     }
     bool Unseen(Actor attacker,Actor target,uint32_t now) const {
-        return unseen && attacker==this->attacker && target==this->target && uint32_t(now-at)<Lifetime;
+        return hidden && attacker==striker && target==struck && uint32_t(now-at)<Lifetime;
     }
-    void Clear() {unseen=false;}
+    void Clear() {hidden=false;}
 private:
-    Actor attacker{},target{};
-    bool unseen=false;
+    Actor striker{},struck{};
+    bool hidden=false;
     uint32_t at=0;
 };
 
