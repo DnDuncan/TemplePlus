@@ -32,6 +32,7 @@ public:
     void Forget(Actor actor) {
         for (auto &entry:parked) entry.members.erase(std::remove(entry.members.begin(),entry.members.end(),actor),entry.members.end());
     }
+    template<class Visit> void ForEach(Visit visit) const {for (const auto &entry:parked) visit(entry);}
     size_t Size() const {return parked.size();}
     void Clear() {parked.clear();}
 private:

@@ -1187,6 +1187,7 @@ void LegacyCombatSystem::CritterExitCombatMode(objHndl handle) {
 	auto N = party.GroupListGetLen();
 	for (auto i=0u; i < N; i++){
 		auto partyMem = party.GroupListGetMemberN(i);
+		if (bgscenecombat::Parked(partyMem)) continue; // its fight waits; it keeps its stance
 		auto critterFlags = critterSys.GetCritterFlags(partyMem);
 		if (critterFlags & OCF_COMBAT_MODE_ACTIVE){
 			objSystem->GetObject(partyMem)->SetInt32(obj_f_critter_flags, critterFlags & ~OCF_COMBAT_MODE_ACTIVE);
@@ -1228,9 +1229,9 @@ bool LegacyCombatSystem::CombatEnd(){
 		auto combatGiveXp = temple::GetRef<void(__cdecl)()>(0x100B88C0);
 		combatGiveXp();
 	}
-    // Only the displayed encounter ended; a waiting one continues where it stopped.
+    // Only the displayed encounter ended. A waiting one stays parked until one of
+    // its heroes is selected or its enemies notice a free hero (Pulse).
     if (mResettingCombatSystem) bgscenecombat::DiscardEncounters();
-    else bgscenecombat::ResumeParked();
 	return true;
 }
 
@@ -2432,6 +2433,10 @@ void Sleep(objHndl actor,bool sleeping) {
         // The move goal plays the native get-up animation before walking.
     }
 }
+bool DetachForFreeHeroes();
+bool ResumeOwner(objHndl actor);
+bool ResumeForSelection();
+bool ResumeOnDetection();
 static void Event(const char *name,PyObject *args) {
     auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook",name,args);Py_XDECREF(result);
 }
@@ -2439,8 +2444,11 @@ void Pulse(uint32_t now) {
     static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
     // The dialogue event starts 1ms after begin_dialog; give it a second to open.
     bool talking=uiSystems->GetDlg().IsActive() || (dialogParkedAt && uint32_t(now-dialogParkedAt)<1000);
-    if (!talking) dialogParkedAt=0;
-    if (!GlobalCombatActive() && encounters.Size() && !talking) ResumeParked();
+    if (!talking) {
+        dialogParkedAt=0;
+        if (GlobalCombatActive()) DetachForFreeHeroes();
+        else if (encounters.Size() && !ResumeForSelection()) ResumeOnDetection();
+    }
     RecruitParty();
     auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
 }
@@ -2483,7 +2491,7 @@ bool DisplayedWaits() {
     bool performing=false;
     for (auto member:Members()) performing=performing || actSeqSys.isPerforming(member)!=0;
     return bgencounters::CanPark({hero,performing,*actSeqSys.numSimultPerformers!=0,
-        temple::GetRef<ActnSeq*>(0x118CD574)!=nullptr,uiSystems->GetDlg().IsActive()});
+        temple::GetRef<ActnSeq*>(0x118CD574)!=nullptr,false,uiSystems->GetDlg().IsActive()});
 }
 NativeEncounter Capture() {
     NativeEncounter state{};
@@ -2547,9 +2555,9 @@ bool ParkForSeparate(objHndl initiator) {
     return true;
 }
 bool Activate(objHndl actor) {
-    if (!Enabled() || !GlobalCombatActive()) return false;
+    if (!Enabled() || !encounters.Owns(actor)) return false;
+    if (!GlobalCombatActive()) return ResumeOwner(actor);
     auto id=encounters.Owner(actor);
-    if (!id) return false;
     if (!DisplayedWaits()) {logger->info("BG encounter {} waits: the shown encounter is mid-action",id);return false;}
     decltype(encounters)::Parked shown;
     auto previous=displayedEncounter ? displayedEncounter:encounters.Open();
@@ -2559,30 +2567,87 @@ bool Activate(objHndl actor) {
     Show(shown);
     return true;
 }
+namespace {
+bool Alive(const decltype(encounters)::Parked &shown) {
+    for (auto member:shown.members)
+        if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) return true;
+    return false;
+}
+// Global combat is off: this fight becomes the shown one again.
+void Resume(const decltype(encounters)::Parked &shown) {
+    *combatSys.combatModeActive=1;
+    Show(shown);
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C770)(shown.state.current); // combat music
+    auto current=shown.state.current;
+    if (!current || !objSystem->IsValidHandle(current) || critterSys.IsDeadOrUnconscious(current))
+        combatSys.CombatAdvanceTurn(current);
+}
+// The rest of the world leaves combat: its music, initiative UI and turn input.
+bool Detach(const char *why) {
+    if (!Enabled() || !GlobalCombatActive() || starting || !DisplayedWaits() || !ParkDisplayed()) return false;
+    tbSys.groupInitiativeList->Reset();
+    tbSys.turnBasedSetCurrentActor(objHndl::null);
+    *combatSys.combatModeActive=0;
+    if (auto reset=temple::GetRef<int(__cdecl*)()>(0x10AA83F8)) reset(); // combat UI
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C8B0)(party.GetConsciousPartyLeader()); // combat music ends
+    logger->info("BG encounter parked: {}",why);
+    return true;
+}
+}
+bool ResumeOwner(objHndl actor) {
+    decltype(encounters)::Parked shown;
+    if (!encounters.Take(encounters.Owner(actor),shown)) return false;
+    if (!Alive(shown)) return false;
+    Resume(shown);
+    return true;
+}
 bool ResumeParked() {
     if (!Enabled() || GlobalCombatActive()) return false;
     decltype(encounters)::Parked shown;
     while (encounters.TakeLatest(shown)) {
-        bool alive=false;
-        for (auto member:shown.members)
-            alive=alive || (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member));
-        if (!alive) continue;
-        *combatSys.combatModeActive=1;
-        Show(shown);
-        temple::GetRef<void(__cdecl)(objHndl)>(0x1003C770)(shown.state.current); // combat music
-        auto current=shown.state.current;
-        if (!current || !objSystem->IsValidHandle(current) || critterSys.IsDeadOrUnconscious(current))
-            combatSys.CombatAdvanceTurn(current);
+        if (!Alive(shown)) continue;
+        Resume(shown);
         return true;
     }
     displayedEncounter=0;
     return false;
 }
+bool DetachForFreeHeroes() {return FreeSelection() && Detach("only free heroes are selected");}
+bool ResumeForSelection() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto member=party.GetCurrentlySelected(i);
+        if (encounters.Owns(member) && ResumeOwner(member)) {
+            logger->info("BG encounter shown again: {} was selected",member);
+            return true;
+        }
+    }
+    return false;
+}
+// A free hero who comes into the view (or hearing) of a waiting fight joins it.
+bool ResumeOnDetection() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto hero=party.GroupListGetMemberN(i);
+        if (!hero || !objSystem->IsValidHandle(hero) || encounters.Owns(hero) || critterSys.IsDeadOrUnconscious(hero) ||
+            (objects.GetFlags(hero)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW))) continue;
+        objHndl observer{};
+        encounters.ForEach([&](const decltype(encounters)::Parked &entry) {
+            for (auto member:entry.members)
+                if (!observer && objSystem->IsValidHandle(member) && (Threatens(hero,member) || Detects(hero,member))) observer=member;
+        });
+        if (observer && ResumeOwner(observer)) {
+            tbSys.AddToInitiative(hero);
+            logger->info("BG encounter shown again: {} noticed {}",observer,hero);
+            return true;
+        }
+    }
+    return false;
+}
 void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;}
 bool ParkForDialog(objHndl hero) {
-    if (!ParkForSeparate(hero)) return false;
+    if (!Free(hero) || Civilian(hero) || !Detach("a free hero talks")) return false;
     dialogParkedAt=timeGetTime();
-    logger->info("BG encounter waits while {} talks",hero);
     return true;
 }
 bool ShowFight(objHndl actor) {

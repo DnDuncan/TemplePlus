@@ -205,6 +205,14 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 		*intgameAddresses.intgameFocusObj = 0i64;
 	}
 
+	// Free BG heroes act in real time: never preview the fighting actor's path for them.
+	if (bgscenecombat::FreeSelection()) {
+		BgActorContext<objHndl>::Scope freeHero(bgscenecombat::actorContext, party.GetCurrentlySelected(0));
+		*intgameAddresses.cursorState = 0;
+		intgameAddresses.CursorRenderUpdate();
+		return;
+	}
+
 
 	if (uiPicker.PickerActiveCheck()){
 

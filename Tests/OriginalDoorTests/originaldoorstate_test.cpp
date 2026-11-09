@@ -686,6 +686,10 @@ int main() {
         assert(encounters.Park(two,{2,8},Turn{1,2,4}));
         assert(!encounters.Take(one,shown)); // taken once, not duplicated
         assert(encounters.Park(one,shown.members,shown.state));
+        // Detection scans every waiting fight's members without taking any.
+        std::vector<int> seen;
+        encounters.ForEach([&](const decltype(encounters)::Parked &entry) {seen.insert(seen.end(),entry.members.begin(),entry.members.end());});
+        assert((seen==std::vector<int>{2,8,1,7}) && encounters.Size()==2);
         encounters.Forget(8);
         assert(!encounters.Owns(8) && encounters.Owns(2));
         assert(encounters.TakeLatest(shown) && shown.id==one && shown.state.budget==2); // latest parked resumes first
@@ -695,12 +699,13 @@ int main() {
         encounters.Clear();
         assert(!encounters.Owns(4));
         using bgencounters::CanPark;
-        assert(CanPark({true,false,false,false,false}));
-        assert(!CanPark({false,false,false,false,false})); // AI turn finishes first
-        assert(!CanPark({true,true,false,false,false})); // animation or projectile pending
-        assert(!CanPark({true,false,true,false,false})); // simultaneous actions pending
-        assert(!CanPark({true,false,false,true,false})); // interrupt or readied action pending
-        assert(!CanPark({true,false,false,false,true})); // dialogue owns the encounter
+        assert(CanPark({true,false,false,false,false,false}));
+        assert(!CanPark({false,false,false,false,false,false})); // AI turn finishes first
+        assert(!CanPark({true,true,false,false,false,false})); // animation or projectile pending
+        assert(!CanPark({true,false,true,false,false,false})); // simultaneous actions pending
+        assert(!CanPark({true,false,false,true,false,false})); // interrupt or readied action pending
+        assert(!CanPark({true,false,false,false,true,false})); // a target picker is open
+        assert(!CanPark({true,false,false,false,false,true})); // dialogue owns the encounter
     }
     std::cout << "Original door registry tests passed\n";
 }
