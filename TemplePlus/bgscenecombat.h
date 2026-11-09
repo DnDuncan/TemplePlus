@@ -73,6 +73,12 @@ bool JoinsRunningFight();
 // A hostile action starts: remembers whether the hero strikes unseen.
 void NoteOpening(objHndl attacker,objHndl target);
 bool UnseenStrike(objHndl attacker,objHndl target);
+// A sneaking hero's hostile action ended its sneaking.
+void Revealed(objHndl hero);
+// Shift with a sneaking hero selected: each enemy's 40 ft notice range in the
+// world pass (grey unchecked, yellow missed, red noticed; a line splits off the
+// rear half where an unalerted enemy has Spot -5).
+void RenderStealthRanges();
 // Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
 bool ShowFight(objHndl actor);
 }

@@ -2770,8 +2770,8 @@ uint32_t ActionSequenceSystem::curSeqNext()
 				if (d20aTarget){
 					d20Sys.d20SendSignal(d20aTarget, DK_SIG_Action_Recipient,(int)d20a, 0);
 				}
-				bgscenecombat::NoteOpening(performer, d20aTarget); // before the attack reveals a sneaking hero
 				if (critterSys.IsMovingSilently(performer)){
+					bgscenecombat::Revealed(performer);
 					critterSys.SetMovingSilently(performer, FALSE);
 				}
 
@@ -3065,6 +3065,8 @@ void ActionSequenceSystem::ActionPerform()
 				*(uint32_t*)(&curSeq->tbStatus.tbsFlags) |= TBSF_HasActedThisRound;
 				InterruptCounterspell(d20a);
 				logger->debug("ActionPerform: \t Performing action for {}: {}",	d20a->d20APerformer,d20a->d20ActType);
+				if (d20a->GetActionDefinitionFlags() & D20ADF_TriggersCombat) // before the attack roll and before it reveals a sneaking hero
+					bgscenecombat::NoteOpening(d20a->d20APerformer, d20a->d20ATarget);
 
 				/*if (config.newFeatureTestMode && d20a->path != nullptr)
 				{

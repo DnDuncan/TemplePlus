@@ -600,6 +600,14 @@ int main() {
         assert(!Detected(Senses{10,true,true,true,5,0,4,0,15,1,10,1})); // night: hide 10+4+5 ties spot 19
         assert(Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,13})); // unseen: listen 15+3-2=16 beats 13+2
         assert(!Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,14})); // 16 ties move silently 16; no sight, no spot
+        assert(!Detected(Senses{10,true,true,false,5,0,4,0,15,1,10,1,true})); // behind an unalerted enemy: 19-5 ties 14
+        assert(Detected(Senses{10,true,true,false,5,0,4,0,20,1,10,1,true})); // 24-5=19 still beats 14
+        assert(Detected(Senses{20,false,true,false,0,3,0,2,1,15,1,13,true})); // Listen ignores facing
+        assert(Detected(Senses{35,true,false,false,0,0,0,0,1,1,20,20,true})); // an open hero is seen from behind too
+        using bgengagement::Behind;
+        assert(!Behind(0,0) && Behind(0,3.14159) && !Behind(1,1.5));
+        assert(!Behind(0.1,6.2) && !Behind(6.2,0.1)); // across the 0/2pi seam: in front
+        assert(Behind(0,1.5708+0.01) && !Behind(0,1.5708-0.01));
     }
     bgengagement::DetectionCache<int> perception;
     int checks=0;

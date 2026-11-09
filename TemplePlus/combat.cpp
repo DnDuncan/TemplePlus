@@ -20,6 +20,10 @@
 #include "location.h"
 #include "bonus.h"
 #include "history.h"
+#include "description.h"
+#include <infrastructure/keyboard.h>
+#include <tig/tig_startup.h>
+#include <graphics/shaperenderer3d.h>
 #include "ai.h"
 #include "util/fixes.h"
 #include "weapon.h"
@@ -2346,6 +2350,60 @@ bool Threatens(objHndl actor,objHndl observer) {
     return Observer(actor,observer) && !critterSys.IsFriendly(observer,actor) &&
         aiSys.GetCombatFocus(observer)==actor;
 }
+// Stealth feedback (tpmes/bg_stealth.mes, game codepage): what an enemy rolled
+// against a sneaking hero, shown in the combat log and over heads only when the
+// outcome for that pair changes, so the 6-second checks do not flood the log.
+const char *StealthText(int line) {
+    static MesHandle mes=-1;static bool opened=false;
+    if (!opened) {opened=true;if (!mesFuncs.Open("tpmes\\bg_stealth.mes",&mes)) mes=-1;}
+    auto text=mes<0 ? nullptr:mesFuncs.GetLineById(mes,line);
+    return text ? text:"";
+}
+std::map<std::pair<uint64_t,uint64_t>,bool> stealthSeen; // observer, hero -> last reported outcome
+std::map<uint64_t,bool> heroNoticed;
+void FloatStealth(objHndl obj,int line,FloatLineColor color) {
+    if (obj && objSystem->IsValidHandle(obj) && *StealthText(line)) floatSys.floatMesLine(obj,1,color,StealthText(line));
+}
+void HeroNoticed(objHndl hero,bool noticed) {
+    auto known=heroNoticed.find(hero.handle);
+    if (known!=heroNoticed.end() && known->second==noticed) return;
+    heroNoticed[hero.handle]=noticed;
+    FloatStealth(hero,noticed ? 4:3,noticed ? FloatLineColor::Red:FloatLineColor::Green);
+}
+std::string Signed(int value) {return value<0 ? fmt::format("-{}",-value):fmt::format("+{}",value);}
+void ReportCheck(objHndl observer,objHndl hero,const bgengagement::Senses &senses,bool detected,bool force) {
+    auto key=std::make_pair(observer.handle,hero.handle);
+    auto last=stealthSeen.find(key);
+    if (!force && last!=stealthSeen.end() && last->second==detected) return;
+    stealthSeen[key]=detected;
+    std::string observerName=description.getDisplayName(observer),heroName=description.getDisplayName(hero);
+    auto distance=bgengagement::DistancePenalty(senses);
+    if (senses.sight) {
+        auto line=fmt::format("{}: {} {}{}",observerName,StealthText(10),senses.spotRoll,Signed(senses.spot));
+        if (distance) line+=fmt::format("{} ({})",Signed(-distance),StealthText(17));
+        if (senses.behind) line+=fmt::format("{} ({})",Signed(-bgengagement::RearSpotPenalty),StealthText(18));
+        line+=fmt::format(" = {} {} {} {}: {}{}",bgengagement::SpotTotal(senses),StealthText(14),heroName,StealthText(11),senses.hideRoll,Signed(senses.hide));
+        if (senses.night) line+=fmt::format("{} ({})",Signed(bgengagement::NightHideBonus),StealthText(19));
+        line+=fmt::format(" = {}\n",bgengagement::HideTotal(senses));
+        histSys.CreateFromFreeText(line.c_str());
+    }
+    auto line=fmt::format("{}: {} {}{}",observerName,StealthText(12),senses.listenRoll,Signed(senses.listen));
+    if (distance) line+=fmt::format("{} ({})",Signed(-distance),StealthText(17));
+    line+=fmt::format(" = {} {} {} {}: {}{} = {} -> {}\n",bgengagement::ListenTotal(senses),StealthText(14),heroName,StealthText(13),
+        senses.moveRoll,Signed(senses.moveSilently),bgengagement::MoveSilentlyTotal(senses),StealthText(detected ? 15:16));
+    histSys.CreateFromFreeText(line.c_str());
+    FloatStealth(observer,detected ? 2:1,detected ? FloatLineColor::Red:FloatLineColor::Yellow);
+    HeroNoticed(hero,detected);
+}
+// A rear approach counts only against an enemy that is not alerted yet: out of
+// every fight and not fighting anyone.
+bool UnalertedBehind(objHndl hero,objHndl observer) {
+    if ((GlobalCombatActive() && tbSys.IsInInitiativeList(observer)) || encounters.Owns(observer)) return false;
+    auto status=AIFS_NONE;aiSys.GetAiFightStatus(observer,&status,nullptr);
+    if (status!=AIFS_NONE) return false;
+    return bgengagement::Behind(objects.GetRotation(observer),objects.GetRotationTowards(observer,hero));
+}
+bool lastCheckForced=false;
 bool Detects(objHndl actor,objHndl observer) {
     if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor)) return false;
     double distance=locSys.DistanceToObj(observer,actor);
@@ -2357,17 +2415,26 @@ bool Detects(objHndl actor,objHndl observer) {
     bool sight=critterSys.HasLineOfSight(observer,actor)==0 && (!invisible || critterSys.CanSense(observer,actor));
     bool night=!gameSystems->GetTimeEvent().IsDaytime();
     // Open heroes in view are noticed at once; rolled checks hold for one round.
-    if (!sneaking && sight) {detection.Forget(observer.handle,actor.handle);return true;}
-    uint32_t signature=(sneaking?1u:0u)|(sight?2u:0u)|(night?4u:0u)|(invisible?8u:0u);
+    if (!sneaking && sight) {
+        detection.Forget(observer.handle,actor.handle);
+        if (party.IsInParty(actor) && !stealthSeen[std::make_pair(observer.handle,actor.handle)]) {
+            stealthSeen[std::make_pair(observer.handle,actor.handle)]=true;
+            FloatStealth(observer,2,FloatLineColor::Red);
+        }
+        return true;
+    }
+    bool behind=sight && UnalertedBehind(actor,observer);
+    uint32_t signature=(sneaking?1u:0u)|(sight?2u:0u)|(night?4u:0u)|(invisible?8u:0u)|(behind?16u:0u);
     auto sense=[&]() {
         bgengagement::Senses senses{distance,sight,sneaking,night,
             critterSys.SkillLevel(observer,skill_spot),critterSys.SkillLevel(observer,skill_listen),
             critterSys.SkillLevel(actor,skill_hide),critterSys.SkillLevel(actor,skill_move_silently),
-            rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20)};
+            rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),behind};
         bool detected=bgengagement::Detected(senses);
-        logger->info("BG perception: {} {} {} at {} ft (sight {}, sneaking {}, night {}; spot {}+{} listen {}+{} vs hide {}+{} move silently {}+{})",
-            observer,detected ? "notices":"misses",actor,int(distance),sight,sneaking,night,
+        logger->info("BG perception: {} {} {} at {} ft (sight {}, sneaking {}, night {}, behind {}; spot {}+{} listen {}+{} vs hide {}+{} move silently {}+{})",
+            observer,detected ? "notices":"misses",actor,int(distance),sight,sneaking,night,behind,
             senses.spotRoll,senses.spot,senses.listenRoll,senses.listen,senses.hideRoll,senses.hide,senses.moveRoll,senses.moveSilently);
+        if (sneaking && party.IsInParty(actor)) ReportCheck(observer,actor,senses,detected,lastCheckForced);
         return detected;
     };
     return detection.Observe(observer.handle,actor.handle,timeGetTime(),signature,sense);
@@ -2802,7 +2869,7 @@ bool ResumeOnDetection() {
     }
     return false;
 }
-void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;opening.Clear();}
+void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;opening.Clear();stealthSeen.clear();heroNoticed.clear();}
 bool Engages(objHndl actor) {
     return Enabled() && !GlobalCombatActive() && encounters.Size() && actor && objSystem->IsValidHandle(actor) &&
         party.IsInParty(actor) && !encounters.Owns(actor);
@@ -2814,9 +2881,52 @@ void NoteOpening(objHndl attacker,objHndl target) {
         (critterSys.IsMovingSilently(attacker) || critterSys.IsConcealed(attacker));
     bool enemy=target && objSystem->IsValidHandle(target) && objSystem->GetObject(target)->IsNPC() &&
         !party.IsInParty(target) && !critterSys.IsFriendly(target,attacker);
-    bool unseen=hidden && enemy && !Detects(attacker,target);
+    if (!hidden || !enemy) {opening.Note(attacker,target,false,timeGetTime());return;}
+    detection.Forget(target.handle,attacker.handle); // the attack is a fresh chance to notice (3.5 Spot)
+    lastCheckForced=true; // the check deciding an attack is always shown
+    bool unseen=!Detects(attacker,target);
+    lastCheckForced=false;
     opening.Note(attacker,target,unseen,timeGetTime());
-    if (unseen) logger->info("BG unseen attack: {} strikes {} before being noticed",attacker,target);
+    if (!unseen) return;
+    logger->info("BG unseen attack: {} strikes {} before being noticed",attacker,target);
+    FloatStealth(attacker,5,FloatLineColor::Yellow);
+    histSys.CreateFromFreeText(fmt::format("{} {} {}: {}\n",description.getDisplayName(attacker),StealthText(20),
+        description.getDisplayName(target),StealthText(21)).c_str());
+}
+void RenderStealthRanges() {
+    if (!Enabled() || !party.CurrentlySelectedNum()) return;
+    if (!infrastructure::gKeyboard.IsKeyPressed(VK_LSHIFT) && !infrastructure::gKeyboard.IsKeyPressed(VK_RSHIFT)) return;
+    auto hero=party.GetCurrentlySelected(0);
+    if (!hero || !objSystem->IsValidHandle(hero) || !(critterSys.IsMovingSilently(hero) || critterSys.IsConcealed(hero))) return;
+    auto &shapes=tig->GetShapeRenderer3d();
+    const float radius=float(bgengagement::DetectionRangeFeet*INCH_PER_FEET);
+    ObjList nearby;nearby.ListRadius(objects.GetLocationFull(hero),float((bgengagement::DetectionRangeFeet+40)*INCH_PER_FEET),OLC_CRITTERS);
+    for (int i=0;i<nearby.size();++i) {
+        auto observer=nearby[i];
+        if (!observer || observer==hero || !Observer(hero,observer) || critterSys.IsFriendly(observer,hero)) continue;
+        auto seen=stealthSeen.find(std::make_pair(observer.handle,hero.handle));
+        XMCOLOR border=seen==stealthSeen.end() ? XMCOLOR(0.75f,0.75f,0.75f,0.9f):
+            seen->second ? XMCOLOR(1.0f,0.2f,0.2f,0.95f):XMCOLOR(1.0f,0.85f,0.2f,0.95f);
+        XMCOLOR fill=seen==stealthSeen.end() ? XMCOLOR(0.75f,0.75f,0.75f,0.06f):
+            seen->second ? XMCOLOR(1.0f,0.2f,0.2f,0.08f):XMCOLOR(1.0f,0.85f,0.2f,0.06f);
+        auto center=objects.GetLocationFull(observer).ToInches3D();
+        shapes.DrawFilledCircle(center,radius,border,fill,false);
+        auto status=AIFS_NONE;aiSys.GetAiFightStatus(observer,&status,nullptr);
+        bool unalerted=status==AIFS_NONE && !encounters.Owns(observer) && !(GlobalCombatActive() && tbSys.IsInInitiativeList(observer));
+        if (!unalerted) continue;
+        // ToEE rotation r faces the ground angle 5pi/4 - r (Objects::GetRotationTowardsLoc).
+        auto angle=3.92699082f-objects.GetRotation(observer); // 5pi/4
+        XMFLOAT3 facing{cosf(angle),0,sinf(angle)},side{-sinf(angle),0,cosf(angle)};
+        XMCOLOR line(1.0f,1.0f,1.0f,0.7f);
+        shapes.DrawLineWithoutDepth({center.x-side.x*radius,center.y,center.z-side.z*radius},{center.x+side.x*radius,center.y,center.z+side.z*radius},line);
+        shapes.DrawLineWithoutDepth(center,{center.x+facing.x*radius*0.3f,center.y,center.z+facing.z*radius*0.3f},line);
+    }
+}
+void Revealed(objHndl hero) {
+    if (!Enabled() || !hero || !party.IsInParty(hero)) return;
+    heroNoticed[hero.handle]=true;
+    FloatStealth(hero,6,FloatLineColor::Red);
+    for (auto &entry:stealthSeen) if (entry.first.second==hero.handle) entry.second=true;
 }
 bool UnseenStrike(objHndl attacker,objHndl target) {return Enabled() && opening.Unseen(attacker,target,timeGetTime());}
 bool EndEmptyCombat(const char *why) {
