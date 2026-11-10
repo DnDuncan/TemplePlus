@@ -1753,7 +1753,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
-    return PyInt_FromLong(2); // AR2602 plus reviewed rat storehouse, Carbos house and barracks
+    return PyInt_FromLong(3); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;

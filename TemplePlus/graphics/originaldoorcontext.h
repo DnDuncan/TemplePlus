@@ -91,7 +91,9 @@ inline bool IsReviewedCandlekeepScene(const OriginalSceneArea &a) {
         || (a.id==5193 && a.x==2840 && a.y==10514 && a.width==896 && a.height==704
         && a.sourceGround==904 && a.shiftX==-5120 && a.shiftY==1792)
         || (a.id==5197 && a.x==12632 && a.y==11954 && a.width==1792 && a.height==1408
-        && a.sourceGround==908 && a.shiftX==5120 && a.shiftY==3584);
+        && a.sourceGround==908 && a.shiftX==5120 && a.shiftY==3584)
+        || (a.id==5198 && a.x==10968 && a.y==1778 && a.width==5120 && a.height==3840
+        && a.sourceGround==909 && a.shiftX==5120 && a.shiftY==-5376);
 }
 inline bool SceneContains(const OriginalSceneArea &a,double x,double y) {
 	return x>=a.x && y>=a.y && x<a.x+a.width && y<a.y+a.height;
