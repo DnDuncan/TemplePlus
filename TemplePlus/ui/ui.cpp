@@ -12,6 +12,7 @@
 #include "gamesystems/legacysystems.h"
 #include "gameview.h"
 #include "ui_bgrolls.h"
+#include "ui_bgpanel.h"
 #include "ui_bgwalk.h"
 
 UiManager *uiManager;
@@ -954,6 +955,7 @@ bool UiManager::ProcessMessage(TigMsg &msg)
 {
 	bgwalk::Update();
 	if (bgrolls::HandleModalInput(msg)) return true;
+	if (bgpanel::HandleModalInput(msg)) return true;
 	if (bgwalk::HandleHotkey(msg)) return true;
 	if (bgwalk::HandleMouse(msg)) return true;
 	// Dispatch time update messages continuously to all advanced widgets

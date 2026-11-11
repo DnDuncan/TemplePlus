@@ -3,6 +3,7 @@
 #include "../../TemplePlus/graphics/originaldooruse.h"
 #include "../../TemplePlus/graphics/originaltravel.h"
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
+#include "../../TemplePlus/ui/bgpanelmodel.h"
 #include "../../TemplePlus/graphics/sourcecontainers.h"
 #include "../../TemplePlus/worldviewzoom.h"
 #include "../../TemplePlus/ui/bgskillrules.h"
@@ -392,8 +393,23 @@ static void TestSceneNightGround() {
     assert(LightningFlashActive(100,50) && !LightningFlashActive(100,100) && !LightningFlashActive(100,150));
     assert(LightningFlashActive(5,0xFFFFFFF0u)); // across the timer wrap
 }
+static void TestBgPanelModel() {
+    using namespace bgpanel;
+    std::vector<Element> e(3);
+    e[0].x=0;e[0].y=0;e[0].w=100;e[0].h=100;e[0].click=true;e[0].id="back";
+    e[1].x=10;e[1].y=10;e[1].w=20;e[1].h=20;e[1].click=true;e[1].id="area";e[1].tip="tip";
+    e[2].x=40;e[2].y=40;e[2].w=20;e[2].h=20;e[2].click=true;e[2].enabled=false;
+    assert(HitTest(e,15,15)==1 && HitTest(e,5,5)==0 && HitTest(e,45,45)==0 && HitTest(e,150,5)==-1);
+    assert(TooltipAt(e,15,15)==1 && TooltipAt(e,5,5)==-1);
+    auto b=TooltipBox(990,700,100,50,1024,768);
+    assert(b.x==880 && b.y==640);
+    b=TooltipBox(10,10,100,50,1024,768);
+    assert(b.x==28 && b.y==28);
+    assert(ValidKind(4) && !ValidKind(5) && !ValidKind(-1));
+}
 int main() {
     TestReviewedShankScene();
+    TestBgPanelModel();
     TestSceneNightGround();
     for (const auto &area : {OriginalSceneArea{5194,5136,2968,12402,640,512,905,-5120,3584},
                             OriginalSceneArea{5195,5136,13208,8882,640,384,906,5120,0},
