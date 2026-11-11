@@ -439,6 +439,18 @@ void UiInGame::HandleNonCombatKeyStateChange(const TigMsg& msg){
 		if (handled) return;
 	}
 
+	// BG rest (bg2toee): R, as in Baldur's Gate, opens the camp on BG maps.
+	constexpr uint32_t DikR = 0x13; // DIK_R
+	if (msga.key == DikR && !hotkeys.IsKeyPressed(VK_CONTROL) && !hotkeys.IsKeyPressed(VK_SHIFT)
+		&& !hotkeys.IsKeyPressed(VK_MENU)) {
+		auto restArgs = Py_BuildValue("(i)", 2);
+		auto restResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "rest_key", restArgs);
+		Py_DECREF(restArgs);
+		bool restHandled = restResult && PyObject_IsTrue(restResult) == 1;
+		Py_XDECREF(restResult);
+		if (restHandled) return;
+	}
+
 	auto leader = party.GetConsciousPartyLeader();
 	if (leader){
 		if (hotkeys.IsReservedHotkey(msga.key)){

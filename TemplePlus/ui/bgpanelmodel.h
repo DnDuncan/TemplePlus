@@ -25,6 +25,7 @@ struct Element {
 	std::string tip;               // tooltip, cp1251
 	bool click = false;            // reports clicks
 	bool enabled = true;           // button
+	bool follow = false;           // drawn at the cursor (x, y are offsets): a dragged portrait
 };
 
 inline bool Contains(const Element &e, int x, int y) {
@@ -35,7 +36,7 @@ inline bool Contains(const Element &e, int x, int y) {
 inline int HitTest(const std::vector<Element> &elements, int x, int y) {
 	for (int i = int(elements.size()) - 1; i >= 0; --i) {
 		const auto &e = elements[i];
-		if (e.click && e.enabled && Contains(e, x, y)) return i;
+		if (e.click && e.enabled && !e.follow && Contains(e, x, y)) return i;
 	}
 	return -1;
 }
@@ -44,7 +45,7 @@ inline int HitTest(const std::vector<Element> &elements, int x, int y) {
 inline int TooltipAt(const std::vector<Element> &elements, int x, int y) {
 	for (int i = int(elements.size()) - 1; i >= 0; --i) {
 		const auto &e = elements[i];
-		if (Contains(e, x, y)) return e.tip.empty() ? -1 : i;
+		if (!e.follow && Contains(e, x, y)) return e.tip.empty() ? -1 : i;
 	}
 	return -1;
 }

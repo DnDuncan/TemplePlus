@@ -21,6 +21,7 @@ constexpr uint32_t DikEscape = 0x01, DikReturn = 0x1C, DikNumpadEnter = 0x9C;
 
 std::vector<Element> sElements;
 int sMouseX = -1, sMouseY = -1;
+bool sRestTakeover = false;
 
 XMCOLOR Argb(uint32_t c) {
 	return XMCOLOR(((c >> 16) & 0xFF) / 255.0f, ((c >> 8) & 0xFF) / 255.0f, (c & 0xFF) / 255.0f, ((c >> 24) & 0xFF) / 255.0f);
@@ -122,7 +123,13 @@ public:
 	void Render() override {
 		if (!IsVisible()) return;
 		auto hit = HitTest(sElements, sMouseX, sMouseY);
-		for (int i = 0; i < int(sElements.size()); ++i) DrawElement(sElements[i], i == hit);
+		for (int i = 0; i < int(sElements.size()); ++i) {
+			if (!sElements[i].follow) { DrawElement(sElements[i], i == hit); continue; }
+			auto moved = sElements[i];
+			moved.x += sMouseX;
+			moved.y += sMouseY;
+			DrawElement(moved, false);
+		}
 		DrawTooltip();
 	}
 };
@@ -158,18 +165,32 @@ bool IsVisible() {
 	return sWindow && sWindow->IsVisible();
 }
 
+void SetRestTakeover(bool enabled) {
+	sRestTakeover = enabled;
+}
+
+bool RestTakeover() {
+	return sRestTakeover;
+}
+
 bool HandleModalInput(const TigMsg &msg) {
 	if (!IsVisible() || msg.type == TigMsgType::UPDATE_TIME) return false;
 	if (msg.type == TigMsgType::EXIT) { Hide(); return false; }
 	if (msg.type == TigMsgType::MOUSE) {
 		sMouseX = int(msg.arg1);
 		sMouseY = int(msg.arg2);
-		if (msg.arg4 & MSF_LMB_RELEASED) {
+		if (msg.arg4 & MSF_LMB_DOWN) {
 			auto index = HitTest(sElements, sMouseX, sMouseY);
 			if (index >= 0) {
-				auto id = sElements[index].id;   // the callback may replace the list
-				Notify("click", id);
+				auto id = sElements[index].id;
+				Notify("press", id);
 			}
+		}
+		if (msg.arg4 & MSF_LMB_RELEASED) {
+			auto index = HitTest(sElements, sMouseX, sMouseY);
+			auto id = index >= 0 ? sElements[index].id : std::string();   // the callback may replace the list
+			Notify("release", id);
+			if (index >= 0 && IsVisible()) Notify("click", id);
 		} else if (msg.arg4 & MSF_RMB_RELEASED) {
 			Notify("cancel", std::string());
 		}

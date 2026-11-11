@@ -4,6 +4,7 @@
 #include "../../TemplePlus/graphics/originaltravel.h"
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
 #include "../../TemplePlus/ui/bgpanelmodel.h"
+#include "../../TemplePlus/gamesystems/bglights.h"
 #include "../../TemplePlus/graphics/sourcecontainers.h"
 #include "../../TemplePlus/worldviewzoom.h"
 #include "../../TemplePlus/ui/bgskillrules.h"
@@ -408,10 +409,27 @@ static void TestBgPanelModel() {
     b=TooltipBox(10,10,100,50,1024,768);
     assert(b.x==28 && b.y==28);
     assert(ValidKind(4) && !ValidKind(5) && !ValidKind(-1));
+    e[1].follow=true;   // a dragged portrait never takes clicks or tooltips
+    assert(HitTest(e,15,15)==0 && TooltipAt(e,15,15)==-1);
+}
+static void TestBgLights() {
+    bglights::Registry reg;
+    bglights::Light l;l.mapId=5136;l.x=100;l.y=200;l.height=30;l.r=1;l.g=0.6f;l.b=0.3f;l.range=360;l.flicker=0.5f;
+    auto id=reg.Add(l);
+    assert(id==1 && reg.All().size()==1);
+    auto bad=l;bad.range=0;assert(reg.Add(bad)==0);
+    bad=l;bad.r=2;assert(reg.Add(bad)==0);
+    assert(bglights::Reaches(l,100+300,200,100) && !bglights::Reaches(l,100+500,200,100));
+    for (uint32_t t=0;t<5000;t+=37) {auto f=bglights::Flicker(l,t,id);assert(f>=0.77f && f<=1.0001f);}
+    l.flicker=0;assert(bglights::Flicker(l,123,1)==1.0f);
+    assert(reg.Remove(id) && !reg.Remove(id));
+    for (size_t i=0;i<bglights::MaxLights;++i) assert(reg.Add(l)>0);
+    assert(reg.Add(l)==0);reg.Clear();assert(reg.All().empty());
 }
 int main() {
     TestReviewedShankScene();
     TestBgPanelModel();
+    TestBgLights();
     TestSceneNightGround();
     for (const auto &area : {OriginalSceneArea{5194,5136,2968,12402,640,512,905,-5120,3584},
                             OriginalSceneArea{5195,5136,13208,8882,640,384,906,5120,0},

@@ -20,4 +20,9 @@ void Hide();
 bool IsVisible();
 bool HandleModalInput(const TigMsg &msg);
 
+// On maps where the mod runs rest, ToEE's sleep status reads "safe" so its
+// rest button and hotkey reach the camp hook (they skipped it at status 2).
+void SetRestTakeover(bool enabled);
+bool RestTakeover();
+
 }

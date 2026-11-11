@@ -36,6 +36,7 @@
 #include "ui/ui_bgjournal.h"
 #include "ui/ui_bgrolls.h"
 #include "ui/ui_bgpanel.h"
+#include "gamesystems/bglights.h"
 #include "quest.h"
 #include "ui/ui_tutorial.h"
 #include "ui/ui_picker.h"
@@ -1755,7 +1756,7 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
-    return PyInt_FromLong(5); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way; 4: scene night ground; 5: panel, camp, world map hooks
+    return PyInt_FromLong(6); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way; 4: scene night ground; 5: panel, camp, world map hooks; 6: camp lights, rest takeover, panel drag
 }
 // Weather (API in bg_candlekeep_interior_version 4): lightning shows the day
 // ground for a moment; a looped weather sound stops when the party leaves.
@@ -1797,10 +1798,11 @@ static PyObject* PyGame_BgPanelShow(PyObject*,PyObject* args) {
     for (Py_ssize_t i=0;i<count;++i) {
         auto d=PySequence_GetItem(items,i);
         if (!d || !PyDict_Check(d)) {Py_XDECREF(d);PyErr_SetString(PyExc_TypeError,"panel element must be a dict");return nullptr;}
-        bgpanel::Element e;int64_t kind=0,x=0,y=0,w=0,h=0,color=0xFFFFFFFF,border=0,align=0,click=0,enabled=1;
+        bgpanel::Element e;int64_t kind=0,x=0,y=0,w=0,h=0,color=0xFFFFFFFF,border=0,align=0,click=0,enabled=1,follow=0;
         bool ok=PanelNumber(d,"k",kind) && PanelNumber(d,"x",x) && PanelNumber(d,"y",y) && PanelNumber(d,"w",w)
             && PanelNumber(d,"h",h) && PanelNumber(d,"color",color) && PanelNumber(d,"border",border)
             && PanelNumber(d,"align",align) && PanelNumber(d,"click",click) && PanelNumber(d,"enabled",enabled)
+            && PanelNumber(d,"follow",follow)
             && PanelText(d,"id",e.id) && PanelText(d,"path",e.path) && PanelText(d,"text",e.text) && PanelText(d,"tip",e.tip);
         auto obj=PyDict_GetItemString(d,"obj");
         if (ok && obj && obj!=Py_None) {
@@ -1812,6 +1814,7 @@ static PyObject* PyGame_BgPanelShow(PyObject*,PyObject* args) {
         if (!bgpanel::ValidKind(int(kind)) || w<0 || h<0 || w>8192 || h>8192) {PyErr_SetString(PyExc_ValueError,"invalid panel element");return nullptr;}
         e.kind=static_cast<bgpanel::Kind>(kind);e.x=int(x);e.y=int(y);e.w=int(w);e.h=int(h);
         e.color=uint32_t(color);e.border=uint32_t(border);e.align=int(align);e.click=click!=0;e.enabled=enabled!=0;
+        e.follow=follow!=0;
         elements.push_back(std::move(e));
     }
     bgpanel::Show(std::move(elements));
@@ -1849,6 +1852,29 @@ static PyObject* PyGame_BgCanPlace(PyObject*,PyObject* args) {
             return PyInt_FromLong(0);
     }
     return PyInt_FromLong(1);
+}
+// Camp fire light: game.bg_light_add(map, x, y, height, r, g, b, range, flicker) -> id
+// (world inches, colour 0..1); bg_light_remove(id), bg_light_clear().
+static PyObject* PyGame_BgLightAdd(PyObject*,PyObject* args) {
+    bglights::Light l;
+    if (!PyArg_ParseTuple(args,"ifffffffff:bg_light_add",&l.mapId,&l.x,&l.y,&l.height,&l.r,&l.g,&l.b,&l.range,&l.flicker)) return nullptr;
+    auto id=bglights::Lights().Add(l);
+    if (!id) {PyErr_SetString(PyExc_ValueError,"invalid light or too many lights");return nullptr;}
+    return PyInt_FromLong(id);
+}
+static PyObject* PyGame_BgLightRemove(PyObject*,PyObject* args) {
+    int id;
+    if (!PyArg_ParseTuple(args,"i:bg_light_remove",&id)) return nullptr;
+    return PyInt_FromLong(bglights::Lights().Remove(id) ? 1 : 0);
+}
+static PyObject* PyGame_BgLightClear(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_light_clear")) return nullptr;
+    bglights::Lights().Clear();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgRestTakeover(PyObject*,PyObject* args) {
+    int enabled;
+    if (!PyArg_ParseTuple(args,"i:bg_rest_takeover",&enabled)) return nullptr;
+    bgpanel::SetRestTakeover(enabled!=0);Py_RETURN_NONE;
 }
 static PyObject* PyGame_BgRestApply(PyObject*,PyObject* args) {
     objHndl member;int healHp,restore;
@@ -2175,6 +2201,10 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_canvas_size",PyGame_BgCanvasSize,METH_VARARGS,NULL},
 	{"bg_can_place",PyGame_BgCanPlace,METH_VARARGS,NULL},
 	{"bg_rest_apply",PyGame_BgRestApply,METH_VARARGS,NULL},
+	{"bg_light_add",PyGame_BgLightAdd,METH_VARARGS,NULL},
+	{"bg_light_remove",PyGame_BgLightRemove,METH_VARARGS,NULL},
+	{"bg_light_clear",PyGame_BgLightClear,METH_VARARGS,NULL},
+	{"bg_rest_takeover",PyGame_BgRestTakeover,METH_VARARGS,NULL},
 	{"bg_source_interaction_version",PyGame_BgSourceInteractionVersion,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},

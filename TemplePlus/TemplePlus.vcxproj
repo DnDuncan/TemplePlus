@@ -404,6 +404,7 @@
     <ClInclude Include="ui\ui_bgjournal.h" />
     <ClInclude Include="ui\ui_bgpanel.h" />
     <ClInclude Include="ui\bgpanelmodel.h" />
+    <ClInclude Include="gamesystems\bglights.h" />
     <ClInclude Include="ui\ui_bgrolls.h" />
     <ClInclude Include="ui\ui_bgwalk.h" />
     <ClInclude Include="bgmovementrules.h" />

@@ -7,6 +7,7 @@
 #include "ui_systems.h"
 #include "ui_legacysystems.h"
 #include "python/python_integration_obj.h"
+#include "ui_bgpanel.h"
 
 // bg2toee: templeplus.savehook decides whether a BG window replaces the ToEE
 // one (rest_key: camp, worldmap_key: world map). False keeps ToEE behaviour.
@@ -39,6 +40,11 @@ public:
 		// Camp
 		replaceFunction<BOOL(int)>(0x1010EF00, [](int hoursToRest){
 			return uiSystems->GetCamping().Camp(hoursToRest);
+		});
+
+		// Sleep status: "safe" where the mod runs rest (its camp decides)
+		static int(__cdecl *orgSleepStatus)() = replaceFunction<int(__cdecl)()>(0x10045BB0, []() {
+			return bgpanel::RestTakeover() ? 0 : orgSleepStatus();
 		});
 
 		// Camping window show (rest button and hotkey)
