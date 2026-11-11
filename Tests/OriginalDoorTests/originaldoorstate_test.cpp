@@ -384,8 +384,17 @@ static void TestReviewedShankScene() {
     bad=a;bad.shiftX=0;assert(!IsReviewedCandlekeepScene(bad));
     bad=a;bad.nativeMap=5192;assert(!IsReviewedCandlekeepScene(bad));
 }
+static void TestSceneNightGround() {
+    assert(SceneGroundArt(909,true,true)==1909);
+    assert(SceneGroundArt(909,false,true)==909);
+    assert(SceneGroundArt(903,true,false)==903); // no night registry entry: day art
+    assert(LightningFlashMs(-5)==0 && LightningFlashMs(120)==120 && LightningFlashMs(5000)==1000);
+    assert(LightningFlashActive(100,50) && !LightningFlashActive(100,100) && !LightningFlashActive(100,150));
+    assert(LightningFlashActive(5,0xFFFFFFF0u)); // across the timer wrap
+}
 int main() {
     TestReviewedShankScene();
+    TestSceneNightGround();
     for (const auto &area : {OriginalSceneArea{5194,5136,2968,12402,640,512,905,-5120,3584},
                             OriginalSceneArea{5195,5136,13208,8882,640,384,906,5120,0},
                             OriginalSceneArea{5196,5136,13144,10610,768,512,907,5120,1792}}) {

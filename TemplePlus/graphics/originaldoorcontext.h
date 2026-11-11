@@ -95,6 +95,14 @@ inline bool IsReviewedCandlekeepScene(const OriginalSceneArea &a) {
         || (a.id==5198 && a.x==10968 && a.y==1778 && a.width==5120 && a.height==3840
         && a.sourceGround==909 && a.shiftX==5120 && a.shiftY==-5376);
 }
+// A scene draws its own ground; at night its night art (id+1000) when the
+// ground registry has one, so a source area without night tiles stays as is.
+inline int SceneGroundArt(int sourceGround,bool night,bool hasNightArt) {
+	return night && hasNightArt ? sourceGround+1000 : sourceGround;
+}
+// Lightning flash of the weather scripts: at most one second, wrap-safe clock.
+inline int LightningFlashMs(int ms) { return ms<0 ? 0 : (std::min)(ms,1000); }
+inline bool LightningFlashActive(uint32_t until,uint32_t now) { return int32_t(until-now)>0; }
 inline bool SceneContains(const OriginalSceneArea &a,double x,double y) {
 	return x>=a.x && y>=a.y && x<a.x+a.width && y<a.y+a.height;
 }

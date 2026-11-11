@@ -30,6 +30,7 @@
 #include "action_sequence.h"
 #include "raycast.h"
 #include "sound.h"
+#include "tig/tig_sound.h"
 #include "ui/ui.h"
 #include "ui/ui_dialog.h"
 #include "ui/ui_bgjournal.h"
@@ -1753,7 +1754,20 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
-    return PyInt_FromLong(3); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way
+    return PyInt_FromLong(4); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way; 4: scene night ground
+}
+// Weather (API in bg_candlekeep_interior_version 4): lightning shows the day
+// ground for a moment; a looped weather sound stops when the party leaves.
+static PyObject* PyGame_BgTerrainFlash(PyObject*,PyObject* args) {
+    int ms;
+    if (!PyArg_ParseTuple(args,"i:bg_terrain_flash",&ms)) return nullptr;
+    gameSystems->GetTerrain().Flash(ms);Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgSoundStop(PyObject*,PyObject* args) {
+    int streamId;
+    if (!PyArg_ParseTuple(args,"i:bg_sound_stop",&streamId)) return nullptr;
+    if (streamId>=0 && tigSoundAddresses.IsStreamActive(streamId)) tigSoundAddresses.FreeStream(streamId);
+    Py_RETURN_NONE;
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
@@ -2065,6 +2079,8 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_source_door_clear",PyGame_BgSourceDoorClear,METH_VARARGS,NULL},
 	{"bg_candlekeep_interior_version",PyGame_BgCandlekeepInteriorVersion,METH_VARARGS,NULL},
+	{"bg_terrain_flash",PyGame_BgTerrainFlash,METH_VARARGS,NULL},
+	{"bg_sound_stop",PyGame_BgSoundStop,METH_VARARGS,NULL},
 	{"bg_source_interaction_version",PyGame_BgSourceInteractionVersion,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},
