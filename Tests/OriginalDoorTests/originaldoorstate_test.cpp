@@ -402,7 +402,9 @@ static void TestBgPanelModel() {
     assert(HitTest(e,15,15)==1 && HitTest(e,5,5)==0 && HitTest(e,45,45)==0 && HitTest(e,150,5)==-1);
     assert(TooltipAt(e,15,15)==1 && TooltipAt(e,5,5)==-1);
     auto b=TooltipBox(990,700,100,50,1024,768);
-    assert(b.x==880 && b.y==640);
+    assert(b.x==880 && b.y==718);   // touches the bottom edge: stays below the cursor
+    b=TooltipBox(990,720,100,50,1024,768);
+    assert(b.x==880 && b.y==660);
     b=TooltipBox(10,10,100,50,1024,768);
     assert(b.x==28 && b.y==28);
     assert(ValidKind(4) && !ValidKind(5) && !ValidKind(-1));
