@@ -33,3 +33,11 @@ day/night and map changes must be recorded separately.
 
 The accepted original-door renderer/input runtime is retained for rollback.
 Build and test only in the debug installation; no game resources are included.
+
+Turn-based overlays (0.2.160): the path preview, attack-of-opportunity markers
+and waypoint circle are drawn during the UI pass. They now use
+`ScopedWorldPresentation` (zoomed world camera plus logical mouse pixels), and
+the hover tooltip converts the stored logical mouse position back to display
+pixels. Before this, at 230% zoom, the preview started at the actor's unzoomed
+screen position and ended at the unzoomed cursor point (user screenshots of
+0.2.152).

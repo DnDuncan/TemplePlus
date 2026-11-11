@@ -1187,6 +1187,24 @@ BOOL UiCamping::Camp(int hoursToRest){
 	return completedSuccessfully;
 }
 
+void UiCamping::ApplyBgRest(objHndl member, int healHp, bool restore){
+	if (!member || !objSystem->IsValidHandle(member)) return;
+	if (restore){
+		spellSys.SanitizeSpellSlots(member);
+		spellSys.SpellsPendingToMemorized(member);
+		objSystem->GetObject(member)->ClearArray(obj_f_critter_spells_cast_idx);
+	}
+	if (healHp > 0){
+		damage.Heal(member, member, Dice(0, 0, healHp), D20A_NONE);
+		damage.HealSubdual(member, healHp);
+	}
+	if (restore){
+		auto dispatcher = objSystem->GetObject(member)->GetDispatcher();
+		if (dispatcher->IsValid())
+			dispatcher->Process(enum_disp_type::dispTypeNewDay, DK_NEWDAY_REST, nullptr);
+	}
+}
+
 void UiCamping::SetTimeUntilHealed(){
 
 	auto &campingMode = temple::GetRef<int>(0x10BE2B38);

@@ -14,6 +14,7 @@
 #include "ui/ui_systems.h"
 #include "ui/ui_legacysystems.h"
 #include "graphics/mapterrain.h"
+#include "bgscenecombat.h"
 
 static struct GameLibLoadAddresses : temple::AddressTable {
 	/*
@@ -59,6 +60,7 @@ bool GameSystems::LoadGame(const string& filename) {
 	auto beforeLoadResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "pre_load", beforeLoadArgs);
 	Py_DECREF(beforeLoadResult); Py_DECREF(beforeLoadArgs);
 	GetTerrain().Reset();
+	bgscenecombat::DiscardEncounters(); // handles of the previous session must not survive a load
 	
 	addresses.UiMmRelated(63);
 
@@ -192,6 +194,7 @@ bool GameSystems::LoadGame(const string& filename) {
 		logger->error("Loading UI data failed");
 		return false;
 	}
+	bgscenecombat::LoadEncounters("Save\\Current\\bg_encounters.dat"); // objects exist again: resolve the waiting fights
 
 	{
 		// user savehook

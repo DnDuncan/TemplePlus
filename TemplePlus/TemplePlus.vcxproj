@@ -213,6 +213,7 @@
     <ClCompile Include="ui\ui_legacysystems.cpp" />
     <ClCompile Include="ui\ui_logbook.cpp" />
     <ClCompile Include="ui\ui_bgjournal.cpp" />
+    <ClCompile Include="ui\ui_bgpanel.cpp" />
     <ClCompile Include="ui\ui_bgrolls.cpp" />
     <ClCompile Include="ui\ui_bgwalk.cpp" />
     <ClCompile Include="ui\ui_bgcheckresources.cpp" />
@@ -401,6 +402,9 @@
     <ClInclude Include="ui\ui_legacysystems.h" />
     <ClInclude Include="ui\ui_logbook.h" />
     <ClInclude Include="ui\ui_bgjournal.h" />
+    <ClInclude Include="ui\ui_bgpanel.h" />
+    <ClInclude Include="ui\bgpanelmodel.h" />
+    <ClInclude Include="gamesystems\bglights.h" />
     <ClInclude Include="ui\ui_bgrolls.h" />
     <ClInclude Include="ui\ui_bgwalk.h" />
     <ClInclude Include="bgmovementrules.h" />

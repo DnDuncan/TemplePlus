@@ -26,6 +26,12 @@
 #include "froggrapplecontroller.h"
 
 #include "tig/tig_startup.h"
+#include "gamesystems/bglights.h"
+#include "maps.h"
+
+namespace bglights {
+Registry &Lights() { static Registry registry; return registry; }
+}
 
 using namespace gfx;
 using namespace temple;
@@ -918,6 +924,23 @@ std::vector<Light3d> MapObjectRenderer::FindLights(LocAndOffsets atLocation, flo
 			light3d.phi = phi;
 			lights.push_back(light3d);
 		}
+	}
+
+	// bg2toee camp fires: dynamic point lights of the current map
+	auto mapId = maps.GetCurrentMapId();
+	auto now = timeGetTime();
+	for (const auto &entry : bglights::Lights().All()) {
+		const auto &bgLight = entry.second;
+		if (bgLight.mapId != mapId || !bglights::Reaches(bgLight, atPos.x, atPos.y, radius)) continue;
+		auto factor = bglights::Flicker(bgLight, now, entry.first);
+		Light3d light3d;
+		light3d.type = Light3dType::Point;
+		light3d.dir = XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
+		light3d.pos = XMFLOAT4(bgLight.x, bgLight.height, bgLight.y, 0.0f);
+		light3d.color = XMFLOAT4(bgLight.r * factor, bgLight.g * factor, bgLight.b * factor, 1.0f);
+		light3d.range = bgLight.range;
+		light3d.phi = 0.0f;
+		lights.push_back(light3d);
 	}
 
 	return lights;

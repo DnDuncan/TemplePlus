@@ -43,4 +43,46 @@ void Sleep(objHndl actor,bool sleeping);
 void Pulse(uint32_t now);
 void Turn();
 bool MoveFreeSelection(LocAndOffsets target);
+// Separate encounters: ToEE shows one, every other one waits parked on a hero's turn.
+bool Parked(objHndl actor);
+unsigned Encounters();
+bool ParkForSeparate(objHndl initiator);
+bool Activate(objHndl actor);
+bool ResumeParked();
+unsigned Shown(); // changes whenever another encounter is shown
+void DiscardEncounters();
+// A fight belongs to its members only. While free heroes are selected and the
+// shown fight waits on a hero's turn, it is parked and the rest of the world
+// leaves combat (music, initiative UI, dialogue, travel). It is shown again when
+// one of its heroes is selected or one of its enemies notices a free hero.
+bool ParkForDialog(objHndl hero);
+// Ends a world fight with nobody in it (its people are parked, civilians or in
+// another scene), so it cannot hold the world in combat without a turn.
+bool EndEmptyCombat(const char *why);
+// Turn entry for a downed hero: true when the caller must not run the turn
+// (it was skipped, or the fight goes on without its heroes).
+bool DownedHeroTurn(objHndl actor);
+// An enemy without a target stays while living (also downed) heroes are in its fight.
+bool StaysEngaged(objHndl npc);
+// A native spread-out move never leaves the actor's isolated scene.
+void KeepInScene(objHndl actor,LocAndOffsets before);
+// The world is out of combat while fights wait: a hero outside them may engage one.
+bool Engages(objHndl actor);
+// A join into a fight that already runs: no surprise round for the newcomer.
+bool JoinsRunningFight();
+// A hostile action starts: remembers whether the hero strikes unseen.
+void NoteOpening(objHndl attacker,objHndl target);
+bool UnseenStrike(objHndl attacker,objHndl target);
+// A sneaking hero's hostile action ended its sneaking.
+void Revealed(objHndl hero);
+// Shift with a sneaking hero selected: each enemy's 40 ft notice range in the
+// world pass (grey unchecked, yellow missed, red noticed; a line splits off the
+// rear half where an unalerted enemy has Spot -5).
+void RenderStealthRanges();
+// Waiting fights travel with the save (persistent object ids). Save returns false
+// only when a member cannot be persisted; Load accepts saves without the file.
+bool SaveEncounters(const char *path);
+void LoadEncounters(const char *path);
+// Choosing a fighter (portrait/F-key) while free heroes are selected gives control back to the turn.
+bool ShowFight(objHndl actor);
 }

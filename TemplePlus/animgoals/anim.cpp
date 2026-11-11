@@ -921,6 +921,9 @@ BOOL AnimSystem::ProcessAnimEvent(const TimeEvent *evt) {
     stopProcessing = true;
   }
 
+  // Goal callbacks ask "is combat active?" for the animated actor: a free BG hero
+  // walking to talk, open or pick a lock keeps realtime rules.
+  BgActorContext<objHndl>::Scope animMode(bgscenecombat::actorContext, slot.animObj);
   int delay = 0;
   mCurrentlyProcessingSlotIdx = slot.id.slotIndex;
   // TODO: Clean up this terrible control flow

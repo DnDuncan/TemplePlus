@@ -3,6 +3,8 @@
 #include "../../TemplePlus/graphics/originaldooruse.h"
 #include "../../TemplePlus/graphics/originaltravel.h"
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
+#include "../../TemplePlus/ui/bgpanelmodel.h"
+#include "../../TemplePlus/gamesystems/bglights.h"
 #include "../../TemplePlus/graphics/sourcecontainers.h"
 #include "../../TemplePlus/worldviewzoom.h"
 #include "../../TemplePlus/ui/bgskillrules.h"
@@ -15,6 +17,7 @@
 #include "../../TemplePlus/bgscenecombatpolicy.h"
 #include "../../TemplePlus/bgactorcontext.h"
 #include "../../TemplePlus/bgengagementrules.h"
+#include "../../TemplePlus/bgencounters.h"
 #include <limits>
 #include <cassert>
 #include <iostream>
@@ -383,8 +386,51 @@ static void TestReviewedShankScene() {
     bad=a;bad.shiftX=0;assert(!IsReviewedCandlekeepScene(bad));
     bad=a;bad.nativeMap=5192;assert(!IsReviewedCandlekeepScene(bad));
 }
+static void TestSceneNightGround() {
+    assert(SceneGroundArt(909,true,true)==1909);
+    assert(SceneGroundArt(909,false,true)==909);
+    assert(SceneGroundArt(903,true,false)==903); // no night registry entry: day art
+    assert(LightningFlashMs(-5)==0 && LightningFlashMs(120)==120 && LightningFlashMs(5000)==1000);
+    assert(LightningFlashActive(100,50) && !LightningFlashActive(100,100) && !LightningFlashActive(100,150));
+    assert(LightningFlashActive(5,0xFFFFFFF0u)); // across the timer wrap
+}
+static void TestBgPanelModel() {
+    using namespace bgpanel;
+    std::vector<Element> e(3);
+    e[0].x=0;e[0].y=0;e[0].w=100;e[0].h=100;e[0].click=true;e[0].id="back";
+    e[1].x=10;e[1].y=10;e[1].w=20;e[1].h=20;e[1].click=true;e[1].id="area";e[1].tip="tip";
+    e[2].x=40;e[2].y=40;e[2].w=20;e[2].h=20;e[2].click=true;e[2].enabled=false;
+    assert(HitTest(e,15,15)==1 && HitTest(e,5,5)==0 && HitTest(e,45,45)==0 && HitTest(e,150,5)==-1);
+    assert(TooltipAt(e,15,15)==1 && TooltipAt(e,5,5)==-1);
+    auto b=TooltipBox(990,700,100,50,1024,768);
+    assert(b.x==880 && b.y==718);   // touches the bottom edge: stays below the cursor
+    b=TooltipBox(990,720,100,50,1024,768);
+    assert(b.x==880 && b.y==660);
+    b=TooltipBox(10,10,100,50,1024,768);
+    assert(b.x==28 && b.y==28);
+    assert(ValidKind(4) && !ValidKind(5) && !ValidKind(-1));
+    e[1].follow=true;   // a dragged portrait never takes clicks or tooltips
+    assert(HitTest(e,15,15)==0 && TooltipAt(e,15,15)==-1);
+}
+static void TestBgLights() {
+    bglights::Registry reg;
+    bglights::Light l;l.mapId=5136;l.x=100;l.y=200;l.height=30;l.r=1;l.g=0.6f;l.b=0.3f;l.range=360;l.flicker=0.5f;
+    auto id=reg.Add(l);
+    assert(id==1 && reg.All().size()==1);
+    auto bad=l;bad.range=0;assert(reg.Add(bad)==0);
+    bad=l;bad.r=2;assert(reg.Add(bad)==0);
+    assert(bglights::Reaches(l,100+300,200,100) && !bglights::Reaches(l,100+500,200,100));
+    for (uint32_t t=0;t<5000;t+=37) {auto f=bglights::Flicker(l,t,id);assert(f>=0.77f && f<=1.0001f);}
+    l.flicker=0;assert(bglights::Flicker(l,123,1)==1.0f);
+    assert(reg.Remove(id) && !reg.Remove(id));
+    for (size_t i=0;i<bglights::MaxLights;++i) assert(reg.Add(l)>0);
+    assert(reg.Add(l)==0);reg.Clear();assert(reg.All().empty());
+}
 int main() {
     TestReviewedShankScene();
+    TestBgPanelModel();
+    TestBgLights();
+    TestSceneNightGround();
     for (const auto &area : {OriginalSceneArea{5194,5136,2968,12402,640,512,905,-5120,3584},
                             OriginalSceneArea{5195,5136,13208,8882,640,384,906,5120,0},
                             OriginalSceneArea{5196,5136,13144,10610,768,512,907,5120,1792}}) {
@@ -586,6 +632,28 @@ int main() {
     assert(!bgengagement::KeepSelection(false,true,true));
     assert(!bgengagement::KeepSelection(true,false,true));
 
+    {
+        using bgengagement::Senses;
+        using bgengagement::Detected;
+        // distance, sight, sneaking, night; spot, listen, hide, move silently; rolls in the same order
+        assert(Detected(Senses{35,true,false,false,0,0,0,0,1,1,20,20})); // open hero in view within 40 ft
+        assert(!Detected(Senses{41,true,false,false,20,20,0,0,20,20,1,1})); // beyond 40 ft nobody is noticed
+        assert(Detected(Senses{20,false,false,false,0,0,0,0,1,12,1,1})); // heard: 12-2 meets DC 10
+        assert(!Detected(Senses{30,false,false,false,0,0,0,0,1,12,1,1})); // 12-3 misses DC 10
+        assert(Detected(Senses{10,true,true,false,5,0,4,0,15,1,10,1})); // spot 15+5-1=19 beats hide 10+4
+        assert(!Detected(Senses{10,true,true,false,5,0,4,0,10,1,10,1})); // 14 ties hide 14: the hero stays hidden
+        assert(!Detected(Senses{10,true,true,true,5,0,4,0,15,1,10,1})); // night: hide 10+4+5 ties spot 19
+        assert(Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,13})); // unseen: listen 15+3-2=16 beats 13+2
+        assert(!Detected(Senses{20,false,true,false,20,3,0,2,20,15,1,14})); // 16 ties move silently 16; no sight, no spot
+        assert(!Detected(Senses{10,true,true,false,5,0,4,0,15,1,10,1,true})); // behind an unalerted enemy: 19-5 ties 14
+        assert(Detected(Senses{10,true,true,false,5,0,4,0,20,1,10,1,true})); // 24-5=19 still beats 14
+        assert(Detected(Senses{20,false,true,false,0,3,0,2,1,15,1,13,true})); // Listen ignores facing
+        assert(Detected(Senses{35,true,false,false,0,0,0,0,1,1,20,20,true})); // an open hero is seen from behind too
+        using bgengagement::Behind;
+        assert(!Behind(0,0) && Behind(0,3.14159) && !Behind(1,1.5));
+        assert(!Behind(0.1,6.2) && !Behind(6.2,0.1)); // across the 0/2pi seam: in front
+        assert(Behind(0,1.5708+0.01) && !Behind(0,1.5708-0.01));
+    }
     bgengagement::DetectionCache<int> perception;
     int checks=0;
     auto missed=[&]() {++checks;return false;};
@@ -648,5 +716,99 @@ int main() {
     }
     assert(contexts.Combat(true,freeActor));
     assert(!contexts.Combat(false,freeActor));
+    {
+        // A waits in encounter 1 while B opens encounter 2; each keeps its own turn state.
+        struct Turn {int round,actor,budget;};
+        bgencounters::Registry<int,Turn> encounters;
+        Turn first{3,1,2};
+        auto one=encounters.Open();
+        assert(one && !encounters.Park(one,{},first)); // no empty encounter
+        assert(!encounters.Park(one,{0,7},first)); // null actor never owned
+        assert(encounters.Park(one,{1,7},first));
+        assert(encounters.Owns(1) && encounters.Owns(7) && !encounters.Owns(2));
+        assert(encounters.Owner(7)==one && encounters.Owner(2)==0);
+        auto two=encounters.Open();
+        assert(two!=one);
+        assert(!encounters.Park(two,{2,7},Turn{1,2,4})); // one actor, one encounter
+        assert(!encounters.Park(one,{3},Turn{1,3,4})); // ids never fork
+        assert(encounters.Size()==1 && !encounters.Owns(2));
+        // Showing encounter 1 parks encounter 2 with its own round and budget.
+        decltype(encounters)::Parked shown;
+        assert(encounters.Take(one,shown) && !encounters.Owns(1));
+        assert(shown.state.round==3 && shown.state.actor==1 && shown.state.budget==2);
+        assert(encounters.Park(two,{2,8},Turn{1,2,4}));
+        assert(!encounters.Take(one,shown)); // taken once, not duplicated
+        assert(encounters.Park(one,shown.members,shown.state));
+        // Detection scans every waiting fight's members without taking any.
+        std::vector<int> seen;
+        encounters.ForEach([&](const decltype(encounters)::Parked &entry) {seen.insert(seen.end(),entry.members.begin(),entry.members.end());});
+        assert((seen==std::vector<int>{2,8,1,7}) && encounters.Size()==2);
+        encounters.Forget(8);
+        assert(!encounters.Owns(8) && encounters.Owns(2));
+        assert(encounters.TakeLatest(shown) && shown.id==one && shown.state.budget==2); // latest parked resumes first
+        assert(encounters.TakeLatest(shown) && shown.id==two && shown.members==std::vector<int>{2});
+        assert(!encounters.TakeLatest(shown) && encounters.Size()==0);
+        encounters.Park(encounters.Open(),{4},first);
+        encounters.Clear();
+        assert(!encounters.Owns(4));
+        using bgencounters::CanPark;
+        assert(CanPark({true,false,false,false,false,false}));
+        assert(!CanPark({false,false,false,false,false,false})); // AI turn finishes first
+        assert(!CanPark({true,true,false,false,false,false})); // animation or projectile pending
+        assert(!CanPark({true,false,true,false,false,false})); // simultaneous actions pending
+        assert(!CanPark({true,false,false,true,false,false})); // interrupt or readied action pending
+        assert(!CanPark({true,false,false,false,true,false})); // a target picker is open
+        assert(!CanPark({true,false,false,false,false,true})); // dialogue owns the encounter
+        encounters.Park(encounters.Open(),{5},first);
+        encounters.ForEach([](decltype(encounters)::Parked &entry) {++entry.state.round;}); // a waiting fight keeps time
+        assert(encounters.Take(encounters.Owner(5),shown) && shown.state.round==4);
+        using bgencounters::OnHeroTurn;using bgencounters::DownedTurn;
+        assert(OnHeroTurn(false,false,false)==DownedTurn::Act);
+        assert(OnHeroTurn(true,true,true)==DownedTurn::Skip); // another hero of the fight acts
+        assert(OnHeroTurn(true,false,true)==DownedTurn::Hold); // the fight goes on without its heroes
+        assert(OnHeroTurn(true,false,false)==DownedTurn::Skip); // the whole party is down: native rules
+        bgencounters::RoundClock clock;clock.Start(1000);
+        assert(clock.Advance(1250,true)==0);
+        unsigned rounds=0;
+        for (uint32_t now=1500;now<=13000;now+=250) rounds+=clock.Advance(now,true);
+        assert(rounds==2); // 12 seconds are two rounds
+        assert(clock.Advance(60000,true)==0); // a long gap is one step, not eight rounds
+        for (uint32_t now=60250;now<=90000;now+=250) assert(clock.Advance(now,false)==0); // paused in dialogue
+        rounds=0;
+        for (uint32_t now=90250;now<=95250;now+=250) rounds+=clock.Advance(now,true);
+        assert(rounds==1); // 1 s before the pause plus 5 s after it
+        {
+            struct Id {uint16_t kind;uint32_t body[5];};
+            bgencounters::Writer out;
+            out.Put(uint32_t(1));out.Put(Id{2,{7,8,9,10,11}});out.Put(uint8_t(1));
+            bgencounters::Reader in(out.Bytes());
+            uint32_t version=0;Id id{};uint8_t flag=0;
+            assert(in.Get(version) && version==1 && in.Get(id) && id.kind==2 && id.body[4]==11 && in.Get(flag) && flag==1);
+            assert(in.Done() && !in.Get(version)); // nothing past the end
+            std::vector<uint8_t> cut(out.Bytes().begin(),out.Bytes().end()-3);
+            bgencounters::Reader truncated(cut);
+            assert(truncated.Get(version) && !truncated.Get(id)); // a truncated record is rejected
+            bgencounters::Registry<int,Turn> saved;
+            saved.Seed(5);
+            assert(saved.Open()==6 && saved.Last()==6); // ids continue after a load
+            saved.Seed(2);
+            assert(saved.Last()==6);
+        }
+        using bgencounters::UnattendedEnemy;using bgencounters::EnemyMove;
+        assert(UnattendedEnemy(false,false,true)==EnemyMove::Hold); // nobody to finish
+        assert(UnattendedEnemy(true,true,true)==EnemyMove::Hold); // a conscious hero is near: no coup de grace
+        assert(UnattendedEnemy(true,false,false)==EnemyMove::Approach);
+        assert(UnattendedEnemy(true,false,true)==EnemyMove::Finish);
+        bgencounters::Opening<int> opening;
+        assert(!opening.Unseen(1,2,0));
+        opening.Note(1,2,true,1000);
+        assert(opening.Unseen(1,2,3000)); // every attack of that action
+        assert(!opening.Unseen(1,3,3000) && !opening.Unseen(4,2,3000)); // only that attacker and target
+        assert(!opening.Unseen(1,2,7000)); // not a later round
+        opening.Note(1,2,false,8000);
+        assert(!opening.Unseen(1,2,8000)); // the next action was seen
+        opening.Note(1,2,true,9000);opening.Clear();
+        assert(!opening.Unseen(1,2,9000));
+    }
     std::cout << "Original door registry tests passed\n";
 }

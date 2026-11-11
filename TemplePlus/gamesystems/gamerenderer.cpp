@@ -15,6 +15,7 @@
 #include "animgoals/animgoals_debugrenderer.h"
 
 #include "tig/tig_startup.h"
+#include "bgscenecombat.h"
 #include "temple_functions.h"
 #include "gamerenderer.h"
 #include "gamesystems.h"
@@ -302,6 +303,7 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
 	gfx::PerfGroup perfGroup(mRenderingDevice, "World UI");
     renderFuncs.RenderUiRelated(info);
     mGameSystems.GetTerrain().RenderOriginalTravel();
+    bgscenecombat::RenderStealthRanges();
     renderFuncs.RenderTextBubbles(info);
     renderFuncs.RenderTextFloaters(info);
 

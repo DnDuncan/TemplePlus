@@ -38,6 +38,7 @@
 #include "ui/ui_picker.h"
 #include "dispatcher.h"
 #include "combat.h"
+#include "bgscenecombat.h"
 #include "maps.h"
 #include "animgoals/anim.h"
 
@@ -329,7 +330,7 @@ void __cdecl SearchPicked(const PickerResult &result, void*) {
 	sSearchPickerActor = objHndl::null;
 	uiPicker.FreeCurrentPicker();
 	if ((flags & PRF_CANCELLED) || !(flags & PRF_HAS_LOCATION)
-		|| !Enabled() || maps.GetCurrentMapId() != mapId || combatSys.isCombatActive()
+		|| !Enabled() || maps.GetCurrentMapId() != mapId || bgscenecombat::Busy(performer)
 		|| !objSystem->IsValidHandle(performer) || !party.IsInParty(performer)
 		|| critterSys.IsDeadOrUnconscious(performer)) return;
 	auto a = objects.GetLocationFull(performer).ToInches2D(), b = center.ToInches2D();
@@ -379,7 +380,7 @@ bool IsBusy() {return sManual!=nullptr;}
 
 bool BeginCheck(objHndl actor,SkillEnum skill,int dc,int flags,const std::string &target,
     std::function<bool()> valid,std::function<void(int,int,bool)> commit,uint32_t duration,std::function<void()> started) {
-    if (IsBusy() || !Enabled() || combatSys.isCombatActive() || !objSystem->IsValidHandle(actor)
+    if (IsBusy() || !Enabled() || bgscenecombat::Busy(actor) || !objSystem->IsValidHandle(actor)
         || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)) return false;
     auto actionSkill=skill;
     auto swap=d20Sys.D20QueryPython(actor,"Skill Swap",skill);
@@ -437,7 +438,7 @@ bool HandleModalInput(const TigMsg &msg) {
 
 bool BeginAreaSearch(objHndl performer) {
 	if (!Enabled()) return false;
-	if (IsBusy() || combatSys.isCombatActive() || uiPicker.PickerActiveCheck()) return true;
+	if (IsBusy() || bgscenecombat::Busy(performer) || uiPicker.PickerActiveCheck()) return true;
 	performer = BestSearcher(performer);
 	if (!performer) return true;
 	PickerArgs picker;

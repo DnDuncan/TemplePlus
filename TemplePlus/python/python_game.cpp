@@ -30,10 +30,13 @@
 #include "action_sequence.h"
 #include "raycast.h"
 #include "sound.h"
+#include "tig/tig_sound.h"
 #include "ui/ui.h"
 #include "ui/ui_dialog.h"
 #include "ui/ui_bgjournal.h"
 #include "ui/ui_bgrolls.h"
+#include "ui/ui_bgpanel.h"
+#include "gamesystems/bglights.h"
 #include "quest.h"
 #include "ui/ui_tutorial.h"
 #include "ui/ui_picker.h"
@@ -1698,7 +1701,13 @@ static PyObject* PyGame_BgSourceContainerBind(PyObject*,PyObject* args) {
 	catch(const std::exception &e) {PyErr_SetString(PyExc_ValueError,e.what());return nullptr;}
 }
 
-static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(3);}
+static PyObject* PyGame_BgSceneCombatVersion(PyObject*,PyObject*) {return PyInt_FromLong(4);}
+// API 4: game.combat_is_active() stays global; these tell a free hero from a fighter.
+static PyObject* PyGame_BgFreeSelection(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::FreeSelection());}
+static PyObject* PyGame_BgActorFree(PyObject*,PyObject* args) {
+    objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_actor_free",&ConvertObjHndl,&actor)) return nullptr;
+    return PyInt_FromLong(bgscenecombat::Free(actor));
+}
 static PyObject* PyGame_BgSceneCombatScene(PyObject*,PyObject*) {return PyInt_FromLong(bgscenecombat::Scene());}
 static PyObject* PyGame_BgCivilianBind(PyObject*,PyObject* args) {
     objHndl actor;if (!PyArg_ParseTuple(args,"O&:bg_civilian_bind",&ConvertObjHndl,&actor)) return nullptr;
@@ -1747,7 +1756,132 @@ static PyObject* PyGame_BgSourceDoorClear(PyObject*,PyObject* args) {
 }
 static PyObject* PyGame_BgCandlekeepInteriorVersion(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,":bg_candlekeep_interior_version")) return nullptr;
-    return PyInt_FromLong(2); // AR2602 plus reviewed rat storehouse, Carbos house and barracks
+    return PyInt_FromLong(6); // 2: AR2602, storehouse, Carbos house, barracks; 3: priests' quarters, Obe's ground, Lion's Way; 4: scene night ground; 5: panel, camp, world map hooks; 6: camp lights, rest takeover, panel drag
+}
+// Weather (API in bg_candlekeep_interior_version 4): lightning shows the day
+// ground for a moment; a looped weather sound stops when the party leaves.
+static PyObject* PyGame_BgTerrainFlash(PyObject*,PyObject* args) {
+    int ms;
+    if (!PyArg_ParseTuple(args,"i:bg_terrain_flash",&ms)) return nullptr;
+    gameSystems->GetTerrain().Flash(ms);Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgSoundStop(PyObject*,PyObject* args) {
+    int streamId;
+    if (!PyArg_ParseTuple(args,"i:bg_sound_stop",&streamId)) return nullptr;
+    if (streamId>=0 && tigSoundAddresses.IsStreamActive(streamId)) tigSoundAddresses.FreeStream(streamId);
+    Py_RETURN_NONE;
+}
+// bg2toee panel (world map, camp, inn): game.bg_panel_show([{...}, ...]).
+// Keys: k (0 rect, 1 image, 2 portrait, 3 text, 4 button), id, x, y, w, h,
+// color, border (ARGB), path, text, tip (cp1251), align, obj, click, enabled.
+static bool PanelText(PyObject *d,const char *key,std::string &out) {
+    auto v=PyDict_GetItemString(d,key);
+    if (!v || v==Py_None) return true;
+    if (!PyString_Check(v)) {PyErr_Format(PyExc_TypeError,"panel %s must be a string",key);return false;}
+    out=PyString_AsString(v);return true;
+}
+static bool PanelNumber(PyObject *d,const char *key,int64_t &out) {
+    auto v=PyDict_GetItemString(d,key);
+    if (!v || v==Py_None) return true;
+    if (PyInt_Check(v)) {out=PyInt_AsLong(v);return true;}
+    if (PyLong_Check(v)) {out=(int64_t)PyLong_AsUnsignedLongLongMask(v);return true;}
+    if (PyBool_Check(v)) {out=v==Py_True;return true;}
+    PyErr_Format(PyExc_TypeError,"panel %s must be a number",key);return false;
+}
+static PyObject* PyGame_BgPanelShow(PyObject*,PyObject* args) {
+    PyObject *items;
+    if (!PyArg_ParseTuple(args,"O:bg_panel_show",&items)) return nullptr;
+    if (!PySequence_Check(items)) {PyErr_SetString(PyExc_TypeError,"panel elements must be a sequence");return nullptr;}
+    auto count=PySequence_Size(items);
+    if (count<0 || size_t(count)>bgpanel::MaxElements) {PyErr_SetString(PyExc_ValueError,"too many panel elements");return nullptr;}
+    std::vector<bgpanel::Element> elements;
+    for (Py_ssize_t i=0;i<count;++i) {
+        auto d=PySequence_GetItem(items,i);
+        if (!d || !PyDict_Check(d)) {Py_XDECREF(d);PyErr_SetString(PyExc_TypeError,"panel element must be a dict");return nullptr;}
+        bgpanel::Element e;int64_t kind=0,x=0,y=0,w=0,h=0,color=0xFFFFFFFF,border=0,align=0,click=0,enabled=1,follow=0;
+        bool ok=PanelNumber(d,"k",kind) && PanelNumber(d,"x",x) && PanelNumber(d,"y",y) && PanelNumber(d,"w",w)
+            && PanelNumber(d,"h",h) && PanelNumber(d,"color",color) && PanelNumber(d,"border",border)
+            && PanelNumber(d,"align",align) && PanelNumber(d,"click",click) && PanelNumber(d,"enabled",enabled)
+            && PanelNumber(d,"follow",follow)
+            && PanelText(d,"id",e.id) && PanelText(d,"path",e.path) && PanelText(d,"text",e.text) && PanelText(d,"tip",e.tip);
+        auto obj=PyDict_GetItemString(d,"obj");
+        if (ok && obj && obj!=Py_None) {
+            if (!PyObjHndl_Check(obj)) {PyErr_SetString(PyExc_TypeError,"panel obj must be an object handle");ok=false;}
+            else e.obj=PyObjHndl_AsObjHndl(obj).handle;
+        }
+        Py_DECREF(d);
+        if (!ok) return nullptr;
+        if (!bgpanel::ValidKind(int(kind)) || w<0 || h<0 || w>8192 || h>8192) {PyErr_SetString(PyExc_ValueError,"invalid panel element");return nullptr;}
+        e.kind=static_cast<bgpanel::Kind>(kind);e.x=int(x);e.y=int(y);e.w=int(w);e.h=int(h);
+        e.color=uint32_t(color);e.border=uint32_t(border);e.align=int(align);e.click=click!=0;e.enabled=enabled!=0;
+        e.follow=follow!=0;
+        elements.push_back(std::move(e));
+    }
+    bgpanel::Show(std::move(elements));
+    Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgPanelHide(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_panel_hide")) return nullptr;
+    bgpanel::Hide();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgPanelVisible(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_panel_visible")) return nullptr;
+    return PyInt_FromLong(bgpanel::IsVisible() ? 1 : 0);
+}
+static PyObject* PyGame_BgCanvasSize(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_canvas_size")) return nullptr;
+    auto size=uiManager->GetCanvasSize();
+    return Py_BuildValue("(ii)",size.width,size.height);
+}
+// Camp placement: True when a disc of `radius` inches at world (x, y) inches
+// has no blocking tile and no object other than the party (who will move).
+static PyObject* PyGame_BgCanPlace(PyObject*,PyObject* args) {
+    float x,y,radius;
+    if (!PyArg_ParseTuple(args,"fff:bg_can_place",&x,&y,&radius)) return nullptr;
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius) || radius<0 || radius>240) {PyErr_SetString(PyExc_ValueError,"invalid placement");return nullptr;}
+    auto loc=LocAndOffsets::FromInches(x,y);RaycastPacket ray;
+    ray.flags=static_cast<RaycastFlags>(HasRadius|ExcludeItemObjects);
+    ray.origin=loc;ray.targetLoc=loc;ray.radius=radius;
+    ray.RaycastShortRange();
+    for (int i=0;i<ray.resultCount;++i) {
+        auto &r=ray.results[i];
+        if (!r.obj) return PyInt_FromLong(0);                 // blocking tile
+        if (party.IsInParty(r.obj)) continue;
+        auto type=objSystem->GetObject(r.obj)->type;
+        if (type==obj_t_pc || type==obj_t_npc || type==obj_t_scenery || type==obj_t_container || type==obj_t_portal)
+            return PyInt_FromLong(0);
+    }
+    return PyInt_FromLong(1);
+}
+// Camp fire light: game.bg_light_add(map, x, y, height, r, g, b, range, flicker) -> id
+// (world inches, colour 0..1); bg_light_remove(id), bg_light_clear().
+static PyObject* PyGame_BgLightAdd(PyObject*,PyObject* args) {
+    bglights::Light l;
+    if (!PyArg_ParseTuple(args,"ifffffffff:bg_light_add",&l.mapId,&l.x,&l.y,&l.height,&l.r,&l.g,&l.b,&l.range,&l.flicker)) return nullptr;
+    auto id=bglights::Lights().Add(l);
+    if (!id) {PyErr_SetString(PyExc_ValueError,"invalid light or too many lights");return nullptr;}
+    return PyInt_FromLong(id);
+}
+static PyObject* PyGame_BgLightRemove(PyObject*,PyObject* args) {
+    int id;
+    if (!PyArg_ParseTuple(args,"i:bg_light_remove",&id)) return nullptr;
+    return PyInt_FromLong(bglights::Lights().Remove(id) ? 1 : 0);
+}
+static PyObject* PyGame_BgLightClear(PyObject*,PyObject* args) {
+    if (!PyArg_ParseTuple(args,":bg_light_clear")) return nullptr;
+    bglights::Lights().Clear();Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgRestTakeover(PyObject*,PyObject* args) {
+    int enabled;
+    if (!PyArg_ParseTuple(args,"i:bg_rest_takeover",&enabled)) return nullptr;
+    bgpanel::SetRestTakeover(enabled!=0);Py_RETURN_NONE;
+}
+static PyObject* PyGame_BgRestApply(PyObject*,PyObject* args) {
+    objHndl member;int healHp,restore;
+    if (!PyArg_ParseTuple(args,"O&ii:bg_rest_apply",&ConvertObjHndl,&member,&healHp,&restore)) return nullptr;
+    if (!member || !party.IsInParty(member)) {PyErr_SetString(PyExc_ValueError,"rest applies to party members only");return nullptr;}
+    uiSystems->GetCamping().ApplyBgRest(member,(std::max)(0,healHp),restore!=0);
+    Py_RETURN_NONE;
 }
 static PyObject* PyGame_BgSourceInteractionVersion(PyObject*,PyObject* args) {
 	if (!PyArg_ParseTuple(args,":bg_source_interaction_version")) return nullptr;
@@ -2045,6 +2179,8 @@ static PyMethodDef PyGameMethods[]{
     {"bg_scene_passage_bind",PyGame_BgScenePassageBind,METH_VARARGS,NULL},
     {"bg_scene_combat_version",PyGame_BgSceneCombatVersion,METH_VARARGS,NULL},
     {"bg_scene_combat_scene",PyGame_BgSceneCombatScene,METH_VARARGS,NULL},
+    {"bg_free_selection",PyGame_BgFreeSelection,METH_NOARGS,NULL},
+    {"bg_actor_free",PyGame_BgActorFree,METH_VARARGS,NULL},
     {"bg_civilian_bind",PyGame_BgCivilianBind,METH_VARARGS,NULL},
     {"bg_party_actions_busy",PyGame_BgPartyActionsBusy,METH_NOARGS,NULL},
     {"bg_civilian_sleep",PyGame_BgCivilianSleep,METH_VARARGS,NULL},
@@ -2057,6 +2193,18 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_door_bind",PyGame_BgSourceDoorBind,METH_VARARGS,NULL},
 	{"bg_source_door_clear",PyGame_BgSourceDoorClear,METH_VARARGS,NULL},
 	{"bg_candlekeep_interior_version",PyGame_BgCandlekeepInteriorVersion,METH_VARARGS,NULL},
+	{"bg_terrain_flash",PyGame_BgTerrainFlash,METH_VARARGS,NULL},
+	{"bg_sound_stop",PyGame_BgSoundStop,METH_VARARGS,NULL},
+	{"bg_panel_show",PyGame_BgPanelShow,METH_VARARGS,NULL},
+	{"bg_panel_hide",PyGame_BgPanelHide,METH_VARARGS,NULL},
+	{"bg_panel_visible",PyGame_BgPanelVisible,METH_VARARGS,NULL},
+	{"bg_canvas_size",PyGame_BgCanvasSize,METH_VARARGS,NULL},
+	{"bg_can_place",PyGame_BgCanPlace,METH_VARARGS,NULL},
+	{"bg_rest_apply",PyGame_BgRestApply,METH_VARARGS,NULL},
+	{"bg_light_add",PyGame_BgLightAdd,METH_VARARGS,NULL},
+	{"bg_light_remove",PyGame_BgLightRemove,METH_VARARGS,NULL},
+	{"bg_light_clear",PyGame_BgLightClear,METH_VARARGS,NULL},
+	{"bg_rest_takeover",PyGame_BgRestTakeover,METH_VARARGS,NULL},
 	{"bg_source_interaction_version",PyGame_BgSourceInteractionVersion,METH_VARARGS,NULL},
 	{"bg_dialog_active",PyGame_BgDialogActive,METH_VARARGS,NULL},
 	{"bg_quest_set",PyGame_BgQuestSet,METH_VARARGS,NULL},

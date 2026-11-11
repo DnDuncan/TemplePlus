@@ -227,7 +227,7 @@ void TurnBasedSys::AddToInitiative(objHndl handle)
 	ArbitrateInitiativeConflicts();
 	conds.AddTo(handle, "Flatfooted", {});
 	auto isSurpriseRound = temple::GetRef<BOOL>(0x10BCAD90);
-	if (isSurpriseRound){
+	if (isSurpriseRound && !bgscenecombat::JoinsRunningFight()){
 		conds.AddTo(handle, "Surprised", {});
 	}
     bgscenecombat::AfterJoin(handle);

@@ -882,11 +882,11 @@ void TerrainSystem::RenderTile(int x, int y, const TigRect& destRect) {
 			primaryMapArtId += NightArtIdOffset;
 		}
 	} else {
-		if (mIsNightTime) {
+		if (mIsNightTime && !LightningFlashActive(mFlashUntil, timeGetTime())) {
 			primaryMapArtId += NightArtIdOffset;
 		}
 	}
-	
+
 	auto textureName = GetTileTexture(primaryMapArtId, x, y);
 	auto texture = mDevice.GetTextures().Resolve(textureName, false);
 
@@ -940,6 +940,11 @@ void TerrainSystem::Load(int groundArtId)
 	mIsNightTime = !gameSystems->GetTimeEvent().IsDaytime();
 }
 
+void TerrainSystem::Flash(int ms)
+{
+	mFlashUntil = timeGetTime() + uint32_t(LightningFlashMs(ms));
+}
+
 void TerrainSystem::LoadModule()
 {
 	auto groundMapping = MesFile::ParseFile("art/ground/ground.mes");
@@ -971,7 +976,9 @@ std::string TerrainSystem::GetTileTexture(int mapArtId, int x, int y) {
 		const auto &area=entry.second;
 		if (area.sourceGround && area.nativeMap==maps.GetCurrentMapId() && x*256<area.x+area.width
 			&& (x+1)*256>area.x && y*256<area.y+area.height && (y+1)*256>area.y) {
-			mapArtId=area.sourceGround;x-=area.shiftX/256;y-=area.shiftY/256;break;
+			bool night=mapArtId==mMapArtId+NightArtIdOffset;
+			mapArtId=SceneGroundArt(area.sourceGround,night,mTerrainDirs.count(area.sourceGround+NightArtIdOffset)>0);
+			x-=area.shiftX/256;y-=area.shiftY/256;break;
 		}
 	}
 

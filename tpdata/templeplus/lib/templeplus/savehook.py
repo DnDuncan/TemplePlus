@@ -10,7 +10,7 @@ def _original_doors(event, filename):
             return
         raise
     handler = getattr(bg2toee_lifecycle, event, None)
-    if handler is None and event in ('map_ready', 'door_trap', 'journal_key', 'source_container_open', 'scene_pulse', 'scene_turn', 'scene_begin'):
+    if handler is None and event in ('map_ready', 'door_trap', 'journal_key', 'source_container_open', 'scene_pulse', 'scene_turn', 'scene_begin', 'rest_key', 'worldmap_key', 'panel_event'):
         return  # older adapter without the optional event
     return handler(filename)
 
@@ -43,6 +43,29 @@ def journal_key():
     except Exception as exc:
         print('bg2toee journal_key failed: ' + str(exc))
         return False
+
+def rest_key(mode):
+    # ToEE rest button/hotkey (bg2toee: BG camp window). True when handled.
+    try:
+        return bool(_original_doors('rest_key', mode))
+    except Exception as exc:
+        print('bg2toee rest_key failed: ' + str(exc))
+        return False
+
+def worldmap_key(mode):
+    # ToEE world map (bg2toee: BG world map on BG maps). True when handled.
+    try:
+        return bool(_original_doors('worldmap_key', mode))
+    except Exception as exc:
+        print('bg2toee worldmap_key failed: ' + str(exc))
+        return False
+
+def bg_panel_event(event, element):
+    # Click/cancel/accept in the bg2toee panel (world map, camp, inn).
+    try:
+        _original_doors('panel_event', (event, element))
+    except Exception as exc:
+        print('bg2toee panel event failed: ' + str(exc))
 
 def source_container_open(container, actor):
     try:

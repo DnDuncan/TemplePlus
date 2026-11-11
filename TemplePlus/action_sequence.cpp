@@ -920,6 +920,7 @@ void ActionSequenceSystem::TurnStart(objHndl obj)
 	simulsEnqueue();
 
 	if (objects.IsPlayerControlled(obj) && critterSys.IsDeadOrUnconscious(obj)) {
+		if (bgscenecombat::DownedHeroTurn(obj)) return;
 		logger->info("Action for {} ending turn (unconscious)...", d20Sys.globD20Action->d20APerformer);
 		combatSys.CombatAdvanceTurn(obj);
 		return;
@@ -2770,6 +2771,7 @@ uint32_t ActionSequenceSystem::curSeqNext()
 					d20Sys.d20SendSignal(d20aTarget, DK_SIG_Action_Recipient,(int)d20a, 0);
 				}
 				if (critterSys.IsMovingSilently(performer)){
+					bgscenecombat::Revealed(performer);
 					critterSys.SetMovingSilently(performer, FALSE);
 				}
 
@@ -3063,6 +3065,8 @@ void ActionSequenceSystem::ActionPerform()
 				*(uint32_t*)(&curSeq->tbStatus.tbsFlags) |= TBSF_HasActedThisRound;
 				InterruptCounterspell(d20a);
 				logger->debug("ActionPerform: \t Performing action for {}: {}",	d20a->d20APerformer,d20a->d20ActType);
+				if (d20a->GetActionDefinitionFlags() & D20ADF_TriggersCombat) // before the attack roll and before it reveals a sneaking hero
+					bgscenecombat::NoteOpening(d20a->d20APerformer, d20a->d20ATarget);
 
 				/*if (config.newFeatureTestMode && d20a->path != nullptr)
 				{
@@ -3107,8 +3111,14 @@ void ActionSequenceSystem::sequencePerform()
 {
     auto contextActor=*actSeqCur ? (*actSeqCur)->performer:objHndl::null;
     BgActorContext<objHndl>::Scope actorMode(bgscenecombat::actorContext,contextActor);
+    if (bgscenecombat::Parked(contextActor)) {
+        logger->warn("Parked encounter member {} cannot act before its encounter is shown",contextActor);
+        return;
+    }
     bool assistingEncounter=false;
-    if (bgscenecombat::Free(contextActor) && *actSeqCur) {
+    objHndl parkedTarget=objHndl::null;
+    bool outsideFights=bgscenecombat::Free(contextActor) || bgscenecombat::Engages(contextActor);
+    if (outsideFights && *actSeqCur) {
         auto &packet=(*actSeqCur)->spellPktBody;
         auto &terrain=gameSystems->GetTerrain();
         auto scene=terrain.SceneAreaForActor(contextActor.handle);
@@ -3117,15 +3127,29 @@ void ActionSequenceSystem::sequencePerform()
             if (!target) continue;
             if (!bgscenecombatpolicy::SameScene(scene,terrain.SceneAreaForActor(target.handle))) return;
             assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+            if (bgscenecombat::Parked(target)) parkedTarget=target;
         }
         for (auto i=0;i<(*actSeqCur)->d20ActArrayNum;++i) {
             auto target=(*actSeqCur)->d20ActArray[i].d20ATarget;
             if (target) assistingEncounter=assistingEncounter || tbSys.IsInInitiativeList(target);
+            if (target && bgscenecombat::Parked(target)) parkedTarget=target;
         }
+    }
+    if (outsideFights && *actSeqCur && parkedTarget) {
+        // Engaging a waiting encounter shows it and joins it; the command is repeated on the actor's turn.
+        if (bgscenecombat::Activate(parkedTarget) && bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
+        else logger->warn("Waiting encounter of {} cannot be joined now; action deferred for {}",parkedTarget,contextActor);
+        return;
     }
     if (bgscenecombat::Free(contextActor) && *actSeqCur &&
         (assistingEncounter || ShouldTriggerCombat(*actSeqCur))) {
         if (bgscenecombat::MayJoin(contextActor)) tbSys.AddToInitiative(contextActor);
+        else if (!assistingEncounter && bgscenecombat::ParkForSeparate(contextActor)) {
+            // Native realtime opening: targets enter combat and the opener acts first,
+            // but the opening command is not performed before that first turn.
+            combatTriggerSthg(*actSeqCur);
+            if (!bgscenecombat::GlobalCombatActive()) bgscenecombat::ResumeParked();
+        }
         else logger->warn("Detached hostile action requires a separate encounter; action deferred for {}",contextActor);
         return;
     }
