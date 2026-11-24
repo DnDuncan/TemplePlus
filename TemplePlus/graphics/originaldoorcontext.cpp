@@ -172,10 +172,9 @@ void TerrainSystem::BindContextOutline(int mapId,const std::string &route,Origin
 void TerrainSystem::ClearDoorContext() {
     bgscenecombat::ResetEngagement();
 	if (mSavedSceneLimits && maps.GetCurrentMapId()==5136) {
-		temple::GetRef<int64_t>(0x10307340)=(*mSavedSceneLimits)[0];
-		temple::GetRef<int64_t>(0x10307368)=(*mSavedSceneLimits)[1];
-		temple::GetRef<int64_t>(0x103072F0)=(*mSavedSceneLimits)[2];
-		temple::GetRef<int64_t>(0x10307358)=(*mSavedSceneLimits)[3];
+		gameSystems->GetScroll().SetBaseLimits(*mSavedSceneLimits);
+		if (_stricmp(config.defaultModule.c_str(), "BG2ToEE") == 0 &&
+			!gameSystems->GetMap().IsUnfogged(5136)) gameSystems->GetMapFogging().Enable();
 	}
 	mAppearanceReady=false;mSavedSceneLimits.reset();mFocusedScene=0;mSceneAreas.clear();mSceneRoutes.clear();
 	mScenePassages.clear();mContextContainers.clear();mDoorContexts.clear();mContextOutlines.clear();ClearDoorContextHover();CancelOriginalDoorUse();++mDoorUseRevision;
@@ -480,13 +479,17 @@ void TerrainSystem::UpdateSceneFocus() {
 	if (mSceneAreas.empty() || maps.GetCurrentMapId()!=5136 || gameSystems->GetMap().IsClearingMap()) return;
 	auto selected=ContextSelection();if (selected.empty()) return;auto areaId=SceneAreaForActor(selected.front());
 	if (!areaId || areaId==mFocusedScene) return;
-	if (!mSavedSceneLimits) mSavedSceneLimits=std::array<int64_t,4>{temple::GetRef<int64_t>(0x10307340),temple::GetRef<int64_t>(0x10307368),
-		temple::GetRef<int64_t>(0x103072F0),temple::GetRef<int64_t>(0x10307358)};
+	auto& scroll = gameSystems->GetScroll();
+	if (!mSavedSceneLimits) mSavedSceneLimits = scroll.GetBaseLimits();
 	const auto &area=mSceneAreas.at(areaId);double left=8428-area.x,right=8428-area.x-area.width;
 	double top=-4366-area.y,bottom=-4366-area.y-area.height;
 	auto dw=(std::max)(0.0,(config.renderWidth+100-(left-right))/2),dh=(std::max)(0.0,(config.renderHeight+100-(top-bottom))/2);
-	temple::GetRef<int64_t>(0x10307340)=int64_t(left+dw);temple::GetRef<int64_t>(0x103072F0)=int64_t(right-dw);
-	temple::GetRef<int64_t>(0x10307368)=int64_t(top+dh);temple::GetRef<int64_t>(0x10307358)=int64_t(bottom-dh);
+	scroll.SetBaseLimits({int64_t(left+dw), int64_t(top+dh), int64_t(right-dw), int64_t(bottom-dh)});
+	if (_stricmp(config.defaultModule.c_str(), "BG2ToEE") == 0) {
+		auto& fog = gameSystems->GetMapFogging();
+		if (areaId != 5198 || gameSystems->GetMap().IsUnfogged(5136)) fog.Disable();
+		else fog.Enable();
+	}
 	ClearDoorContextHover();mFocusedScene=areaId;auto loc=objects.GetLocationFull(objHndl{selected.front()}).location;
 	gameSystems->GetLocation().CenterOn(loc.locx,loc.locy);
 	logger->info("Isolated scene focus: area={} actor={}",areaId,selected.front());
