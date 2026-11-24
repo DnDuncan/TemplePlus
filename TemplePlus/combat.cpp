@@ -1,4 +1,14 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
+#include "bgscenecombatpolicy.h"
+#include "bgengagementrules.h"
+#include "bgencounters.h"
+#include "rng.h"
+#include "skill.h"
+#include <infrastructure/meshes.h>
+#include "graphics/mapterrain.h"
+#include "dispatcher.h"
+#include "animgoals/anim.h"
 #include "common.h"
 #include "combat.h"
 #include "tig/tig_mes.h"
@@ -10,6 +20,11 @@
 #include "location.h"
 #include "bonus.h"
 #include "history.h"
+#include "description.h"
+#include <tio/tio.h>
+#include <infrastructure/keyboard.h>
+#include <tig/tig_startup.h>
+#include <graphics/shaperenderer3d.h>
 #include "ai.h"
 #include "util/fixes.h"
 #include "weapon.h"
@@ -27,6 +42,7 @@
 #include "tutorial.h"
 #include "objlist.h"
 #include "ui/ui_dialog.h"
+#include "ui/ui_systems.h"
 #include "condition.h"
 #include "legacyscriptsystem.h"
 #include "gamesystems/legacysystems.h"
@@ -80,6 +96,8 @@ struct CombatSystemAddresses : temple::AddressTable
 	void (*CombatPerformFleeCombat)(objHndl obj);
 } combatAddresses;
 
+static BOOL(__cdecl *orgForceSpreadOut)(objHndl, LocAndOffsets*) = nullptr;
+
 class CombatSystemReplacements : public TempleFix
 {
 public:
@@ -126,6 +144,12 @@ public:
 
 	void apply() override{
 		
+		orgForceSpreadOut = replaceFunction<BOOL(__cdecl)(objHndl, LocAndOffsets*)>(0x1005A640, [](objHndl handle, LocAndOffsets *location)->BOOL {
+			auto before = objects.GetLocationFull(handle);
+			auto result = orgForceSpreadOut(handle, location);
+			bgscenecombat::KeepInScene(handle, before);
+			return result;
+		});
 		replaceFunction(0x100628D0, _isCombatActive);
 		replaceFunction(0x100B82E0, _GetCleveVictim);
 
@@ -591,6 +615,7 @@ void LegacyCombatSystem::GetEnemyListInRange(objHndl performer, float rangeFeet,
 		auto resHandle = enemies[i];
 		if (!resHandle)
 			break;
+        if (!bgscenecombat::MayJoin(resHandle) || !bgscenecombat::CanTarget(performer,resHandle)) continue;
 
 		if (critterSys.IsDeadNullDestroyed(resHandle))
 			continue;
@@ -739,6 +764,7 @@ void LegacyCombatSystem::AddToInitiativeWithinRect(objHndl handle) const
 		if (!resHandle)
 			break;
 
+        if (bgscenecombat::Enabled() && party.IsInParty(resHandle) && !bgscenecombat::MayAutoJoin(resHandle)) continue;
 		// check if the object is ok to act (not dead, OF_OFF, OF_DONTDRAW (to prevent the naughty Co8 critters from getting into combat), destroyed , unconscious)
 		auto resObj = gameSystems->GetObj().GetObject(resHandle);
 		if (resObj->GetFlags() & ( OF_OFF | OF_DESTROYED | OF_DONTDRAW ))
@@ -834,6 +860,13 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	if (AllPcsUnconscious())
 		return FALSE;
 	
+	if (bgscenecombat::Parked(combatInitiator)) { // its encounter waits; it resumes, not restarts
+		return FALSE;
+	}
+	if (bgscenecombat::Civilian(combatInitiator)) { // civilians never take part in a fight
+		return FALSE;
+	}
+
 	if (forceEndedCombatNow) { // temple+: added this vs. combat start/end loops
 		logger->debug("StartCombat: averted due to forceEndedCombatNow = true");
 		return FALSE;
@@ -843,20 +876,27 @@ BOOL LegacyCombatSystem::StartCombat(objHndl combatInitiator, int setToFirstInit
 	logger->debug("StartCombat: entering combat mode; initiated by {}", combatInitiator);
 
 	*combatAddresses.combatRoundCount = 0;
+	bgscenecombat::Begin(combatInitiator);
 	if (!gameSystems->GetAnim().InterruptAllForTbCombat()){
 		logger->debug("Combat: TB_Start: Anim-Goal-Interrupt FAILED!");
 	}
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(temple::GetRef<void(__cdecl)()>(0x100628F0));
 	tbSys.CreateInitiativeListWithParty();
 	*combatModeActive = TRUE;
+	bgscenecombat::Started();
 
 	// Add within rect party to initiative 
 	for (auto i=0u; i < party.GroupListGetLen(); i++){
 		auto partyMember = party.GroupListGetMemberN(i);
-		AddToInitiativeWithinRect(partyMember);
+		if (bgscenecombat::MayAutoJoin(partyMember)) AddToInitiativeWithinRect(partyMember);
 	}
 
 	AddToInitiative(combatInitiator);
+    bgscenecombat::RecruitParty();
+    if (bgscenecombat::EndEmptyCombat("nobody joined its start")) {
+        forceEndedCombatNow = true; // no restart before the next time event
+        return FALSE;
+    }
 
 	if (setToFirstInitiativeFlag){
 		actSeqSys.ResetAll(combatInitiator);
@@ -925,7 +965,7 @@ void LegacyCombatSystem::EndTurn()
 		if (!shouldRemove && combatantObj->IsNPC() && !party.IsInParty(combatant) && !combatSys.IsBrawlInProgress()){
 			auto aifs = AIFS_NONE;
 			aiSys.GetAiFightStatus(combatant, &aifs, nullptr);
-			if (aifs == AIFS_NONE){
+			if (aifs == AIFS_NONE && !bgscenecombat::StaysEngaged(combatant)){
 				shouldRemove = true;
 			}
 			
@@ -997,20 +1037,25 @@ void LegacyCombatSystem::Subturn()
 
 	if (!actor){
 		logger->error("Combat Subturn: Coudn't start TB combat Turn due to no Active Critters!");
+		if (bgscenecombat::EndEmptyCombat("no turn to start")) return;
+		BgActorContext<objHndl>::Scope world(bgscenecombat::actorContext, objHndl::null); // the world's fight, not the caller's view
 		CombatEnd();
 		return;
 	}
+	if (objects.IsPlayerControlled(actor) && bgscenecombat::DownedHeroTurn(actor))
+		return; // a downed hero never waits for input
 
 	auto & combatSubturnTimeEvent = temple::GetRef<int>(0x10AA8420);
 	combatSubturnTimeEvent = 10;
 	static auto uiCombatInitiativePortraitsReset = temple::GetRef<int(__cdecl*)(int)>(0x10AA83FC);
-	party.CurrentlySelectedClear();
+	auto keepFree = bgscenecombat::FreeSelection(); // free heroes stay in control; their fight waits
+	if (!keepFree) party.CurrentlySelectedClear();
 
 	if (objects.IsPlayerControlled(actor)){
 		
 		uiCombatInitiativePortraitsReset(combatSubturnTimeEvent);
 
-		party.AddToCurrentlySelected(actor, dmSys.IsControllingNpcs());
+		if (!keepFree) party.AddToCurrentlySelected(actor, dmSys.IsControllingNpcs());
 		temple::GetRef<objHndl>(0x10AA8430) = actor; // looks like a write-only debug thing?
 
 		// there was a call to some nullsub here
@@ -1062,6 +1107,8 @@ void LegacyCombatSystem::Subturn()
 
 void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 {
+    std::vector<objHndl> detachedSelection;
+    if (bgscenecombat::FreeSelection()) for (auto i=0u;i<party.CurrentlySelectedNum();++i) detachedSelection.push_back(party.GetCurrentlySelected(i));
 	auto actor = tbSys.turnBasedGetCurrentActor();
 	int curActorInitIdx = tbSys.GetInitiativeListIdx();
 	if (prevInitiativeIdx > curActorInitIdx)
@@ -1076,6 +1123,7 @@ void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 	logger->debug("TurnStart2: \t Starting new turn for {}. InitiativeIdx: {}", actor, curActorInitIdx);
 	Subturn();
 
+	bgscenecombat::Turn();
 	// set action bar values
 	actor = tbSys.turnBasedGetCurrentActor(); 
 	// Temple+: updating CurrentActor here since it can change during Subturn(). 
@@ -1098,10 +1146,15 @@ void LegacyCombatSystem::TurnStart2(int prevInitiativeIdx)
 		logger->debug("TurnStart2: \t Actor {} starting turn...(simul)", actor);
 		CombatAdvanceTurn(actor);
 	}
+    if (!detachedSelection.empty()) {
+        party.CurrentlySelectedClear();
+        for (auto member:detachedSelection) if (bgscenecombat::Free(member)) party.AddToCurrentlySelected(member);
+    }
 }
 
 void LegacyCombatSystem::CombatAdvanceTurn(objHndl obj)
 {
+    if (bgscenecombat::Free(obj)) return;
 	if (combatAddresses.CheckFleeCombatMap() && combatAddresses.GetFleeStatus())
 	{
 		combatAddresses.CombatPerformFleeCombat(obj);
@@ -1124,8 +1177,10 @@ void LegacyCombatSystem::CombatAdvanceTurn(objHndl obj)
 	if (combatInitiative <= GetInitiativeListLength())
 	{
 		int initListIdx = tbSys.GetInitiativeListIdx();
+		auto shown = bgscenecombat::Shown();
 		EndTurn();
-		if (isCombatActive())
+		// A parked encounter resumed by this end of combat continues its waiting turn.
+		if (isCombatActive() && shown == bgscenecombat::Shown())
 			TurnStart2(initListIdx);
 	}
 	combatInitiative--;
@@ -1168,6 +1223,7 @@ void LegacyCombatSystem::CritterExitCombatMode(objHndl handle) {
 
 	if (!CombatEnd())
 		return;
+    if (bgscenecombat::GlobalCombatActive()) return; // a parked encounter is shown again
 
 	static auto uiCombatResetCallback = temple::GetRef<int(__cdecl*)()>(0x10AA83F8);
 	uiCombatResetCallback();
@@ -1178,6 +1234,7 @@ void LegacyCombatSystem::CritterExitCombatMode(objHndl handle) {
 	auto N = party.GroupListGetLen();
 	for (auto i=0u; i < N; i++){
 		auto partyMem = party.GroupListGetMemberN(i);
+		if (bgscenecombat::Parked(partyMem)) continue; // its fight waits; it keeps its stance
 		auto critterFlags = critterSys.GetCritterFlags(partyMem);
 		if (critterFlags & OCF_COMBAT_MODE_ACTIVE){
 			objSystem->GetObject(partyMem)->SetInt32(obj_f_critter_flags, critterFlags & ~OCF_COMBAT_MODE_ACTIVE);
@@ -1192,18 +1249,24 @@ bool LegacyCombatSystem::CombatEnd(){
 	if (!isCombatActive() )
 		return true;
 
-	d20ObjRegistrySys.D20ObjRegistrySendSignalAll(DK_SIG_Combat_End, 0, 0);
-	*combatSys.combatModeActive = 0;
+    if (bgscenecombat::Enabled()) {
+        // Only registered objects, as the native broadcast: at shutdown they are already gone.
+        for (auto i=0;i<tbSys.GetInitiativeListLength();++i) {
+            auto member=combatSys.GetInitiativeListMember(i);
+            if (member && d20ObjRegistrySys.Find(member)) d20Sys.d20SendSignal(member,DK_SIG_Combat_End,0,0);
+        }
+    } else d20ObjRegistrySys.D20ObjRegistrySendSignalAll(DK_SIG_Combat_End,0,0);
 	gameSystems->GetAnim().SetAllGoalsClearedCallback(nullptr);
 	if (!gameSystems->GetAnim().InterruptAllForTbCombat()){
 		logger->debug("CombatEnd: Anim goal interrupt FAILED!");
 	}
-	static auto actSeqResetOnCombatEnd = temple::GetRef<void(__cdecl)()>(0x10097BE0);
-	actSeqResetOnCombatEnd();
+    bgscenecombat::ResetCombatActions();
+    *combatSys.combatModeActive = 0;
 	auto &mResettingCombatSystem = temple::GetRef<BOOL>(0x10AA8448);
 	if (!mResettingCombatSystem)
 		tbSys.ExecuteExitCombatScriptForInitiativeList();
 	tbSys.TbCombatEnd(mResettingCombatSystem);
+    bgscenecombat::ResetEngagement();
 	if (!mResettingCombatSystem){
 		auto N = party.GroupListGetLen();
 		for (auto i=0u; i < N; i++){
@@ -1213,13 +1276,16 @@ bool LegacyCombatSystem::CombatEnd(){
 		auto combatGiveXp = temple::GetRef<void(__cdecl)()>(0x100B88C0);
 		combatGiveXp();
 	}
+    // Only the displayed encounter ended. A waiting one stays parked until one of
+    // its heroes is selected or its enemies notice a free hero (Pulse).
+    if (mResettingCombatSystem) bgscenecombat::DiscardEncounters();
 	return true;
 }
 
 bool LegacyCombatSystem::isCombatActive()
 {
 	auto isActive = *combatSys.combatModeActive;
-	return isActive != 0;
+	return isActive != 0 && bgscenecombat::ContextCombatActive();
 }
 
 bool LegacyCombatSystem::IsAutoAttack(){
@@ -1250,6 +1316,8 @@ bool LegacyCombatSystem::AllCombatantsFarFromParty()
 		auto Nparty = party.GroupListGetLen();
 		for (auto j=0u; j < Nparty; j++){
 			auto partyMem = party.GroupListGetMemberN(j);
+			if (bgscenecombat::Enabled() && !tbSys.IsInInitiativeList(partyMem))
+				continue; // only the fight's own heroes keep it going, downed ones too
 			if (locSys.DistanceToObj(combatant, partyMem) < PEACEOUT_DISTANCE){
 				if (!IsBrawlInProgress() && d20Sys.D20QueryPython(combatant, "Can Disengage From Party")) {
 					AiFightStatus status;
@@ -1652,7 +1720,12 @@ void LegacyCombatSystem::enterCombat(objHndl objHnd, bool regardDistance){
 
 
 	if (objects.IsPlayerControlled(objHnd)){
-		
+		if (bgscenecombat::Enabled()) { // a hero's stance is its own; heroes outside its fight stay at ease
+			if (!critterSys.IsCombatModeActive(objHnd))
+				temple::GetRef<void(__cdecl)(objHndl)>(0x10062740)(objHnd); // set combat mode active and force spreadout
+			return;
+		}
+
 		auto partyCount = party.GroupListGetLen();
 		for (auto i=0u; i < partyCount; i++){
 			auto partyMember = party.GroupListGetMemberN(i);
@@ -1813,11 +1886,17 @@ void LegacyCombatSystem::ToHitProcessing(D20Actn& d20a){
 	dispIoToHitBon.attackPacket.ammoItem = CheckRangedWeaponAmmo(performer);
 	dispIoToHitBon.attackPacket.flags = (D20CAF) (dispIoToHitBon.attackPacket.flags | D20CAF_FINAL_ATTACK_ROLL);
 	dispIoToHitBon.Dispatch(performer, objHndl::null, dispTypeToHitBonus2, DK_NONE); // note: the "Global" condition has ToHitBonus2 hook that dispatches the ToHitBonusBase
+	auto unseen = bgscenecombat::UnseenStrike(performer, tgt);
+	if (unseen) dispIoToHitBon.bonlist.AddBonus(2, 0, 357); // Unseen Attacker
 	auto toHitBonFinal = dispIoToHitBon.Dispatch(tgt, objHndl::null, dispTypeToHitBonusFromDefenderCondition, DK_NONE);
 
 	dispIoTgtAc.attackPacket = dispIoToHitBon.attackPacket;
 	dispIoTgtAc.field_4 = dispIoToHitBon.field_4;
 	critterSys.GetArmorClass(tgt, &dispIoTgtAc);
+	if (unseen) { // the target loses its Dexterity (3) and dodge (8) bonuses to AC
+		dispIoTgtAc.bonlist.AddCap(3, 0, 357);
+		dispIoTgtAc.bonlist.AddCap(8, 0, 357);
+	}
 	auto tgtAcFinal = dispIoTgtAc.Dispatch(performer, objHndl::null, dispTypeAcModifyByAttacker, DK_NONE);
 
 	auto toHitRoll = Dice::Roll(1, 20);
@@ -2024,7 +2103,7 @@ int LegacyCombatSystem::GetCombatRoundCount()
 
 uint32_t _isCombatActive()
 {
-	return *combatSys.combatModeActive;
+	return bgscenecombat::ContextCombatActive();
 }
 
 uint64_t _GetCleveVictim(objHndl objHnd)
@@ -2217,4 +2296,824 @@ float VagrantSystem::GetAiGreybarResetCountdownValue()
 float VagrantSystem::GetPcGreybarResetCountdownValue()
 {
 	return cumulativeTime;
+}
+
+// BG scenes share map 5136; their combat membership must not share a party list.
+namespace bgscenecombat {
+BgActorContext<objHndl> actorContext;
+bool GlobalCombatActive() {return *combatSys.combatModeActive!=0;}
+bool ContextCombatActive() {
+    return actorContext.Combat(GlobalCombatActive(),[](objHndl actor) {return Free(actor);});
+}
+static int startingScene=0;
+static objHndl starter,startingTarget;
+static bool starting=false;
+static bgengagement::DetectionCache<uint64_t> detection;
+namespace {
+// Turn state ToEE keeps in globals for its single displayed encounter.
+struct NativeEncounter {
+    GroupArray initiative;
+    objHndl current,combatActor;
+    int initiativeValue,surprise,round,timeEventSthg,timeEventIndicator,scene;
+    bool hasBudget;
+    TurnBasedStatus budget;
+    ReadiedActionPacket readied[READIED_ACTION_CACHE_SIZE];
+    bool unattended=false; // every hero of the fight is down; it goes on by its own clock
+    bgencounters::RoundClock clock;
+};
+bgencounters::Registry<objHndl,NativeEncounter> encounters;
+uint32_t displayedEncounter=0;
+bgencounters::Opening<objHndl> opening;
+unsigned shownGeneration=0;
+uint32_t dialogParkedAt=0;
+}
+void ResetEngagement() {detection.Clear();starter=startingTarget=objHndl::null;starting=false;startingScene=0;}
+bool PrimaryParticipant(objHndl actor) {return starting && actor && (actor==starter || actor==startingTarget);}
+bool DeferJoin(objHndl actor) {
+    return Enabled() && party.IsInParty(actor) && !PrimaryParticipant(actor) && actSeqSys.isPerforming(actor);
+}
+constexpr int CivilianMarker=0x42474356;
+bool Enabled() {return maps.GetCurrentMapId()==5136 && gameSystems->GetTerrain().HasOriginalDoorInput();}
+bool Civilian(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) return false;
+    auto obj=objSystem->GetObject(actor);
+    return obj->IsNPC() && !party.IsInParty(actor) && (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)==0x42474e00u
+        && obj->GetInt32(obj_f_critter_pad_i_4)==CivilianMarker;
+}
+int Scene() {
+    if (!Enabled()) return 0;
+    if (starting) return startingScene;
+    if (!GlobalCombatActive()) return 0;
+    auto actor=tbSys.turnBasedGetCurrentActor();
+    auto scene=actor && objSystem->IsValidHandle(actor) ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
+    return scene ? scene:startingScene;
+}
+void Begin(objHndl actor) {
+    ResetEngagement();
+    starting=Enabled();starter=actor;startingScene=starting ? gameSystems->GetTerrain().SceneAreaForActor(actor.handle):0;
+    if (starting && actor && objSystem->IsValidHandle(actor) && objSystem->GetObject(actor)->IsNPC()) {
+        auto target=aiSys.GetCombatFocus(actor);
+        if (target && objSystem->IsValidHandle(target) && party.IsInParty(target) &&
+            gameSystems->GetTerrain().SceneAreaForActor(target.handle)==startingScene) startingTarget=target;
+    }
+    if (startingScene) {auto args=Py_BuildValue("(i)",startingScene);auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","scene_begin",args);Py_XDECREF(result);Py_DECREF(args);}
+}
+void SeedInitiative() {if (starting && starter) tbSys.AddToInitiative(starter);}
+void Started() {starting=false;}
+bool MayJoin(objHndl actor) {
+    if (!Enabled()) return true;
+    if (!actor || !objSystem->IsValidHandle(actor) || encounters.Owns(actor)) return false;
+    return bgscenecombatpolicy::Join(Scene(),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Civilian(actor));
+}
+namespace {
+bool Observer(objHndl actor,objHndl observer) {
+    if (!observer || !objSystem->IsValidHandle(observer) || !objSystem->GetObject(observer)->IsNPC() ||
+        party.IsInParty(observer) || Civilian(observer) ||
+        (objects.GetFlags(observer)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) ||
+        critterSys.IsDeadOrUnconscious(observer) ||
+        !bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(observer.handle),
+            gameSystems->GetTerrain().SceneAreaForActor(actor.handle))) return false;
+    // IsFriendly treats most NPC/PC pairs as nonfriendly, including allied
+    // guards. Require a real party enemy, even if its current focus is a guard.
+    if (party.IsInParty(aiSys.GetCombatFocus(observer))) return true;
+    for (auto i=0u;i<party.GroupListGetLen();++i)
+        if (aiSys.AiListFind(observer,party.GroupListGetMemberN(i),0)) return true;
+    return false;
+}
+bool Threatens(objHndl actor,objHndl observer) {
+    return Observer(actor,observer) && !critterSys.IsFriendly(observer,actor) &&
+        aiSys.GetCombatFocus(observer)==actor;
+}
+// Stealth feedback (tpmes/bg_stealth.mes, game codepage): what an enemy rolled
+// against a sneaking hero, shown in the combat log and over heads only when the
+// outcome for that pair changes, so the 6-second checks do not flood the log.
+const char *StealthText(int line) {
+    static MesHandle mes=-1;static bool opened=false;
+    if (!opened) {opened=true;if (!mesFuncs.Open("tpmes\\bg_stealth.mes",&mes)) mes=-1;}
+    auto text=mes<0 ? nullptr:mesFuncs.GetLineById(mes,line);
+    return text ? text:"";
+}
+std::map<std::pair<uint64_t,uint64_t>,bool> stealthSeen; // observer, hero -> last reported outcome
+std::map<uint64_t,bool> heroNoticed;
+void FloatStealth(objHndl obj,int line,FloatLineColor color) {
+    if (obj && objSystem->IsValidHandle(obj) && *StealthText(line)) floatSys.floatMesLine(obj,1,color,StealthText(line));
+}
+void HeroNoticed(objHndl hero,bool noticed) {
+    auto known=heroNoticed.find(hero.handle);
+    if (known!=heroNoticed.end() && known->second==noticed) return;
+    heroNoticed[hero.handle]=noticed;
+    FloatStealth(hero,noticed ? 4:3,noticed ? FloatLineColor::Red:FloatLineColor::Green);
+}
+std::string Signed(int value) {return value<0 ? fmt::format("-{}",-value):fmt::format("+{}",value);}
+void ReportCheck(objHndl observer,objHndl hero,const bgengagement::Senses &senses,bool detected,bool force) {
+    auto key=std::make_pair(observer.handle,hero.handle);
+    auto last=stealthSeen.find(key);
+    if (!force && last!=stealthSeen.end() && last->second==detected) return;
+    stealthSeen[key]=detected;
+    std::string observerName=description.getDisplayName(observer),heroName=description.getDisplayName(hero);
+    auto distance=bgengagement::DistancePenalty(senses);
+    if (senses.sight) {
+        auto line=fmt::format("{}: {} {}{}",observerName,StealthText(10),senses.spotRoll,Signed(senses.spot));
+        if (distance) line+=fmt::format("{} ({})",Signed(-distance),StealthText(17));
+        if (senses.behind) line+=fmt::format("{} ({})",Signed(-bgengagement::RearSpotPenalty),StealthText(18));
+        line+=fmt::format(" = {} {} {} {}: {}{}",bgengagement::SpotTotal(senses),StealthText(14),heroName,StealthText(11),senses.hideRoll,Signed(senses.hide));
+        if (senses.night) line+=fmt::format("{} ({})",Signed(bgengagement::NightHideBonus),StealthText(19));
+        line+=fmt::format(" = {}\n",bgengagement::HideTotal(senses));
+        histSys.CreateFromFreeText(line.c_str());
+    }
+    auto line=fmt::format("{}: {} {}{}",observerName,StealthText(12),senses.listenRoll,Signed(senses.listen));
+    if (distance) line+=fmt::format("{} ({})",Signed(-distance),StealthText(17));
+    line+=fmt::format(" = {} {} {} {}: {}{} = {} -> {}\n",bgengagement::ListenTotal(senses),StealthText(14),heroName,StealthText(13),
+        senses.moveRoll,Signed(senses.moveSilently),bgengagement::MoveSilentlyTotal(senses),StealthText(detected ? 15:16));
+    histSys.CreateFromFreeText(line.c_str());
+    FloatStealth(observer,detected ? 2:1,detected ? FloatLineColor::Red:FloatLineColor::Yellow);
+    HeroNoticed(hero,detected);
+}
+// A rear approach counts only against an enemy that is not alerted yet: out of
+// every fight and not fighting anyone.
+bool UnalertedBehind(objHndl hero,objHndl observer) {
+    if ((GlobalCombatActive() && tbSys.IsInInitiativeList(observer)) || encounters.Owns(observer)) return false;
+    auto status=AIFS_NONE;aiSys.GetAiFightStatus(observer,&status,nullptr);
+    if (status!=AIFS_NONE) return false;
+    return bgengagement::Behind(objects.GetRotation(observer),objects.GetRotationTowards(observer,hero));
+}
+bool lastCheckForced=false;
+bool Detects(objHndl actor,objHndl observer) {
+    if (!Observer(actor,observer) || critterSys.IsFriendly(observer,actor)) return false;
+    double distance=locSys.DistanceToObj(observer,actor);
+    if (distance>bgengagement::DetectionRangeFeet) return false;
+    BgActorContext<objHndl>::Scope perceptionMode(actorContext,observer);
+    if (critterSys.CanSeeWithBlindsight(observer,actor)) return true;
+    bool sneaking=critterSys.IsMovingSilently(actor) || critterSys.IsConcealed(actor);
+    bool invisible=d20Sys.d20Query(actor,DK_QUE_Critter_Is_Invisible)!=0;
+    bool sight=critterSys.HasLineOfSight(observer,actor)==0 && (!invisible || critterSys.CanSense(observer,actor));
+    bool night=!gameSystems->GetTimeEvent().IsDaytime();
+    // Open heroes in view are noticed at once; rolled checks hold for one round.
+    if (!sneaking && sight) {
+        detection.Forget(observer.handle,actor.handle);
+        if (party.IsInParty(actor) && !stealthSeen[std::make_pair(observer.handle,actor.handle)]) {
+            stealthSeen[std::make_pair(observer.handle,actor.handle)]=true;
+            FloatStealth(observer,2,FloatLineColor::Red);
+        }
+        return true;
+    }
+    bool behind=sight && UnalertedBehind(actor,observer);
+    uint32_t signature=(sneaking?1u:0u)|(sight?2u:0u)|(night?4u:0u)|(invisible?8u:0u)|(behind?16u:0u);
+    auto sense=[&]() {
+        bgengagement::Senses senses{distance,sight,sneaking,night,
+            critterSys.SkillLevel(observer,skill_spot),critterSys.SkillLevel(observer,skill_listen),
+            critterSys.SkillLevel(actor,skill_hide),critterSys.SkillLevel(actor,skill_move_silently),
+            rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),rngSys.GetInt(1,20),behind};
+        bool detected=bgengagement::Detected(senses);
+        logger->info("BG perception: {} {} {} at {} ft (sight {}, sneaking {}, night {}, behind {}; spot {}+{} listen {}+{} vs hide {}+{} move silently {}+{})",
+            observer,detected ? "notices":"misses",actor,int(distance),sight,sneaking,night,behind,
+            senses.spotRoll,senses.spot,senses.listenRoll,senses.listen,senses.hideRoll,senses.hide,senses.moveRoll,senses.moveSilently);
+        if (sneaking && party.IsInParty(actor)) ReportCheck(observer,actor,senses,detected,lastCheckForced);
+        return detected;
+    };
+    return detection.Observe(observer.handle,actor.handle,timeGetTime(),signature,sense);
+}
+}
+bool MayAutoJoin(objHndl actor) {
+    if (!Enabled()) return true;
+    if (!MayJoin(actor)) return false;
+    if (!party.IsInParty(actor)) return true;
+    if (!Scene()) return tbSys.IsInInitiativeList(actor) || PrimaryParticipant(actor);
+    bool available=!(objects.GetFlags(actor)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW)) &&
+        !critterSys.IsDeadOrUnconscious(actor);
+    bgengagement::Candidate candidate{available,tbSys.IsInInitiativeList(actor),PrimaryParticipant(actor),
+        false,false,actSeqSys.isPerforming(actor)!=0};
+    if (!available || candidate.member || candidate.initiating || candidate.actionPending)
+        return bgengagement::AutoJoin(candidate);
+    if (starting) {
+        candidate.threatened=Threatens(actor,starter);
+        candidate.detected=!candidate.threatened && Detects(actor,starter);
+    }
+    for (auto i=0;i<combatSys.GetInitiativeListLength() && !candidate.threatened && !candidate.detected;++i) {
+        auto observer=combatSys.GetInitiativeListMember(i);
+        candidate.threatened=Threatens(actor,observer);
+        candidate.detected=!candidate.threatened && Detects(actor,observer);
+    }
+    return bgengagement::AutoJoin(candidate);
+}
+void AfterJoin(objHndl actor) {
+    if (!Enabled() || !GlobalCombatActive() || !party.IsInParty(actor)) return;
+    bool selected=false;std::vector<objHndl> freeActors;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto member=party.GetCurrentlySelected(i);
+        selected=selected || member==actor;
+        if (Free(member)) freeActors.push_back(member);
+    }
+    auto mode=bgengagement::SelectionAfterJoin(selected,!freeActors.empty());
+    if (mode==bgengagement::JoinSelection::Keep) return;
+    party.CurrentlySelectedClear();
+    if (mode==bgengagement::JoinSelection::FreeActors) {
+        for (auto member:freeActors) party.AddToCurrentlySelected(member);
+    } else {
+        auto current=tbSys.turnBasedGetCurrentActor();
+        if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    }
+}
+void RecruitParty() {
+    if (!Enabled() || !GlobalCombatActive() || uiSystems->GetDlg().IsActive()) return;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto actor=party.GroupListGetMemberN(i);
+        if (!tbSys.IsInInitiativeList(actor) && MayAutoJoin(actor)) tbSys.AddToInitiative(actor);
+    }
+}
+bool Free(objHndl actor) {
+    return Enabled() && GlobalCombatActive() && actor && !encounters.Owns(actor) && objSystem->IsValidHandle(actor) && bgscenecombatpolicy::Free(tbSys.IsInInitiativeList(actor),party.IsInParty(actor)!=0,Civilian(actor),gameSystems->GetTerrain().SceneAreaForActor(actor.handle),Scene());
+}
+bool Busy(objHndl actor) {return GlobalCombatActive() && !Free(actor);}
+bool FreeSelection() {
+    if (!Enabled() || !GlobalCombatActive() || !party.CurrentlySelectedNum()) return false;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) if (!Free(party.GetCurrentlySelected(i))) return false;
+    return true;
+}
+bool CanTarget(objHndl actor,objHndl target) {
+    if (!Enabled()) return true;
+    // A waiting encounter is frozen; only a free actor may engage it (and is then moved into it).
+    if (encounters.Owns(actor) || (encounters.Owns(target) && !Free(actor) && !Engages(actor))) return false;
+    if (GlobalCombatActive() && !party.IsInParty(actor) && tbSys.IsInInitiativeList(actor) &&
+        party.IsInParty(target) && !tbSys.IsInInitiativeList(target)) return false;
+    return bgscenecombatpolicy::Target(gameSystems->GetTerrain().SceneAreaForActor(actor.handle),gameSystems->GetTerrain().SceneAreaForActor(target.handle),Civilian(target));
+}
+static CondNode* FindCondition(objHndl actor,const char *name) {
+    auto dispatcher=objSystem->GetObject(actor)->GetDispatcher();if (!dispatcher || !dispatcher->IsValid()) return nullptr;
+    auto wanted=conds.GetByName(name);
+    for (auto node=dispatcher->conditions;node;node=node->nextCondNode)
+        if (!node->IsExpired() && node->condStruct==wanted) return node;
+    return nullptr;
+}
+void BindCivilian(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) throw std::invalid_argument("civilian requires a BG scene actor");
+    auto obj=objSystem->GetObject(actor);
+    if (!obj->IsNPC() || (uint32_t(obj->GetInt32(obj_f_npc_pad_i_4))&0xffffff00u)!=0x42474e00u)
+        throw std::invalid_argument("civilian requires a registered project NPC");
+    auto old=obj->GetInt32(obj_f_critter_pad_i_4);
+    if (old && old!=CivilianMarker) throw std::invalid_argument("civilian marker occupied");
+    obj->SetInt32(obj_f_critter_pad_i_4,CivilianMarker);
+    obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)&~OCF_COMBAT_MODE_ACTIVE);
+}
+void Sleep(objHndl actor,bool sleeping) {
+    BindCivilian(actor);auto obj=objSystem->GetObject(actor);
+    if (critterSys.IsDeadNullDestroyed(actor)) return;
+    if (sleeping) {
+        if (!FindCondition(actor,"Sleeping")) conds.AddTo(actor,"Sleeping",{});
+        obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)|OCF_SLEEPING);
+        if (!objects.IsCritterProne(actor)) conds.AddTo(actor,"Prone",{});
+        gameSystems->GetAnim().Interrupt(actor,AnimGoalPriority::AGP_3,false);
+        if (auto model=objects.GetAnimHandle(actor)) model->SetAnimId(gfx::EncodedAnimId(gfx::NormalAnimType::ProneIdle));
+    } else {
+        if (auto node=FindCondition(actor,"Sleeping")) conds.ConditionRemove(actor,node);
+        obj->SetInt32(obj_f_critter_flags,obj->GetInt32(obj_f_critter_flags)&~OCF_SLEEPING);
+        // The move goal plays the native get-up animation before walking.
+    }
+}
+bool DetachForFreeHeroes();
+bool ResumeOwner(objHndl actor);
+bool ResumeForSelection();
+bool ResumeOnDetection();
+bool SettleDownedTurn();
+void TickUnattended(uint32_t now,bool running);
+void RelaxFreeHeroes();
+static void Event(const char *name,PyObject *args) {
+    auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook",name,args);Py_XDECREF(result);
+}
+void Pulse(uint32_t now) {
+    static uint32_t last=0;if (!Enabled() || uint32_t(now-last)<250) return;last=now;
+    // The dialogue event starts 1ms after begin_dialog; give it a second to open.
+    bool talking=uiSystems->GetDlg().IsActive() || (dialogParkedAt && uint32_t(now-dialogParkedAt)<1000);
+    if (!talking) {
+        dialogParkedAt=0;
+        if (GlobalCombatActive()) {if (!EndEmptyCombat("found in the pulse") && !SettleDownedTurn()) DetachForFreeHeroes();}
+        else if (encounters.Size() && !ResumeForSelection()) ResumeOnDetection();
+    }
+    TickUnattended(now,!talking);
+    if (GlobalCombatActive() || encounters.Size()) RelaxFreeHeroes();
+    RecruitParty();
+    auto args=Py_BuildValue("(I)",now);Event("scene_pulse",args);Py_DECREF(args);
+}
+void Turn() {
+    if (!Enabled()) return;
+    auto actor=tbSys.turnBasedGetCurrentActor();if (!actor) return;
+    auto args=Py_BuildValue("(iii)",combatSys.GetCombatRoundCount(),tbSys.GetInitiativeListIdx(),objSystem->GetObject(actor)->GetInt32(obj_f_initiative));
+    Event("scene_turn",args);Py_DECREF(args);
+}
+bool MoveFreeSelection(LocAndOffsets target) {
+    if (!FreeSelection()) return false;
+    auto &terrain=gameSystems->GetTerrain();
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto actor=party.GetCurrentlySelected(i);auto point=target.ToInches2D();
+        if (terrain.SceneAreaForPoint({point.x,point.y})!=terrain.SceneAreaForActor(actor.handle)) return false;
+    }
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto actor=party.GetCurrentlySelected(i);if (critterSys.IsDeadOrUnconscious(actor)) continue;
+        PathQuery pq;pq.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_ALLOW_ALTERNATIVE_TARGET_TILE);
+        pq.critter=actor;pq.from=objects.GetLocationFull(actor);pq.to=target;pq.maxShortPathFindLength=200;
+        PathQueryResult result;
+        if (pathfindingSys.FindPath(&pq,&result)) gameSystems->GetAnim().PushPreparedPartyPath(actor,result);
+    }
+    return true;
+}
+namespace {
+std::vector<objHndl> Members() {
+    std::vector<objHndl> members;
+    for (auto i=0u;i<tbSys.groupInitiativeList->GroupSize;++i) {
+        auto member=tbSys.groupInitiativeList->GroupMembers[i];
+        if (member && objSystem->IsValidHandle(member)) members.push_back(member);
+    }
+    return members;
+}
+ReadiedActionPacket *ReadiedCache() {return temple::GetPointer<ReadiedActionPacket>(0x1186A900);}
+// Nothing of the shown fight is in flight: no action, simultaneous action,
+// interrupt or dialogue. Its turn state can be captured as it is.
+bool Quiet(bool heroTurn=true) {
+    bool performing=false;
+    for (auto member:Members()) performing=performing || actSeqSys.isPerforming(member)!=0;
+    return bgencounters::CanPark({heroTurn,performing,*actSeqSys.numSimultPerformers!=0,
+        temple::GetRef<ActnSeq*>(0x118CD574)!=nullptr,false,uiSystems->GetDlg().IsActive()});
+}
+bool DisplayedWaits() {
+    auto current=tbSys.turnBasedGetCurrentActor();
+    return Quiet(current && objSystem->IsValidHandle(current) && party.IsInParty(current) &&
+        objects.IsPlayerControlled(current) && !critterSys.IsDeadOrUnconscious(current));
+}
+bool Active(objHndl hero) {
+    return hero && objSystem->IsValidHandle(hero) && !critterSys.IsDeadOrUnconscious(hero) &&
+        !(objects.GetFlags(hero)&(OF_OFF|OF_DESTROYED));
+}
+bgencounters::DownedTurn DownedTurnOf(objHndl actor) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor) || !party.IsInParty(actor)) return bgencounters::DownedTurn::Act;
+    bool fightHero=false,partyHero=false;
+    for (auto member:Members()) fightHero=fightHero || (party.IsInParty(member) && Active(member));
+    for (auto i=0u;i<party.GroupListGetLen();++i) partyHero=partyHero || Active(party.GroupListGetMemberN(i));
+    return bgencounters::OnHeroTurn(critterSys.IsDeadOrUnconscious(actor),fightHero,partyHero);
+}
+NativeEncounter Capture() {
+    NativeEncounter state{};
+    state.initiative=*tbSys.groupInitiativeList;
+    state.current=tbSys.turnBasedGetCurrentActor();
+    state.combatActor=*combatAddresses.combatActor;
+    state.initiativeValue=temple::GetRef<int>(0x10BCAD80);
+    state.surprise=temple::GetRef<int>(0x10BCAD90);
+    state.round=*combatAddresses.combatRoundCount;
+    state.timeEventSthg=*combatAddresses.combatTimeEventSthg;
+    state.timeEventIndicator=*combatAddresses.combatTimeEventIndicator;
+    state.scene=Scene();
+    auto sequence=*actSeqSys.actSeqCur;
+    state.hasBudget=sequence && sequence->performer==state.current;
+    if (state.hasBudget) state.budget=sequence->tbStatus;
+    std::copy(ReadiedCache(),ReadiedCache()+READIED_ACTION_CACHE_SIZE,state.readied);
+    return state;
+}
+bool ParkDisplayed(bool unattended=false) {
+    auto id=displayedEncounter ? displayedEncounter:encounters.Open();
+    auto state=Capture();
+    state.unattended=unattended;state.clock.Start(timeGetTime());
+    if (!encounters.Park(id,Members(),state)) return false;
+    displayedEncounter=0;
+    return true;
+}
+// Restores the parked turn exactly where its hero was deciding: same queue,
+// round and remaining action budget. Nothing here starts or advances a turn.
+void Show(const decltype(encounters)::Parked &shown) {
+    const auto &state=shown.state;
+    displayedEncounter=shown.id;++shownGeneration;
+    detection.Clear();starting=false;starter=startingTarget=objHndl::null;startingScene=state.scene;
+    *tbSys.groupInitiativeList=state.initiative;
+    tbSys.turnBasedSetCurrentActor(state.current);
+    *combatAddresses.combatActor=state.combatActor;
+    temple::GetRef<int>(0x10BCAD80)=state.initiativeValue;
+    temple::GetRef<int>(0x10BCAD90)=state.surprise;
+    *combatAddresses.combatRoundCount=state.round;
+    *combatAddresses.combatTimeEventSthg=state.timeEventSthg;
+    *combatAddresses.combatTimeEventIndicator=state.timeEventIndicator;
+    std::copy(state.readied,state.readied+READIED_ACTION_CACHE_SIZE,ReadiedCache());
+    auto current=state.current;
+    if (current && objSystem->IsValidHandle(current) && actSeqSys.AllocSeq(current)) {
+        if (state.hasBudget) (*actSeqSys.actSeqCur)->tbStatus=state.budget;
+        else actSeqSys.TurnBasedStatusInit(current);
+    }
+    party.CurrentlySelectedClear();
+    if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    uiCombat.ActionBarUnsetFlag1(*combatAddresses.barPkt);
+    if (auto refresh=temple::GetRef<void(__cdecl*)()>(0x10AA83F4)) refresh();
+    logger->info("BG encounter {} shown: {} members, round {}, actor {}",shown.id,shown.members.size(),state.round,current);
+}
+}
+bool Parked(objHndl actor) {return Enabled() && actor && encounters.Owns(actor);}
+unsigned Encounters() {return unsigned(encounters.Size());}
+unsigned Shown() {return shownGeneration;}
+bool ParkForSeparate(objHndl initiator) {
+    if (!Enabled() || !GlobalCombatActive() || !Free(initiator) || Civilian(initiator) || !DisplayedWaits() || !ParkDisplayed()) return false;
+    tbSys.groupInitiativeList->Reset();
+    tbSys.turnBasedSetCurrentActor(objHndl::null);
+    *combatSys.combatModeActive=0;
+    logger->info("BG encounter parked; {} opens a separate encounter",initiator);
+    return true;
+}
+bool Activate(objHndl actor) {
+    if (!Enabled() || !encounters.Owns(actor)) return false;
+    if (!GlobalCombatActive()) return ResumeOwner(actor);
+    auto id=encounters.Owner(actor);
+    if (!DisplayedWaits()) {logger->info("BG encounter {} waits: the shown encounter is mid-action",id);return false;}
+    decltype(encounters)::Parked shown;
+    auto previous=displayedEncounter ? displayedEncounter:encounters.Open();
+    auto members=Members();auto state=Capture();
+    if (!encounters.Take(id,shown)) return false;
+    if (!encounters.Park(previous,members,state)) {encounters.Park(shown.id,shown.members,shown.state);return false;}
+    Show(shown);
+    return true;
+}
+namespace {
+bool Alive(const decltype(encounters)::Parked &shown) {
+    for (auto member:shown.members)
+        if (objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member)) return true;
+    return false;
+}
+// Global combat is off: this fight becomes the shown one again.
+void Resume(const decltype(encounters)::Parked &shown) {
+    *combatSys.combatModeActive=1;
+    Show(shown);
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C770)(shown.state.current); // combat music
+    // A downed hero's turn is settled by the pulse, after a joining hero entered the order.
+    auto current=shown.state.current;
+    if (!current || !objSystem->IsValidHandle(current) || (!party.IsInParty(current) && critterSys.IsDeadOrUnconscious(current)))
+        combatSys.CombatAdvanceTurn(current);
+}
+bool Unattended(objHndl actor) {
+    bool unattended=false;auto id=encounters.Owner(actor);
+    encounters.ForEach([&](const decltype(encounters)::Parked &entry) {if (entry.id==id) unattended=entry.state.unattended;});
+    return unattended;
+}
+// The rest of the world leaves combat: its music, initiative UI and turn input.
+bool Leave(const char *why,bool unattended) {
+    if (!ParkDisplayed(unattended)) return false;
+    tbSys.groupInitiativeList->Reset();
+    RelaxFreeHeroes();
+    tbSys.turnBasedSetCurrentActor(objHndl::null);
+    *combatSys.combatModeActive=0;
+    if (auto reset=temple::GetRef<int(__cdecl*)()>(0x10AA83F8)) reset(); // combat UI
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C8B0)(party.GetConsciousPartyLeader()); // combat music ends
+    logger->info("BG encounter parked: {}",why);
+    return true;
+}
+bool Detach(const char *why) {
+    return Enabled() && GlobalCombatActive() && !starting && DisplayedWaits() && Leave(why,false);
+}
+}
+bool DownedHeroTurn(objHndl actor) {
+    switch (DownedTurnOf(actor)) {
+    case bgencounters::DownedTurn::Skip:
+        logger->info("BG turn skipped: {} is down",actor);
+        combatSys.CombatAdvanceTurn(actor);
+        return true;
+    case bgencounters::DownedTurn::Hold:
+        logger->info("BG turn held: every hero of the fight is down ({})",actor);
+        return true;
+    default:
+        return false;
+    }
+}
+// The shown fight sits on a downed hero's turn (held, or shown again with a new
+// hero): skip that turn, or park the fight to go on without its heroes.
+bool SettleDownedTurn() {
+    if (!Enabled() || starting || !Quiet()) return false;
+    auto current=tbSys.turnBasedGetCurrentActor();
+    switch (DownedTurnOf(current)) {
+    case bgencounters::DownedTurn::Skip:
+        logger->info("BG turn skipped: {} is down",current);
+        combatSys.CombatAdvanceTurn(current);
+        return true;
+    case bgencounters::DownedTurn::Hold:
+        return Leave("every hero of the fight is down",true);
+    default:
+        return false;
+    }
+}
+// Heroes outside every fight drop their combat stance (a fight is its members'
+// only); one starting an action keeps it until the action has opened its fight.
+void RelaxFreeHeroes() {
+    if (!Enabled()) return;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto hero=party.GroupListGetMemberN(i);
+        if (!hero || !objSystem->IsValidHandle(hero) || encounters.Owns(hero) || tbSys.IsInInitiativeList(hero) ||
+            actSeqSys.isPerforming(hero)) continue;
+        auto obj=objSystem->GetObject(hero);auto flags=uint32_t(obj->GetInt32(obj_f_critter_flags));
+        if (flags&OCF_COMBAT_MODE_ACTIVE) obj->SetInt32(obj_f_critter_flags,flags&~OCF_COMBAT_MODE_ACTIVE);
+    }
+}
+void KeepInScene(objHndl actor,LocAndOffsets before) {
+    if (!Enabled() || !actor || !objSystem->IsValidHandle(actor)) return;
+    auto &terrain=gameSystems->GetTerrain();auto from=before.ToInches2D();
+    auto scene=terrain.SceneAreaForPoint({from.x,from.y});
+    if (!scene || terrain.SceneAreaForActor(actor.handle)==scene) return;
+    objects.Move(actor,before);
+    logger->info("BG spread-out kept {} in scene {}",actor,scene);
+}
+bool StaysEngaged(objHndl npc) {
+    if (!Enabled()) return false;
+    for (auto member:Members())
+        if (party.IsInParty(member) && objSystem->IsValidHandle(member) && !critterSys.IsDeadNullDestroyed(member) &&
+            !critterSys.IsFriendly(npc,member)) return true;
+    return false;
+}
+// One round of an unattended fight's enemies, in initiative order (members are
+// kept in that order). The world is out of combat, so nothing is rolled through
+// the turn system: an enemy runs to a downed hero, and once in reach performs a
+// coup de grace, which a dying (helpless, at most -1 hp) hero cannot survive.
+void EnemyRound(uint32_t id,const std::vector<objHndl> &members) {
+    std::vector<objHndl> downed;
+    for (auto member:members)
+        if (objSystem->IsValidHandle(member) && party.IsInParty(member) && critterSys.IsDeadOrUnconscious(member) &&
+            !critterSys.IsDeadNullDestroyed(member)) downed.push_back(member);
+    for (auto enemy:members) {
+        if (!objSystem->IsValidHandle(enemy) || party.IsInParty(enemy) || critterSys.IsDeadOrUnconscious(enemy) ||
+            (objects.GetFlags(enemy)&(OF_OFF|OF_DESTROYED))) continue;
+        bool heroNearby=false;
+        for (auto i=0u;i<party.GroupListGetLen();++i) {
+            auto hero=party.GroupListGetMemberN(i);
+            heroNearby=heroNearby || (Active(hero) && bgscenecombatpolicy::SameScene(gameSystems->GetTerrain().SceneAreaForActor(hero.handle),
+                gameSystems->GetTerrain().SceneAreaForActor(enemy.handle)) && locSys.DistanceToObj(enemy,hero)<=bgengagement::DetectionRangeFeet);
+        }
+        objHndl target{};float best=0;
+        for (auto hero:downed) {
+            if (critterSys.IsDeadNullDestroyed(hero)) continue;
+            auto distance=locSys.DistanceToObj(enemy,hero);
+            if (!target || distance<best) {target=hero;best=distance;}
+        }
+        switch (bgencounters::UnattendedEnemy(target!=objHndl::null,heroNearby,target && combatSys.CanMeleeTarget(enemy,target))) {
+        case bgencounters::EnemyMove::Approach:
+            gameSystems->GetAnim().PushRunNearTile(enemy,objects.GetLocationFull(target),5);
+            logger->info("BG encounter {}: {} closes on downed {}",id,enemy,target);
+            break;
+        case bgencounters::EnemyMove::Finish: {
+            gameSystems->GetAnim().PushRotate(enemy,objects.GetRotationTowards(enemy,target));
+            logger->info("BG encounter {}: {} finishes downed {} (coup de grace)",id,enemy,target);
+            FloatStealth(enemy,30,FloatLineColor::Red);
+            histSys.CreateFromFreeText(fmt::format("{} {} {}\n",description.getDisplayName(enemy),StealthText(31),
+                description.getDisplayName(target)).c_str());
+            critterSys.Kill(target,enemy);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+// Fights whose heroes are all down keep their own clock: a round per 6 seconds,
+// in which their enemies act (EnemyRound). Dying and effect durations are left to
+// ToEE's own real-time rounds, which already run for everyone out of combat. A
+// raised hero makes it an ordinary waiting fight again; it ends when its heroes
+// are dead or its enemies are down.
+void TickUnattended(uint32_t now,bool running) {
+    if (!Enabled() || !encounters.Size()) return;
+    std::vector<std::pair<uint32_t,std::vector<objHndl>>> due;std::vector<uint32_t> ended;
+    encounters.ForEach([&](decltype(encounters)::Parked &entry) {
+        if (!entry.state.unattended) return;
+        bool heroUp=false,heroAlive=false,enemyUp=false;
+        for (auto member:entry.members) {
+            if (!objSystem->IsValidHandle(member) || critterSys.IsDeadNullDestroyed(member)) continue;
+            if (party.IsInParty(member)) {heroAlive=true;heroUp=heroUp || Active(member);}
+            else enemyUp=enemyUp || !critterSys.IsDeadOrUnconscious(member);
+        }
+        if (heroUp) {
+            entry.state.unattended=false;
+            logger->info("BG encounter {} waits again: one of its heroes is up",entry.id);
+            return;
+        }
+        if (!heroAlive || !enemyUp) {ended.push_back(entry.id);return;}
+        for (auto rounds=entry.state.clock.Advance(now,running);rounds;--rounds) {
+            ++entry.state.round;
+            due.emplace_back(entry.id,entry.members);
+            logger->info("BG encounter {} round {} goes on without its heroes",entry.id,entry.state.round);
+        }
+    });
+    for (auto id:ended) {
+        decltype(encounters)::Parked gone;
+        if (encounters.Take(id,gone)) logger->info("BG encounter {} ended without its heroes",id);
+    }
+    // Outside the registry walk: a hero may die here.
+    for (const auto &round:due) EnemyRound(round.first,round.second);
+}
+bool ResumeOwner(objHndl actor) {
+    decltype(encounters)::Parked shown;
+    if (!encounters.Take(encounters.Owner(actor),shown)) return false;
+    if (!Alive(shown)) return false;
+    Resume(shown);
+    return true;
+}
+bool ResumeParked() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    decltype(encounters)::Parked shown;
+    while (encounters.TakeLatest(shown)) {
+        if (!Alive(shown)) continue;
+        Resume(shown);
+        return true;
+    }
+    displayedEncounter=0;
+    return false;
+}
+bool DetachForFreeHeroes() {return FreeSelection() && Detach("only free heroes are selected");}
+bool ResumeForSelection() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    for (auto i=0u;i<party.CurrentlySelectedNum();++i) {
+        auto member=party.GetCurrentlySelected(i);
+        if (encounters.Owns(member) && !Unattended(member) && ResumeOwner(member)) {
+            logger->info("BG encounter shown again: {} was selected",member);
+            return true;
+        }
+    }
+    return false;
+}
+// A free hero who comes into the view (or hearing) of a waiting fight joins it.
+bool ResumeOnDetection() {
+    if (!Enabled() || GlobalCombatActive()) return false;
+    for (auto i=0u;i<party.GroupListGetLen();++i) {
+        auto hero=party.GroupListGetMemberN(i);
+        if (!hero || !objSystem->IsValidHandle(hero) || encounters.Owns(hero) || critterSys.IsDeadOrUnconscious(hero) ||
+            (objects.GetFlags(hero)&(OF_OFF|OF_DESTROYED|OF_DONTDRAW))) continue;
+        objHndl observer{};
+        encounters.ForEach([&](const decltype(encounters)::Parked &entry) {
+            for (auto member:entry.members)
+                if (!observer && objSystem->IsValidHandle(member) && (Threatens(hero,member) || Detects(hero,member))) observer=member;
+        });
+        if (observer && ResumeOwner(observer)) {
+            tbSys.AddToInitiative(hero);
+            logger->info("BG encounter shown again: {} noticed {}",observer,hero);
+            return true;
+        }
+    }
+    return false;
+}
+void DiscardEncounters() {encounters.Clear();displayedEncounter=0;dialogParkedAt=0;opening.Clear();stealthSeen.clear();heroNoticed.clear();}
+bool Engages(objHndl actor) {
+    return Enabled() && !GlobalCombatActive() && encounters.Size() && actor && objSystem->IsValidHandle(actor) &&
+        party.IsInParty(actor) && !encounters.Owns(actor);
+}
+bool JoinsRunningFight() {return Enabled() && GlobalCombatActive() && !starting;}
+void NoteOpening(objHndl attacker,objHndl target) {
+    if (!Enabled()) return;
+    bool hidden=attacker && objSystem->IsValidHandle(attacker) && party.IsInParty(attacker) &&
+        (critterSys.IsMovingSilently(attacker) || critterSys.IsConcealed(attacker));
+    bool enemy=target && objSystem->IsValidHandle(target) && objSystem->GetObject(target)->IsNPC() &&
+        !party.IsInParty(target) && !critterSys.IsFriendly(target,attacker);
+    if (!hidden || !enemy) {opening.Note(attacker,target,false,timeGetTime());return;}
+    detection.Forget(target.handle,attacker.handle); // the attack is a fresh chance to notice (3.5 Spot)
+    lastCheckForced=true; // the check deciding an attack is always shown
+    bool unseen=!Detects(attacker,target);
+    lastCheckForced=false;
+    opening.Note(attacker,target,unseen,timeGetTime());
+    if (!unseen) return;
+    logger->info("BG unseen attack: {} strikes {} before being noticed",attacker,target);
+    FloatStealth(attacker,5,FloatLineColor::Yellow);
+    histSys.CreateFromFreeText(fmt::format("{} {} {}: {}\n",description.getDisplayName(attacker),StealthText(20),
+        description.getDisplayName(target),StealthText(21)).c_str());
+}
+void RenderStealthRanges() {
+    if (!Enabled() || !party.CurrentlySelectedNum()) return;
+    if (!infrastructure::gKeyboard.IsKeyPressed(VK_LSHIFT) && !infrastructure::gKeyboard.IsKeyPressed(VK_RSHIFT)) return;
+    auto hero=party.GetCurrentlySelected(0);
+    if (!hero || !objSystem->IsValidHandle(hero) || !(critterSys.IsMovingSilently(hero) || critterSys.IsConcealed(hero))) return;
+    auto &shapes=tig->GetShapeRenderer3d();
+    const float radius=float(bgengagement::DetectionRangeFeet*INCH_PER_FEET);
+    ObjList nearby;nearby.ListRadius(objects.GetLocationFull(hero),float((bgengagement::DetectionRangeFeet+40)*INCH_PER_FEET),OLC_CRITTERS);
+    for (int i=0;i<nearby.size();++i) {
+        auto observer=nearby[i];
+        if (!observer || observer==hero || !Observer(hero,observer) || critterSys.IsFriendly(observer,hero)) continue;
+        auto seen=stealthSeen.find(std::make_pair(observer.handle,hero.handle));
+        XMCOLOR border=seen==stealthSeen.end() ? XMCOLOR(0.75f,0.75f,0.75f,0.9f):
+            seen->second ? XMCOLOR(1.0f,0.2f,0.2f,0.95f):XMCOLOR(1.0f,0.85f,0.2f,0.95f);
+        XMCOLOR fill=seen==stealthSeen.end() ? XMCOLOR(0.75f,0.75f,0.75f,0.06f):
+            seen->second ? XMCOLOR(1.0f,0.2f,0.2f,0.08f):XMCOLOR(1.0f,0.85f,0.2f,0.06f);
+        auto center=objects.GetLocationFull(observer).ToInches3D();
+        shapes.DrawFilledCircle(center,radius,border,fill,false);
+        auto status=AIFS_NONE;aiSys.GetAiFightStatus(observer,&status,nullptr);
+        bool unalerted=status==AIFS_NONE && !encounters.Owns(observer) && !(GlobalCombatActive() && tbSys.IsInInitiativeList(observer));
+        if (!unalerted) continue;
+        // ToEE rotation r faces the ground angle 5pi/4 - r (Objects::GetRotationTowardsLoc).
+        auto angle=3.92699082f-objects.GetRotation(observer); // 5pi/4
+        XMFLOAT3 facing{cosf(angle),0,sinf(angle)},side{-sinf(angle),0,cosf(angle)};
+        XMCOLOR line(1.0f,1.0f,1.0f,0.7f);
+        shapes.DrawLineWithoutDepth({center.x-side.x*radius,center.y,center.z-side.z*radius},{center.x+side.x*radius,center.y,center.z+side.z*radius},line);
+        shapes.DrawLineWithoutDepth(center,{center.x+facing.x*radius*0.3f,center.y,center.z+facing.z*radius*0.3f},line);
+    }
+}
+namespace {
+constexpr uint32_t EncounterFileVersion=1;
+void PutId(bgencounters::Writer &out,objHndl handle,bool &persistable) {
+    ObjectId id{};
+    if (handle && objSystem->IsValidHandle(handle)) id=objSystem->GetIdByHandle(handle);
+    if (!id.IsPersistable()) {persistable=false;id=ObjectId{};}
+    out.Put(id);
+}
+bool GetId(bgencounters::Reader &in,objHndl &handle) {
+    ObjectId id{};
+    if (!in.Get(id)) return false;
+    handle=id.IsNull() ? objHndl::null:objSystem->GetHandleById(id);
+    if (handle && !objSystem->IsValidHandle(handle)) handle=objHndl::null;
+    return true;
+}
+}
+bool SaveEncounters(const char *path) {
+    bgencounters::Writer out;bool persistable=true;
+    out.Put(EncounterFileVersion);out.Put(GlobalCombatActive() ? displayedEncounter:0u);out.Put(encounters.Last());
+    out.Put(uint32_t(encounters.Size()));
+    encounters.ForEach([&](const decltype(encounters)::Parked &entry) {
+        const auto &state=entry.state;
+        out.Put(entry.id);out.Put(uint8_t(state.unattended ? 1:0));
+        out.Put(uint32_t(entry.members.size()));
+        for (auto member:entry.members) PutId(out,member,persistable);
+        auto size=(std::min)(state.initiative.GroupSize,32u);
+        out.Put(size);
+        for (auto i=0u;i<size;++i) PutId(out,state.initiative.GroupMembers[i],persistable);
+        PutId(out,state.current,persistable);PutId(out,state.combatActor,persistable);
+        out.Put(state.initiativeValue);out.Put(state.surprise);out.Put(state.round);
+        out.Put(state.timeEventSthg);out.Put(state.timeEventIndicator);out.Put(state.scene);
+        out.Put(uint8_t(state.hasBudget ? 1:0));out.Put(state.budget);
+        for (const auto &readied:state.readied) {
+            out.Put(readied.flags);out.Put(readied.field4);PutId(out,readied.interrupter,persistable);
+            out.Put(readied.readyType);out.Put(readied.field14);
+        }
+    });
+    if (!persistable) {logger->error("BG encounters: a member of a waiting fight has no persistent id");return false;}
+    auto file=tio_fopen(path,"wb");
+    if (!file) {logger->error("BG encounters: cannot write {}",path);return false;}
+    const auto &bytes=out.Bytes();
+    bool written=tio_fwrite(bytes.data(),1,bytes.size(),file)==bytes.size();
+    tio_fclose(file);
+    if (written) logger->info("BG encounters saved: {} waiting fight(s)",encounters.Size());
+    return written;
+}
+void LoadEncounters(const char *path) {
+    auto file=tio_fopen(path,"rb");
+    if (!file) return; // an older save: no fights were waiting
+    std::vector<uint8_t> bytes;uint8_t chunk[4096];
+    for (size_t read;(read=tio_fread(chunk,1,sizeof(chunk),file))>0;) bytes.insert(bytes.end(),chunk,chunk+read);
+    tio_fclose(file);
+    bgencounters::Reader in(bytes);
+    uint32_t version=0,displayed=0,last=0,count=0;
+    if (!in.Get(version) || version!=EncounterFileVersion || !in.Get(displayed) || !in.Get(last) || !in.Get(count)) {
+        logger->error("BG encounters: unreadable {}; waiting fights are lost",path);return;
+    }
+    encounters.Seed(last);
+    unsigned restored=0;
+    for (auto n=0u;n<count;++n) {
+        uint32_t id=0,members=0,size=0;uint8_t unattended=0,hasBudget=0;
+        NativeEncounter state{};std::vector<objHndl> owners;
+        if (!in.Get(id) || !in.Get(unattended) || !in.Get(members)) break;
+        bool ok=true;
+        for (auto i=0u;i<members && ok;++i) {objHndl member;ok=GetId(in,member);if (ok && member) owners.push_back(member);}
+        if (!ok || !in.Get(size) || size>32) break;
+        state.initiative.Reset();
+        state.initiative.sortFunc=temple::GetRef<int(__cdecl)(void*,void*)>(0x100DEF20);
+        for (auto i=0u;i<size && ok;++i) {
+            objHndl member;ok=GetId(in,member);
+            if (ok && member) state.initiative.GroupMembers[state.initiative.GroupSize++]=member;
+        }
+        ok=ok && GetId(in,state.current) && GetId(in,state.combatActor) && in.Get(state.initiativeValue) &&
+            in.Get(state.surprise) && in.Get(state.round) && in.Get(state.timeEventSthg) &&
+            in.Get(state.timeEventIndicator) && in.Get(state.scene) && in.Get(hasBudget) && in.Get(state.budget);
+        for (auto &readied:state.readied)
+            ok=ok && in.Get(readied.flags) && in.Get(readied.field4) && GetId(in,readied.interrupter) &&
+                in.Get(readied.readyType) && in.Get(readied.field14);
+        if (!ok) break;
+        state.hasBudget=hasBudget!=0;state.unattended=unattended!=0;state.clock.Start(timeGetTime());
+        if (encounters.Park(id,owners,state)) ++restored;
+        else logger->warn("BG encounter {} could not be restored ({} members found)",id,owners.size());
+    }
+    displayedEncounter=GlobalCombatActive() ? displayed:0;
+    if (!in.Done()) logger->error("BG encounters: {} is damaged; {} of {} waiting fight(s) restored",path,restored,count);
+    else logger->info("BG encounters loaded: {} of {} waiting fight(s)",restored,count);
+}
+void Revealed(objHndl hero) {
+    if (!Enabled() || !hero || !party.IsInParty(hero)) return;
+    heroNoticed[hero.handle]=true;
+    FloatStealth(hero,6,FloatLineColor::Red);
+    for (auto &entry:stealthSeen) if (entry.first.second==hero.handle) entry.second=true;
+}
+bool UnseenStrike(objHndl attacker,objHndl target) {return Enabled() && opening.Unseen(attacker,target,timeGetTime());}
+bool EndEmptyCombat(const char *why) {
+    if (!Enabled() || !GlobalCombatActive() || tbSys.GetInitiativeListLength()) return false;
+    BgActorContext<objHndl>::Scope world(actorContext,objHndl::null); // a free hero's view must not hide it
+    combatSys.CombatEnd();
+    if (auto reset=temple::GetRef<int(__cdecl*)()>(0x10AA83F8)) reset(); // combat UI
+    temple::GetRef<void(__cdecl)(objHndl)>(0x1003C8B0)(party.GetConsciousPartyLeader()); // combat music ends
+    logger->info("BG combat ended: nobody is in it ({})",why);
+    return true;
+}
+bool ParkForDialog(objHndl hero) {
+    if (!Free(hero) || Civilian(hero) || !Detach("a free hero talks")) return false;
+    dialogParkedAt=timeGetTime();
+    return true;
+}
+bool ShowFight(objHndl actor) {
+    if (!Enabled() || !GlobalCombatActive() || !actor || Free(actor) || encounters.Owns(actor) ||
+        !party.IsInParty(actor) || !tbSys.IsInInitiativeList(actor) || !FreeSelection()) return false;
+    auto current=tbSys.turnBasedGetCurrentActor();
+    party.CurrentlySelectedClear();
+    if (current && party.IsInParty(current)) party.AddToCurrentlySelected(current);
+    return true;
+}
 }

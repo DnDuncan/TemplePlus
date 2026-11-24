@@ -111,6 +111,7 @@ namespace gfx {
 
 		void SetScissorRect(const TigRect &rect);
 		void ResetScissorRect();
+		void SetPresentationZoom(float zoom, float width, float height);
 
 	private:
 		struct Impl;

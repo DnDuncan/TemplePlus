@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "bgscenecombat.h"
 #include "common.h"
 #include "turn_based.h"
 #include "util/fixes.h"
@@ -192,8 +193,10 @@ void TurnBasedSys::ArbitrateInitiativeConflicts()  {
 
 void TurnBasedSys::AddToInitiative(objHndl handle) 
 {
-	if (IsInInitiativeList(handle))
-		return;
+    if (!bgscenecombat::MayJoin(handle) || IsInInitiativeList(handle)) return;
+    // Unrelated free actions finish before detection changes their turn mode.
+    // The initiating pair retains native combat-start interruption rules.
+    if (bgscenecombat::DeferJoin(handle)) return;
 	
 	auto obj = gameSystems->GetObj().GetObject(handle);
 	if (critterSys.IsDeadNullDestroyed(handle))
@@ -224,9 +227,10 @@ void TurnBasedSys::AddToInitiative(objHndl handle)
 	ArbitrateInitiativeConflicts();
 	conds.AddTo(handle, "Flatfooted", {});
 	auto isSurpriseRound = temple::GetRef<BOOL>(0x10BCAD90);
-	if (isSurpriseRound){
+	if (isSurpriseRound && !bgscenecombat::JoinsRunningFight()){
 		conds.AddTo(handle, "Surprised", {});
 	}
+    bgscenecombat::AfterJoin(handle);
 
 	/*auto addToInit = temple::GetRef<void(__cdecl)(objHndl)>(0x100DF1E0);
 	addToInit(handle);*/
@@ -245,15 +249,16 @@ void TurnBasedSys::CreateInitiativeListWithParty(){
 		tutorial.ShowTopic(11);
 	}
 
+    bgscenecombat::SeedInitiative();
 	auto N = party.GroupListGetLen();
 	for (auto i=0u; i < N; i++){
 		auto partyMember = party.GroupListGetMemberN(i);
-		if (d20Sys.d20Query(partyMember, DK_QUE_EnterCombat)){
+		if (bgscenecombat::MayAutoJoin(partyMember) && d20Sys.d20Query(partyMember, DK_QUE_EnterCombat)){
 			AddToInitiative(partyMember);
 		}
 	}
-
 	auto newTBActor = combatSys.GetInitiativeListMember(0);
+	if (!newTBActor) return;
 	turnBasedSetCurrentActor(newTBActor);
 	temple::GetRef<int>(0x10BCAD80) = objSystem->GetObject(newTBActor)->GetInt32(obj_f_initiative);
 }

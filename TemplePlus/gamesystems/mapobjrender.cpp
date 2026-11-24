@@ -9,6 +9,7 @@
 #include <config/config.h>
 #include <temple/meshes.h>
 #include "gamesystems/gamesystems.h"
+#include "gamesystems/objects/objsystem.h"
 #include "gamesystems/gamerenderer.h"
 #include <graphics/renderstates_hooks.h>
 #include <infrastructure/images.h>
@@ -17,11 +18,22 @@
 #include <aas/aas_renderer.h>
 #include "../critter.h"
 #include "gameview.h"
+#include "graphics/sourcecontainers.h"
+#include "graphics/mapterrain.h"
+#include "bgappearance.h"
+#include "party.h"
+#include <infrastructure/mdfmaterial.h>
 #include <graphics/dynamictexture.h>
 
 #include "froggrapplecontroller.h"
 
 #include "tig/tig_startup.h"
+#include "gamesystems/bglights.h"
+#include "maps.h"
+
+namespace bglights {
+Registry &Lights() { static Registry registry; return registry; }
+}
 
 using namespace gfx;
 using namespace temple;
@@ -63,6 +75,17 @@ MapObjectRenderer::MapObjectRenderer(GameSystems& gameSystems,
 	mHighlightMaterial = mdfFactory.LoadMaterial("art/meshes/hilight.mdf");
 	mBlobShadowMaterial = mdfFactory.LoadMaterial("art/meshes/shadow.mdf");
 	mOccludedMaterial = mdfFactory.LoadMaterial("art/meshes/occlusion.mdf");
+	// The module VFS is not mounted here yet. Build a separate, uncached flat
+	// silhouette instead of hoping a later module override replaces the cache.
+	mBgOccludedMaterial = mdfFactory.LoadMaterial("art/meshes/occlusion.mdf", [](gfx::MdfMaterial &spec) {
+		spec.samplers.clear();
+		spec.notLit = true;
+		spec.diffuse = 0x88909090;
+		spec.blendType = gfx::MdfBlendType::Alpha;
+		spec.enableZWrite = false;
+		spec.disableZ = false;
+		spec.depthGreater = true;
+	});
 
 	mGrappleController = std::make_unique<FrogGrappleController>(device, mdfFactory);
 
@@ -139,6 +162,7 @@ void MapObjectRenderer::RenderMapObjects(int tileX1, int tileX2, int tileY1, int
 }
 
 void MapObjectRenderer::RenderObject(objHndl handle, bool showInvisible) {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
@@ -420,6 +444,18 @@ void MapObjectRenderer::RenderObjectInUi(objHndl handle, int x, int y, float rot
 
 }
 
+void MapObjectRenderer::RenderBgOccludedParty() {
+	if (!originalDoorTerrain || !originalDoorTerrain->HasOriginalDoorInput()) return;
+	// At this point depth contains clipping, but no actor surfaces. Otherwise a
+	// rear arm/leg could pass Greater against its own torso and turn gray too.
+	mBgOcclusionPrepass=true;
+	struct Restore {bool &value;~Restore(){value=false;}} restore{mBgOcclusionPrepass};
+	for (uint32_t n=0;n<party.GroupListGetLen();++n) {
+		auto actor=party.GroupListGetMemberN(n);
+		if (actor && mGameSystems.GetObj().IsValidHandle(actor)) RenderOccludedObject(actor);
+	}
+}
+
 void MapObjectRenderer::RenderOccludedMapObjects(int tileX1, int tileX2, int tileY1, int tileY2) {
 
 	gfx::PerfGroup perfGroup(mDevice, "Occluded Map Objects");
@@ -446,6 +482,7 @@ void MapObjectRenderer::RenderOccludedMapObjects(int tileX1, int tileX2, int til
 }
 
 void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
@@ -512,9 +549,12 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 	}
 
 	// Handle fog occlusion of the world position, but handle it differently for portals
+	auto controlledSourceActor = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
+		&& party.IsInParty(parent ? parent : handle);
+	if (!BgOccludedPass(controlledSourceActor,mBgOcclusionPrepass)) return;
 	if (type != obj_t_portal) {
 		auto fogStatus = addresses.GetFogStatus(worldLoc, animParams.offsetX, animParams.offsetY);
-		if (!(fogStatus & 0xB0) || !(fogStatus & 1)) {
+		if (!BgOccludedVisible(fogStatus, controlledSourceActor)) {
 			return;
 		}
 	} else {
@@ -564,7 +604,10 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 	overrides.alpha = alpha / 255.0f;
 
 	if (type != obj_t_portal) {
-		mOccludedMaterial->Bind(mDevice, lights, &overrides);
+		auto material = originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput()
+			&& mBgOccludedMaterial ? mBgOccludedMaterial : mOccludedMaterial;
+		if (!material) return;
+		material->Bind(mDevice, lights, &overrides);
 		mAasRenderer.RenderWithoutMaterial(animatedModel.get(), animParams);
 
 		if (objects.IsCritterType(type)) {
@@ -601,6 +644,7 @@ void MapObjectRenderer::RenderOccludedObject(objHndl handle) {
 
 void MapObjectRenderer::RenderObjectHighlight(objHndl handle, const gfx::MdfRenderMaterialPtr & material)
 {
+	if (IsSourceContainerProxy(handle)) return;
 
 	mTotalLastFrame++;
 
@@ -901,6 +945,23 @@ std::vector<Light3d> MapObjectRenderer::FindLights(LocAndOffsets atLocation, flo
 		}
 	}
 
+	// bg2toee camp fires: dynamic point lights of the current map
+	auto mapId = maps.GetCurrentMapId();
+	auto now = timeGetTime();
+	for (const auto &entry : bglights::Lights().All()) {
+		const auto &bgLight = entry.second;
+		if (bgLight.mapId != mapId || !bglights::Reaches(bgLight, atPos.x, atPos.y, radius)) continue;
+		auto factor = bglights::Flicker(bgLight, now, entry.first);
+		Light3d light3d;
+		light3d.type = Light3dType::Point;
+		light3d.dir = XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
+		light3d.pos = XMFLOAT4(bgLight.x, bgLight.height, bgLight.y, 0.0f);
+		light3d.color = XMFLOAT4(bgLight.r * factor, bgLight.g * factor, bgLight.b * factor, 1.0f);
+		light3d.range = bgLight.range;
+		light3d.phi = 0.0f;
+		lights.push_back(light3d);
+	}
+
 	return lights;
 
 }
@@ -917,9 +978,8 @@ bool MapObjectRenderer::IsObjectOnScreen(LocAndOffsets &location, float offsetZ,
 	auto bbTop = screenPos.y - (offsetZ + renderHeight + radius) * cos45;
 	auto bbBottom = bbTop + (2 * radius + renderHeight) * cos45;
 
-	auto screenWidth = gameView->GetWidth();
-	auto screenHeight = gameView->GetHeight();
-	if (bbRight < 0 || bbBottom < 0 || bbLeft > screenWidth || bbTop > screenHeight) {
+	auto viewport = gameView->GetWorldViewport();
+	if (bbRight < viewport.left || bbBottom < viewport.top || bbLeft > viewport.right || bbTop > viewport.bottom) {
 		return false;
 	}
 

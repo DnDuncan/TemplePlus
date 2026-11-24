@@ -15,6 +15,7 @@
 #include "animgoals/animgoals_debugrenderer.h"
 
 #include "tig/tig_startup.h"
+#include "bgscenecombat.h"
 #include "temple_functions.h"
 #include "gamerenderer.h"
 #include "gamesystems.h"
@@ -30,6 +31,7 @@
 #include "tilerender.h"
 #include "map/sector.h"
 #include <path_node.h>
+#include "gameview.h"
 
 using namespace gfx;
 using namespace temple;
@@ -217,10 +219,11 @@ void GameRenderer::Render() {
   }
 
   TigRect viewportSize;
-  viewportSize.y = -256;
-  viewportSize.width = config.renderWidth + 512;
-  viewportSize.x = -256;
-  viewportSize.height = config.renderHeight + 512;
+  auto visible = gameView->GetWorldViewport();
+  viewportSize.x = int(std::floor(visible.left)) - 256;
+  viewportSize.y = int(std::floor(visible.top)) - 256;
+  viewportSize.width = int(std::ceil(visible.right)) - viewportSize.x + 256;
+  viewportSize.height = int(std::ceil(visible.bottom)) - viewportSize.y + 256;
 
   TileRect tiles;
 
@@ -241,7 +244,7 @@ void GameRenderer::Render() {
     // I think this maybe a 2D arcanum leftover when the map could be
     // incrementally drawn based on "dirty rects"
     TigRectList dirtyList;
-    dirtyList.rect = TigRect(0, 0, config.renderWidth, config.renderHeight);
+    dirtyList.rect = viewportSize;
     dirtyList.next = nullptr;
     TigRectList *dirtyRectPtr = &dirtyList;
     renderInfo.rectList = &dirtyRectPtr;
@@ -268,6 +271,8 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
     // debug overlay right after the occluder pass: later in the frame the camera constants no longer match it
     mGameSystems.GetClipping().RenderDebug();
     // renderFuncs.RenderClipping();
+
+    mMapObjectRenderer->RenderBgOccludedParty();
 
     mMapObjectRenderer->RenderMapObjects(
         (int)info->tiles->x1, (int)info->tiles->x2, (int)info->tiles->y1,
@@ -299,6 +304,8 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
 	
 	gfx::PerfGroup perfGroup(mRenderingDevice, "World UI");
     renderFuncs.RenderUiRelated(info);
+    mGameSystems.GetTerrain().RenderOriginalTravel();
+    bgscenecombat::RenderStealthRanges();
     renderFuncs.RenderTextBubbles(info);
     renderFuncs.RenderTextFloaters(info);
 

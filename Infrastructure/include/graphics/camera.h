@@ -50,7 +50,7 @@ namespace gfx {
 		}
 
 		void SetScreenSize(float width, float height) {
-			if (std::abs(width - mScreenWidth) < 0.01f || std::abs(height - mScreenHeight) < 0.01f) {
+			if (std::abs(width - mScreenWidth) < 0.01f && std::abs(height - mScreenHeight) < 0.01f) {
 				return;
 			}
 			mScreenWidth = width;
@@ -72,6 +72,8 @@ namespace gfx {
 		float GetScale() const {
 			return mScale;
 		}
+		void SetPresentationZoom(float zoom) { mPresentationZoom = zoom; mDirty = true; }
+		float GetPresentationZoom() const { return mPresentationZoom; }
 
 		void SetIdentityTransform(bool enable) {
 			mIdentityTransform = enable;
@@ -116,8 +118,9 @@ namespace gfx {
 		float mXTranslation = 0.0f;
 		float mYTranslation = 0.0f;
 		float mScale = 1.0f;
-		float mScreenWidth;
-		float mScreenHeight;
+		float mScreenWidth = 0;
+		float mScreenHeight = 0;
+		float mPresentationZoom = 1.0f;
 		bool mDirty = true;
 		bool mIdentityTransform = false;
 
@@ -130,6 +133,7 @@ namespace gfx {
 		XMFLOAT2 mCurScreenOffset;
 
 		XMFLOAT4X4 mProjection;
+		XMFLOAT4X4 mInputProjection;
 		XMFLOAT4X4 mView;
 		XMFLOAT4X4 mViewProjection;
 		XMFLOAT4X4 mViewUntranslated;

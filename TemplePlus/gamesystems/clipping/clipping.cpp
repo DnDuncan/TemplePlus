@@ -20,6 +20,7 @@ public:
 		device(g),
 		camera(camera),
 		material(CreateMaterial(g)),
+		coverMaterial(CreateMaterial(g,true)),
 		debugMaterial(CreateDebugMaterial(g, false)),
 		debugLineMaterial(CreateDebugMaterial(g, true)),
 		mBufferBinding(material.GetVertexShader())
@@ -33,6 +34,7 @@ public:
 	RenderingDevice& device;
 	WorldCamera& camera;
 	Material material;
+	Material coverMaterial;
 	Material debugMaterial;
 	Material debugLineMaterial;
 	int pass = 0; // 0 depth-only occluders, 1 debug fill, 2 debug edges
@@ -40,11 +42,11 @@ public:
 	bool debug = false;
 	size_t rendered = 0;
 
-	static Material CreateMaterial(RenderingDevice &device);
+	static Material CreateMaterial(RenderingDevice &device,bool cover=false);
 	static Material CreateDebugMaterial(RenderingDevice &device, bool lines);
 };
 
-Material ClippingSystem::Impl::CreateMaterial(RenderingDevice& device) {
+Material ClippingSystem::Impl::CreateMaterial(RenderingDevice& device,bool cover) {
 	RasterizerSpec rasterizerState;
 	rasterizerState.cullMode = CullMode::None;
 
@@ -55,7 +57,9 @@ Material ClippingSystem::Impl::CreateMaterial(RenderingDevice& device) {
 	blendState.writeGreen = false;
 	blendState.writeBlue = false;
 
-	auto vs(device.GetShaders().LoadVertexShader("clipping_vs"));
+	gfx::Shaders::ShaderDefines defines;
+	if (cover) defines["BG_ALWAYS_COVER"]="1";
+	auto vs(device.GetShaders().LoadVertexShader("clipping_vs",defines));
 	auto ps(device.GetShaders().LoadPixelShader("clipping_ps"));
 
 	return device.CreateMaterial(blendState, {}, rasterizerState, {}, vs, ps);
@@ -228,7 +232,7 @@ void ClippingSystem::Render() {
 		return;
 	}
 	
-	mImpl->device.SetMaterial(mImpl->pass == 1 ? mImpl->debugMaterial : mImpl->pass == 2 ? mImpl->debugLineMaterial : mImpl->material);
+
 
 	auto& camera = mImpl->camera;
 
@@ -244,6 +248,10 @@ void ClippingSystem::Render() {
 			continue; // This is a mesh that failed to load
 		}
 	
+		mImpl->device.SetMaterial(mImpl->debug ? mImpl->debugMaterial : mesh->IsSourceCover() ? mImpl->coverMaterial : mImpl->material);
+		mImpl->device.SetMaterial(mImpl->pass == 1 ? mImpl->debugMaterial :
+			mImpl->pass == 2 ? mImpl->debugLineMaterial :
+			mesh->IsSourceCover() ? mImpl->coverMaterial : mImpl->material);
 		mImpl->mBufferBinding.SetBuffer(0, mesh->GetVertexBuffer());
 		mImpl->mBufferBinding.Bind();
 		mImpl->device.SetIndexBuffer(*mesh->GetIndexBuffer());

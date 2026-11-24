@@ -318,13 +318,19 @@ namespace gfx {
 		const FormattedText &formattedStr)
 	{
 
+		D2D1_MATRIX_3X2_F original;
+		mImpl->context->GetTransform(&original);
 		auto transform2d = D2D1::Matrix3x2F::Rotation(angle, { center.x, center.y });
-		mImpl->context->SetTransform(transform2d);
+		mImpl->context->SetTransform(transform2d * original);
 
 		RenderText(rect, formattedStr);
 
-		mImpl->context->SetTransform(D2D1::IdentityMatrix());
+		mImpl->context->SetTransform(original);
 
+	}
+
+	void TextEngine::SetPresentationZoom(float zoom, float width, float height) {
+		mImpl->context->SetTransform(D2D1::Matrix3x2F::Scale(zoom, zoom, { width / 2, height / 2 }));
 	}
 		
 	void TextEngine::RenderText(const TigRect &rect, const TextStyle & style, const std::wstring & text)

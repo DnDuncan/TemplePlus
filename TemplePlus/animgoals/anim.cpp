@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "bgscenecombat.h"
 
 #include <infrastructure/vfs.h>
 #include <infrastructure/keyboard.h>
@@ -13,6 +14,7 @@
 #include "obj.h"
 #include "critter.h"
 #include "pathfinding.h"
+#include "bginteriornavigation.h"
 #include "party.h"
 #include "dice.h"
 #include "util/folderutils.h"
@@ -29,6 +31,8 @@
 
 #include <infrastructure/json11.hpp>
 #include "combat.h"
+#include "bgmovementrules.h"
+#include "graphics/mapterrain.h"
 #include "location.h"
 #include "gamesystems/legacysystems.h"
 #include "animgoals_stackentry.h"
@@ -54,7 +58,7 @@ BOOL AnimSystem::PushFidget(objHndl handle) {
     if (!(objBody->GetInt32(obj_f_critter_flags2) & OCF2_AUTO_ANIMATES))
         return FALSE;
 
-    if (combatSys.isCombatActive())
+    if (bgscenecombat::Busy(handle))
         return FALSE;
 
 	return PushFidgetInternal(handle) ? 1 : 0;
@@ -280,6 +284,18 @@ bool AnimSystem::PushUseSkillOn(objHndl actor, objHndl target,
 
 bool AnimSystem::PushRunNearTile(objHndl actor, LocAndOffsets target,
                                      int radiusFeet) {
+  if (party.IsInParty(actor) && !bgscenecombat::Busy(actor) &&
+      gameSystems->GetTerrain().HasOriginalDoorInput()) {
+    auto &terrain=gameSystems->GetTerrain();auto targetPoint=target.ToInches2D();
+    if (terrain.SceneAreaForActor(actor.handle)!=terrain.SceneAreaForPoint({targetPoint.x,targetPoint.y})) return false;
+    PathQuery query;query.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_ADJUST_RADIUS|PQF_ADJ_RADIUS_REQUIRE_LOS);
+    query.critter=actor;query.from=objects.GetLocationFull(actor);query.to=target;
+    query.distanceToTargetMin=0;query.tolRadius=float(radiusFeet)*12.0f;query.maxShortPathFindLength=200;
+    PathQueryResult path;pathfindingSys.PathCacheInit();
+    if (!pathfindingSys.FindPath(&query,&path)) return false;
+    if (!path.nodeCount) return true;
+    return PushPreparedPartyPath(actor,path);
+  }
   return addresses.PushRunNearTile(actor, target, radiusFeet);
 }
 
@@ -338,7 +354,35 @@ bool AnimSystem::PushRunToTile(objHndl handle, LocAndOffsets loc, PathQueryResul
     return true;
 }
 
+void AnimSystem::RefreshPartyMovement(objHndl actor) {
+    if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor) ||
+        bgscenecombat::Busy(actor) || !gameSystems->GetTerrain().HasOriginalDoorInput()) return;
+    AnimSlotId id;
+    auto found=false;
+    for (auto type : {ag_move_to_tile,ag_run_to_tile,ag_move_near_tile,ag_run_near_tile}) {
+        if (DoesObjHaveGoal(actor,type,&id)) { found=true; break; }
+    }
+    if (!found) return;
+    auto slot=GetSlot(id);
+    if (!slot) return;
+    auto root=slot->goals[0];
+    auto isNear=root.goalType==ag_move_near_tile || root.goalType==ag_run_near_tile;
+    // Never interrupt action/spell/dialog goal stacks to change speed.
+    if (!isNear && root.goalType!=ag_move_to_tile && root.goalType!=ag_run_to_tile) return;
+    if (!Interrupt(actor,AnimGoalPriority::AGP_3,false)) return;
+    if (isNear) PushRunNearTile(actor,root.targetTile.location,root.animId.number);
+    else PushMoveToTile(actor,root.targetTile.location);
+}
+
 bool AnimSystem::ShouldRun(objHndl handle){
+    if (party.IsInParty(handle) && !bgscenecombat::Busy(handle) &&
+        gameSystems->GetTerrain().HasOriginalDoorInput() &&
+        (config.partyMovementMode == 0 || config.partyMovementMode == 1)) {
+        auto &keys = infrastructure::gKeyboard;
+        return bgmovement::Run(config.partyMovementMode, false, 0,
+            keys.IsKeyPressed(VK_LCONTROL) || keys.IsKeyPressed(VK_RCONTROL), false);
+    }
+
 
     auto isAlwaysRun = config.GetVanillaInt("always run") != 0;
     if (config.walkDistanceFt > 0) // adding support for "Walk Distance" option
@@ -362,6 +406,28 @@ bool AnimSystem::ShouldRun(objHndl handle){
     }
 
     return isAlwaysRun;
+}
+
+bool AnimSystem::PushPreparedPartyPath(objHndl actor, const PathQueryResult &path) {
+    if (!actor || !party.IsInParty(actor) || critterSys.IsDeadOrUnconscious(actor)
+        || bgscenecombat::Busy(actor) || path.mover!=actor
+        || !(path.flags & PF_COMPLETE) || path.nodeCount<=0 || path.nodeCount>200) return false;
+    const bool running=ShouldRun(actor);
+    AnimSlotGoalStackEntry goal(actor,running?ag_run_to_tile:ag_move_to_tile);
+    goal.targetTile.location=path.to;
+    AnimSlotId id;
+    if (!Interrupt(actor,AnimGoalPriority::AGP_3,false) || !goal.Push(&id)) return false;
+    auto slot=GetSlot(id);
+    if (!slot) return false;
+    // Install a fresh complete route, never a reused slot's previous path.
+    BgCopyPreparedRoute<Path>(slot->path,path);
+    slot->path.currentNode=0;
+    slot->field_14=0;
+    if (running) slot->flags|=ASF_RUNNING; else slot->flags&=~ASF_RUNNING;
+    GoalDestinationRemove(actor);
+    GoalDestinationAdd(actor,path.to);
+    logger->info("Upper floor handoff: actor={} target={} nodes={} running={}",actor,path.to,path.nodeCount,running);
+    return true;
 }
 
 bool AnimSystem::PushMoveToTile(objHndl handle, LocAndOffsets loc){
@@ -637,6 +703,7 @@ bool AnimSystem::InterruptAllForTbCombat(){
 			continue;
 		}
 
+        if (bgscenecombat::Enabled() && !bgscenecombat::MayAutoJoin(slot.animObj)) continue;
 		if (objects.GetType(slot.animObj) == obj_t_portal){
 			continue;
 		}
@@ -854,6 +921,9 @@ BOOL AnimSystem::ProcessAnimEvent(const TimeEvent *evt) {
     stopProcessing = true;
   }
 
+  // Goal callbacks ask "is combat active?" for the animated actor: a free BG hero
+  // walking to talk, open or pick a lock keeps realtime rules.
+  BgActorContext<objHndl>::Scope animMode(bgscenecombat::actorContext, slot.animObj);
   int delay = 0;
   mCurrentlyProcessingSlotIdx = slot.id.slotIndex;
   // TODO: Clean up this terrible control flow

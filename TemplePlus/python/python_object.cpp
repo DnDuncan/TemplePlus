@@ -1,4 +1,6 @@
 #include "stdafx.h"
+#include "bgscenecombat.h"
+#include "graphics/mapterrain.h"
 #include "python_object.h"
 #include "python_support.h"
 #include "../maps.h"
@@ -215,6 +217,12 @@ static PyObject* PyObjHandle_BeginDialog(PyObject* obj, PyObject* args) {
 	if (!PyArg_ParseTuple(args, "O&i:begin_dialog", &ConvertObjHndl, &target, &line)) {
 		return 0;
 	}
+    if (bgscenecombat::Free(self->handle) && !bgscenecombat::ParkForDialog(self->handle)) {
+        // The native PythonDialog event ends global combat. The shown encounter
+        // can wait only on a hero's turn; otherwise the dialogue is deferred.
+        logger->info("BG detached dialogue deferred: the encounter is mid-action");
+        Py_RETURN_NONE;
+    }
 	if ( critterSys.IsPC(self->handle))
 	{	
 		TimeEvent evt;
@@ -1376,6 +1384,13 @@ static PyObject* PyObjHandle_Attack(PyObject* obj, PyObject* args) {
 		Py_RETURN_NONE;
 	}
 
+    if (bgscenecombat::Enabled() && party.IsInParty(target)) {
+        // Native ProvokeHostility takes agitator first. Only the actual target
+        // provokes this NPC; other PCs join when detected or when they act.
+        if (bgscenecombat::CanTarget(target,self->handle))
+            critterSys.Attack(target,self->handle,rangeType,flags);
+        Py_RETURN_NONE;
+    }
 	// This is pretty odd since it causes the opposite oO
 	if (!party.IsInParty(target)) {
 		critterSys.Attack(self->handle, target, 1, 2);
@@ -1383,7 +1398,8 @@ static PyObject* PyObjHandle_Attack(PyObject* obj, PyObject* args) {
 		// This apparently causes the NPC to attack ALL of the party, not just the one PC
 		for (uint32_t i = 0; i < party.GroupListGetLen(); ++i) {
 			auto partyMember = party.GroupListGetMemberN(i);
-			if (objects.IsPlayerControlled(partyMember)) {
+			if (objects.IsPlayerControlled(partyMember) && (!bgscenecombat::Enabled() ||
+                gameSystems->GetTerrain().SceneAreaForActor(partyMember.handle)==gameSystems->GetTerrain().SceneAreaForActor(self->handle.handle))) {
 				critterSys.Attack(partyMember, self->handle, 1, 2);
 			}
 		}

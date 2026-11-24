@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "ui/ui_bgrolls.h"
 #include <infrastructure/meshes.h>
 #include "secret_door.h"
 #include "obj.h"
@@ -144,6 +145,7 @@ uint32_t SecretDoorSys::secretDoorIsRevealed(objHndl secDoor)
 
 int SecretDoorSys::SearchConcentratedPerformFunc(D20Actn* d20a)
 {
+	if (bgrolls::BeginAreaSearch(d20a->d20APerformer)) return 0;
 	objHndl foundObject = objHndl::null;
 	int found = secretdoorSys.SecretDoorSkillCheck(d20a->d20APerformer, &foundObject);
 	int lineId = 1300;
@@ -227,6 +229,7 @@ int SecretDoorSys::SearchEventSecretDoorDetect(objHndl sd, objHndl seeker)
 				auto skillRanksSearch = critterSys.SkillBaseGet(seeker, SkillEnum::skill_search);
 				if (skillRanksSearch >= autoDetectDC) {
 					auto dc = secretdoorSys.getSecretDoorDC(sd);
+					bgrolls::PassiveScope passive; // automatic scanning: no roll window
 					auto result = skillSys.SkillRoll(seeker, SkillEnum::skill_search, dc, 0, 4);
 					if (result) {
 						return secretdoorSys.SecretDoorDetect(sd, seeker);

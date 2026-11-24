@@ -404,6 +404,10 @@ public:
 
 	void SetTimeUntilHealed();
 
+	// bg2toee camp/inn: the mod decides hours, encounters and the healed
+	// amount; this applies one finished rest to one party member.
+	void ApplyBgRest(objHndl member, int healHp, bool restore);
+
 protected:
 	int GetHealingAmount(objHndl handle, int restPeriods);
 	int GetHealingAmountMod();

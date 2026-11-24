@@ -47,15 +47,39 @@ jobs:
         Add-Content -Path $env:GITHUB_ENV -Value "VS_INSTALL_PATH=$vsPath"
       shell: pwsh
     - uses: actions/checkout@v4
+    - name: Test original door state registry
+      shell: cmd
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+        cl /nologo /std:c++17 /EHsc /W4 /WX Tests\OriginalDoorTests\originaldoorstate_test.cpp /Fe:originaldoorstate-tests.exe
+        if errorlevel 1 exit /b 1
+        originaldoorstate-tests.exe
     - uses: nuget/setup-nuget@v1
     - name: Set up Python 3.9
       uses: actions/setup-python@v4
       with:
         python-version: 3.9
+    - name: Test optional save hooks and Co8 dispatch
+      run: python -B -m unittest discover -s Tests/Python -q
     - name: Download and Extract Dependencies
       run: |
-        curl -L -o dependencies.7z https://github.com/GrognardsFromHell/Dependencies/releases/download/v1.19/dependencies.7z
+        $downloadOk = $false
+        for ($downloadAttempt = 1; $downloadAttempt -le 3; $downloadAttempt++) {
+          $downloadUrl = "https://github.com/GrognardsFromHell/Dependencies/releases/download/v1.19/dependencies.7z?nonce=$([guid]::NewGuid().ToString('N'))"
+          curl.exe --fail --location --retry 2 --retry-all-errors --connect-timeout 30 --max-time 180 --output dependencies.7z $downloadUrl
+          if ($LASTEXITCODE -ne 0) { continue }
+          $stream = [IO.File]::OpenRead("$pwd/dependencies.7z")
+          try {
+            $signature = New-Object byte[] 6
+            $count = $stream.Read($signature, 0, 6)
+            $downloadOk = $count -eq 6 -and [Convert]::ToBase64String($signature) -eq 'N3q8rycc'
+          } finally { $stream.Dispose() }
+          if ($downloadOk) { break }
+          Write-Warning "Dependency response was not a 7z archive; retrying a fresh release URL"
+        }
+        if (-not $downloadOk) { throw "Could not obtain the dependency archive after three attempts" }
         7z x dependencies.7z
+        if ($LASTEXITCODE -ne 0) { throw "Dependency extraction failed" }
     - name: Install NuGet packages
       run: |
         nuget install Squirrel.Windows -OutputDirectory Squirrel -Verbosity Detailed
@@ -68,6 +92,24 @@ jobs:
       shell: cmd
       env:
         TEMPLEPLUS_VERSION: ${{ steps.get_version.outputs.version }}
+        COMMIT_ID: ${{ github.sha }}
+    - name: Test engine image decoding
+      shell: cmd
+      run: Release\InfrastructureTests.exe
+    - name: Upload image decoder test tool
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImageDecodeProbe
+        path: Release/InfrastructureTests.exe
+    - name: Record engine build provenance
+      shell: pwsh
+      run: |
+        @{
+          repository = '${{ github.repository }}'
+          commit = '${{ github.sha }}'
+          run_id = '${{ github.run_id }}'
+          executable_sha256 = (Get-FileHash Release/TemplePlus.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        } | ConvertTo-Json | Set-Content engine-build.json
     - name: Pack Release
       run: .\PackRelease.ps1
       shell: pwsh
@@ -98,6 +140,11 @@ jobs:
       with:
         name: TemplePlus
         path: TemplePlus-*.zip
+    - name: Upload engine build provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: TemplePlusBuild
+        path: engine-build.json
     - name: Upload PDB
       uses: actions/upload-artifact@v4
       with:

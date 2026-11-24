@@ -59,6 +59,9 @@ namespace gfx {
 		bool recalculateNormals = false;
 		bool enableZWrite = true;
 		bool disableZ = false;
+		// Draw only where something nearer already covers the pixel
+		// (silhouettes of actors hidden by clipping geometry).
+		bool depthGreater = false;
 		bool enableColorWrite = true;
 		bool notLit = false;
 		bool clamp = false;

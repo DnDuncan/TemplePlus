@@ -1053,7 +1053,17 @@ int LegacySpellSystem::GetNumSpellsPerDay(objHndl handle, Stat classCode, int sp
 
 int LegacySpellSystem::ParseSpellSpecString(SpellStoreData* spell, char* spellString)
 {
-	return addresses.ParseSpellSpecString(spell, spellString);
+    auto result=addresses.ParseSpellSpecString(spell,spellString);
+    if (spellString) {
+        StringTokenizer tokens(spellString);
+        if (tokens.next() && tokens.token().type==StringTokenType::QuotedString && tokens.next()
+            && tokens.token().type==StringTokenType::Identifier) {
+            const auto &name=tokens.token().text;
+            if (!_stricmp(name,"class_cleric")) spell->classCode=GetSpellClass(stat_level_cleric);
+            else if (!_stricmp(name,"class_druid")) spell->classCode=GetSpellClass(stat_level_druid);
+        }
+    }
+    return result;
 }
 
 std::vector<int> LegacySpellSystem::GetValidSpellEnums()

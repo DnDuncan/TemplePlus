@@ -148,7 +148,7 @@ void GameLoop::Run() {
 		}
 		tig->GetDebugUI().NewFrame(); // needs to be after process_window_messages which is inside messageQueue->PollExternalEvents(), in order to process mousewheel messages
 
-		mGameSystems.AdvanceTime();
+		{ ScopedWorldInput worldInput; mGameSystems.AdvanceTime(); }
 
 		// This locks the cursor to our window if we are in the foreground and it's enabled
 		if (!config.windowed && config.lockCursor){
@@ -249,8 +249,22 @@ void GameLoop::RenderFrame() {
 	device.ClearCurrentColorTarget(XMCOLOR(0, 0, 0, 1));
 	device.ClearCurrentDepthTarget();
 	
-	mGameRenderer.Render();
-	alertDebug::Render();
+	{
+		ScopedWorldInput worldInput;
+		auto &camera = *mTig.GetGameView().GetCamera();
+		auto &text = device.GetTextEngine();
+		struct RestorePresentation {
+			gfx::WorldCamera &camera; gfx::TextEngine &text; float old;
+			~RestorePresentation() {
+				camera.SetPresentationZoom(old);
+				text.SetPresentationZoom(old, camera.GetScreenWidth(), camera.GetScreenHeight());
+			}
+		} restore{ camera, text, camera.GetPresentationZoom() };
+		camera.SetPresentationZoom(mTig.GetGameView().GetWorldZoom());
+		text.SetPresentationZoom(mTig.GetGameView().GetWorldZoom(), camera.GetScreenWidth(), camera.GetScreenHeight());
+		mGameRenderer.Render();
+		alertDebug::Render();
+	}
 
 	device.BeginPerfGroup("UI");
 	mainLoop.RenderUi();

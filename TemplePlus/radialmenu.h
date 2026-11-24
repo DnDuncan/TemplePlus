@@ -163,6 +163,10 @@ struct D20RadialMenuDef
 /*
 	Data driven functions for the radial menus.
 */
+// Physical (unzoomed-display) position of the last right-button press; the
+// radial menu keeps itself open when the button is released at that point.
+void RadialMenuNoteRmbPress(int physicalX, int physicalY);
+
 class RadialMenus {
 	friend class  RadialMenuReplacements;
 public:

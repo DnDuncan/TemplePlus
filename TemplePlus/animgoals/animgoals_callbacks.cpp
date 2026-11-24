@@ -9,10 +9,14 @@
 #include "gamesystems/objects/objsystem.h"
 #include "python/python_integration_spells.h"
 #include "critter.h"
+#include "party.h"
+#include "config/config.h"
 #include "action_sequence.h"
 #include "combat.h"
 #include "location.h"
 #include "objlist.h"
+#include "graphics/mapterrain.h"
+#include "graphics/sourcecontainers.h"
 
 using GoalCallback = int(__cdecl *)(AnimSlot&);
 
@@ -529,6 +533,23 @@ int GoalHasDoorInPath(AnimSlot &slot) {
 
 	for (auto doorObj : doorSearch) {
 
+		// BG doors backed by an invisible portal are opened only on request
+		// (Infinity Engine rule): walking past must not open them or spring
+		// their trap. A door the actor was sent to use (it is the target of
+		// a goal on the stack, e.g. ag_use_object) keeps the native opening.
+		if (IsSourceContainerProxy(doorObj)) {
+			bool requested = false;
+			for (auto i = 0; i <= slot.currentGoal && i < 8; i++) {
+				if (slot.goals[i].target.obj == doorObj) {
+					requested = true;
+					break;
+				}
+			}
+			if (!requested) {
+				continue;
+			}
+		}
+
 		auto doorModel = objects.GetAnimHandle(doorObj);
 		if (doorModel) {
 			auto doorAnimParams = objects.GetAnimParams(doorObj);
@@ -828,7 +849,12 @@ int GoalIsLiveCritterNear(AnimSlot &slot) {
 int GoalSetRunningFlag(AnimSlot &slot) {
 	// static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x10011600);
 	Expects(slot.animObj);
-	slot.flags |= AnimSlotFlag::ASF_RUNNING;
+	if (party.IsInParty(slot.animObj) && !combatSys.isCombatActive() &&
+        gameSystems->GetTerrain().HasOriginalDoorInput() &&
+        (config.partyMovementMode==0 || config.partyMovementMode==1) &&
+        !gameSystems->GetAnim().ShouldRun(slot.animObj))
+        slot.flags &= ~AnimSlotFlag::ASF_RUNNING;
+    else slot.flags |= AnimSlotFlag::ASF_RUNNING;
 	return TRUE;
 }
 
@@ -1002,8 +1028,33 @@ int GoalDyingCleanup(AnimSlot &slot) {
 
 // Originally @ 0x100147d0
 int GoalMoveAlongPath(AnimSlot &slot) {
-	static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x100147d0);
-	return org(slot);
+	const auto &tiles = gameSystems->GetTerrain().GetOriginalDoorBlockingTiles();
+	if (!tiles.empty() && slot.animObj && slot.path.currentNode >= 0 && slot.path.currentNode < slot.path.nodeCount
+		&& slot.path.currentNode < 200) {
+		auto from = objects.GetLocationFull(slot.animObj).ToInches3D();
+		auto to = slot.path.nodes[slot.path.currentNode].ToInches3D();
+		if (DoorNavigationBlocksSegment(tiles, from.x, from.z, to.x, to.z, objects.GetRadius(slot.animObj) * 0.7)) {
+			slot.path.flags = 0; // stale path cannot carry an actor through a newly closed door
+			return FALSE;
+		}
+	}
+    const bool trace=slot.animObj && party.IsInParty(slot.animObj)
+        && gameSystems->GetTerrain().SceneAreaForActor(slot.animObj.handle)==5191;
+    auto before=trace?objects.GetLocationFull(slot.animObj):LocAndOffsets{};
+    auto index=slot.path.currentNode;
+    static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x100147d0);
+    auto result=org(slot);
+    if (trace) {
+        static std::map<uint64_t,uint32_t> last;
+        auto now=timeGetTime();auto &previous=last[slot.animObj.handle];
+        if (!result || now-previous>=1000) {
+            previous=now;
+            logger->info("Upper floor step: actor={} from={} now={} target={} index={}->{} nodes={} result={}",
+                slot.animObj,before,objects.GetLocationFull(slot.animObj),slot.path.to,index,
+                slot.path.currentNode,slot.path.nodeCount,result);
+        }
+    }
+    return result;
 }
 
 // Originally @ 0x10014f10
@@ -1062,6 +1113,8 @@ int GoalPleaseMove(AnimSlot &slot) {
 
 // Originally @ 0x10017460
 int GoalIsTargetWithinRadius(AnimSlot &slot) {
+	if (originalDoorTerrain && !originalDoorTerrain->SourceDoorFor(slot.param2.obj).empty()
+		&& originalDoorTerrain->SourceDoorReachable(slot.param1.obj,slot.param2.obj)) return TRUE;
 	static auto org = temple::GetRef<std::remove_pointer<GoalCallback>::type>(0x10017460);
 	return org(slot);
 }

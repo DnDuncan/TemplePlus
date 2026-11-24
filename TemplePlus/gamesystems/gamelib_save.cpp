@@ -9,6 +9,7 @@
 #include "maps.h"
 #include "critter.h"
 #include "python/python_integration_obj.h"
+#include "bgscenecombat.h"
 #include <tio/tio.h>
 #include "gamesystem.h"
 #include "util/savegame.h"
@@ -127,11 +128,16 @@ static bool SaveGsiData(const GsiData &saveInfo) {
 }
 
 bool GameSystems::SaveGame(const string& filename, const string& displayName) {
-
 	InSaveGame inSave;
 	addresses.UiMmRelated(63);
 
 	if (!TioDirExists("Save\\Current")) {
+		return false;
+	}
+
+	// Waiting BG fights are packed into the archive with everything in Save\Current.
+	if (!bgscenecombat::SaveEncounters("Save\\Current\\bg_encounters.dat")) {
+		logger->error("Save refused: {} waiting BG fight(s) could not be written.", bgscenecombat::Encounters());
 		return false;
 	}
 
@@ -218,8 +224,14 @@ bool GameSystems::SaveGame(const string& filename, const string& displayName) {
 	{
 		// user savehook
 		auto saveHookArgs = Py_BuildValue("(s)", filename.c_str());
-		pythonObjIntegration.ExecuteScript("templeplus.savehook", "save", saveHookArgs);
+		auto saveHookResult = pythonObjIntegration.ExecuteScript("templeplus.savehook", "save", saveHookArgs);
+		auto hookFailed = saveHookResult == Py_False; // legacy hooks returning None remain compatible
+		Py_DECREF(saveHookResult);
 		Py_DECREF(saveHookArgs);
+		if (hookFailed) {
+			logger->error("Save hook refused the save; archive was not replaced.");
+			return false;
+		}
 	}
 
 

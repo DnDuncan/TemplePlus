@@ -3,6 +3,8 @@
 #include "inventory.h"
 #include "obj_handle_validator.h"
 #include <intrin.h>
+#include "graphics/mapterrain.h"
+#include "bgconsumables.h"
 #include "obj.h"
 #include "critter.h"
 #include "gamesystems/objects/objsystem.h"
@@ -1079,6 +1081,9 @@ void InventorySystem::InsertAtLocation(objHndl item, objHndl receiver, int itemI
 	}
 		
 
+    if (BgAutoIdentifyConsumable(originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput(),
+        itemObj->type==obj_t_scroll,itemObj->type==obj_t_food))
+        itemObj->SetItemFlag(OIF_IDENTIFIED,true);
 	auto itemType = objects.GetType(item);
 	obj_f qtyField = obj_f_begin;
 	auto isQuantity = inventory.GetQuantityField(item, &qtyField);
@@ -1987,6 +1992,9 @@ bool InventorySystem::IsIdentified(objHndl itemHandle)
 	if (!obj->IsItem())
 		return false;
 
+    if (BgAutoIdentifyConsumable(originalDoorTerrain && originalDoorTerrain->HasOriginalDoorInput(),
+        obj->type==obj_t_scroll,obj->type==obj_t_food))
+        obj->SetItemFlag(OIF_IDENTIFIED,true);
 	if (obj->GetItemFlags() & ItemFlag::OIF_IS_MAGICAL)
 		return (obj->GetItemFlags() & ItemFlag::OIF_IDENTIFIED);
 

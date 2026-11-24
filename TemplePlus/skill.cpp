@@ -8,6 +8,7 @@
 #include <infrastructure/json11.hpp>
 #include <infrastructure/vfs.h>
 #include "critter.h"
+#include "ui/ui_bgrolls.h"
 
 #pragma region SkillSystem Implementation
 LegacySkillSystem skillSys;
@@ -40,7 +41,13 @@ BOOL SkillFunctionReplacement::SkillRoll(objHndl performer, SkillEnum skillEnum,
 		skillEnum = static_cast<SkillEnum>(swapSkill - 1);
 	}
 
-	return skillFunctionReplacement.oldSkillRoll(performer, skillEnum, dc, resultDeltaFromDc, flags);
+	// bg2toee: roll window and BG rules (ui_bgrolls); they need the delta even
+	// when the caller passes none.
+	int localDelta = 0;
+	auto delta = resultDeltaFromDc ? resultDeltaFromDc : &localDelta;
+	bgrolls::BeginSkillRoll();
+	auto success = skillFunctionReplacement.oldSkillRoll(performer, skillEnum, dc, delta, flags);
+	return bgrolls::EndSkillRoll(performer, skillEnum, dc, delta, flags, success);
 }
 
 bool LegacySkillSystem::IsEnabled(SkillEnum skillEnum) const{

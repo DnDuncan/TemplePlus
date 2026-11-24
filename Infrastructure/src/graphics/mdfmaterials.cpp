@@ -470,7 +470,7 @@ namespace gfx {
 		DepthStencilSpec depthStencilState;
 		depthStencilState.depthEnable = !spec.disableZ;
 		depthStencilState.depthWrite = spec.enableZWrite;
-		depthStencilState.depthFunc = ComparisonFunc::LessEqual;
+		depthStencilState.depthFunc = spec.depthGreater ? ComparisonFunc::Greater : ComparisonFunc::LessEqual;
 
 		// Resolve texture references based on type
 		Expects(spec.samplers.size() <= 4);

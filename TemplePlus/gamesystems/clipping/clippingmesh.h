@@ -37,6 +37,8 @@ public:
 		return mIndexBuffer;
 	}
 
+	bool IsSourceCover() const {return mFilename.find("bg_cover")!=std::string::npos;}
+
 	size_t GetVertexCount() const {
 		return mVertexCount;
 	}

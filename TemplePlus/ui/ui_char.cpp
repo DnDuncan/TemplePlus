@@ -36,6 +36,9 @@
 #include "mod_support.h"
 
 #include "condition.h"
+#include "graphics/sourcecontainers.h"
+#include "python/python_integration_obj.h"
+#include "python/python_object.h"
 
 UiChar& ui_char() {
 	return uiSystems->GetChar();
@@ -2231,7 +2234,17 @@ void UiCharHooks::apply(){
 	
 	static void(__cdecl* orgCharLootingShow)(objHndl) = replaceFunction<void(__cdecl)(objHndl)>(0x1013F6C0, [](objHndl handle) {
 		orgCharLootingShow(handle);
-		uiSystems->GetChar().ShowLooting();
+		auto &ui=uiSystems->GetChar();
+		ui.ShowLooting();
+		// Notify only after native opening succeeded, never on a click/lock attempt.
+		auto actor=ui.GetCritter();
+		if (ui.IsLootingActive() && ui.GetLootedObject()==handle && objSystem->IsValidHandle(handle)
+			&& objSystem->GetObject(handle)->type==obj_t_container && IsSourceContainerProxy(handle)
+			&& objSystem->IsValidHandle(actor) && party.IsInParty(actor)) {
+			auto args=Py_BuildValue("(NN)",PyObjHndl_Create(handle),PyObjHndl_Create(actor));
+			auto result=pythonObjIntegration.ExecuteScript("templeplus.savehook","source_container_open",args);
+			Py_XDECREF(result);Py_DECREF(args);
+		}
 	});
 
 	static void(__cdecl* orgCharLootingHide)() = replaceFunction<void(__cdecl)()>(0x1013F880, []() {

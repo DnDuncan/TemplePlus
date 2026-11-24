@@ -159,6 +159,7 @@ public:
 
 	bool ShouldRun(objHndl handle); // should critter use ag_run_to_tile?
 	bool PushMoveToTile(objHndl handle, LocAndOffsets loc);
+    bool PushPreparedPartyPath(objHndl actor, const PathQueryResult &path);
 	bool PushWalkToTile(objHndl handle, LocAndOffsets loc);
 	void SetRunningState(bool state); // sets ASF_RUNNING on/off on the last anim slot (i.e. should characters use running animation, as opposed to walking)
 	void TurnOnRunning(); // same as SetRunningState, except for the global anim
@@ -196,6 +197,9 @@ public:
 	used by the general out-of-combat mouse LMB click handler
 	*/
 	void PushForMouseTarget(objHndl handle, AnimGoalType type, objHndl tgt, locXY loc, objHndl scratchObj, int someFlag);
+
+	// Reissue ordinary party movement after an explicit speed choice.
+	void RefreshPartyMovement(objHndl actor);
 
 	void Debug();
 	const AnimGoal* GetGoal(AnimGoalType goalType);

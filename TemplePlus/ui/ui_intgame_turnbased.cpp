@@ -8,9 +8,13 @@
 #include "pathfinding.h"
 #include "critter.h"
 #include "party.h"
+#include "bgscenecombat.h"
 #include "obj.h"
 #include "util/fixes.h"
 #include "gameview.h"
+#include "graphics/mapterrain.h"
+#include "tig/tig_mouse.h"
+#include <graphics/mdfmaterials.h>
 #include "tig/tig_msg.h"
 #include "ui/ui.h"
 #include "ui/ui_picker.h"
@@ -21,7 +25,6 @@
 #include "raycast.h"
 #include "location.h"
 #include <infrastructure/keyboard.h>
-#include <graphics/mdfmaterials.h>
 #include <graphics/shaperenderer2d.h>
 #include <graphics/shaperenderer3d.h>
 #include <graphics/render_hooks.h>
@@ -203,6 +206,14 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 		*intgameAddresses.intgameFocusObj = 0i64;
 	}
 
+	// Free BG heroes act in real time: never preview the fighting actor's path for them.
+	if (bgscenecombat::FreeSelection()) {
+		BgActorContext<objHndl>::Scope freeHero(bgscenecombat::actorContext, party.GetCurrentlySelected(0));
+		*intgameAddresses.cursorState = 0;
+		intgameAddresses.CursorRenderUpdate();
+		return;
+	}
+
 
 	if (uiPicker.PickerActiveCheck()){
 
@@ -237,8 +248,10 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 				if (ttLen > 0 && tooltipText[ttLen - 1] == '\n')
 					tooltipText[ttLen - 1] = 0;
 
-				int x = (int)(*intgameAddresses.screenXfromMouseEvent);
-				int y = (int)(*intgameAddresses.screenYfromMouseEvent);
+				// The stored mouse position is in logical world pixels; the tooltip is HUD text.
+				auto display = gameView->ToDisplayScreen((double)*intgameAddresses.screenXfromMouseEvent, (double)*intgameAddresses.screenYfromMouseEvent);
+				int x = (int)std::round(display.x);
+				int y = (int)std::round(display.y);
 
 				auto ttStyle = tooltips.GetStyle(0);
 				UiRenderer::PushFont(ttStyle.fontName, ttStyle.fontSize);
@@ -271,6 +284,7 @@ void UiIntegameTurnbasedRepl::IntgameTurnbasedRender(int widId) {
 			}
 
 
+			ScopedWorldPresentation worldShapes;
 			UiDrawAoOThreatRanges();
 
 			// draw circle at waypoint / destination location
@@ -385,6 +399,7 @@ int UiIntegameTurnbasedRepl::UiIntgamePathSequenceHandler(TigMsgMouse* msg) {
 
 /* 0x10174100 */
 void UiIntegameTurnbasedRepl::UiIntgameGenerateSequence(int isUnnecessary) {
+	ScopedWorldInput worldInput; // also reached from the hover time event, outside the message handler
 	auto curSeq = *actSeqSys.actSeqCur;
 	// replacing this just for debug purposes really
 
@@ -611,6 +626,7 @@ BOOL UiIntegameTurnbasedRepl::UiIntgameLocIsFarFromDesignatedLoc(LocAndOffsets l
 }
 
 int UiIntegameTurnbasedRepl::UiIntgameMsgHandler(int widId, TigMsg* msg) {
+	ScopedWorldInput worldInput(msg);
 
 	if (dmSys.IsActive() && !dmSys.IsMinimized()){
 		if (msg->type == TigMsgType::MOUSE)
@@ -640,14 +656,18 @@ int UiIntegameTurnbasedRepl::UiIntgameMsgHandler(int widId, TigMsg* msg) {
 	}
 	
 
+	// Free BG heroes use ordinary realtime input (UiInGame); never issue it for the fighter.
+	if (bgscenecombat::GlobalCombatActive() && bgscenecombat::FreeSelection())
+		return FALSE;
+
 	auto initialSeq = *actSeqSys.actSeqCur;
 	int result = 0;
 
 	auto& intgameActor = temple::GetRef<objHndl>(0x10C04118);
 
 	if (msg->type == TigMsgType::MOUSE) {
-		*intgameAddresses.screenXfromMouseEvent = ((TigMsgMouse*)msg)->x;
-		*intgameAddresses.screenYfromMouseEvent = ((TigMsgMouse*)msg)->y;
+		*intgameAddresses.screenXfromMouseEvent = static_cast<int32_t>(((TigMsgMouse*)msg)->x);
+		*intgameAddresses.screenYfromMouseEvent = static_cast<int32_t>(((TigMsgMouse*)msg)->y);
 	}
 
 	if (!combatSys.isCombatActive() || radialMenus.ActiveRadialMenuHasActiveNode()) {
@@ -1015,6 +1035,21 @@ bool UiIntgameTurnbased::AooPossible(objHndl handle)
 	return combatSys.CanMeleeTargetAtLoc(handle, handle, &loc);
 }
 
+// Native cursor states index the 32-entry shader table at 0x118A0900.
+// The source-container state lies outside it and is never used as an index.
+static constexpr int CursorStateLocked = 6, CursorStateHaveKey = 7, CursorStateUseIcon = 11;
+static constexpr int CursorStateSourceContainer = 32;
+
+static int SourceContainerCursorShader(int fallback) {
+	static int shader = -1;
+	if (shader < 0) {
+		auto material = tig->GetMdfFactory().LoadMaterial("art\\interface\\cursors\\Map_GrabHand_Open.mdf");
+		shader = material ? material->GetId() : 0;
+		if (!shader) logger->warn("Map_GrabHand_Open.mdf is unavailable; using the native use cursor for containers");
+	}
+	return shader ? shader : fallback;
+}
+
 void UiIntgameTurnbased::CursorRenderUpdate(){
 	
 	auto &cursorStateForIntgameFocus = temple::GetRef<int>(0x10B3D5B0);
@@ -1029,6 +1064,22 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 	temple::GetRef<void(__cdecl)()>(0x100936D0)(); // CursorHandleIntgameFocusObj
 	if (cursorStateForIntgameFocus){
 		cursorState = cursorStateForIntgameFocus;
+	}
+
+	// Baldur's Gate containers painted into the background: show a grabbing hand
+	// over the source outline (locked ones keep the native lock / key cursors).
+	auto sourceContainerHover = false;
+	if (!combatSys.isCombatActive() && originalDoorTerrain) {
+		auto mouse = mouseFuncs.GetPos();
+		if (originalDoorTerrain->HasDoorContextHover()) {
+			if (originalDoorTerrain->HoveredDoorLocked()) {cursorStateForIntgameFocus=CursorStateLocked;cursorState=CursorStateLocked;}
+			else sourceContainerHover=true;
+		}
+		if (originalDoorTerrain->PickSourceContainer(mouse.x, mouse.y)
+			&& cursorStateForIntgameFocus != CursorStateLocked
+			&& cursorStateForIntgameFocus != CursorStateHaveKey) {
+			sourceContainerHover = true;
+		}
 	}
 
 	auto &curSeq = *actSeqSys.actSeqCur;
@@ -1069,6 +1120,9 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 		}
 	}
 
+	if (sourceContainerHover)
+		cursorState = CursorStateSourceContainer;
+
 	auto specialCursor = temple::GetRef<int(__cdecl)()>(0x1009AC00)(); // stuff like dragging party/initiative portraits, wiki help etc.
 	if (specialCursor)
 		cursorState = specialCursor;
@@ -1079,7 +1133,10 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 		if (cursorPrevState)
 			temple::GetRef<void(__cdecl)()>(0x101DD770)();
 
-		if (cursorState){
+		if (cursorState == CursorStateSourceContainer) {
+			MouseFuncs::SetCursor(SourceContainerCursorShader(shaderIds[CursorStateUseIcon]));
+		}
+		else if (cursorState){
 			MouseFuncs::SetCursor(shaderIds[cursorState]);
 		}
 		cursorPrevState = cursorState;
@@ -1146,6 +1203,7 @@ void UiIntgameTurnbased::CursorRenderUpdate(){
 }
 
 void UiIntegameTurnbasedRepl::HourglassUpdate(int intgameAcquireOn, int intgameSelectionConfirmed, int showPathPreview) {
+	ScopedWorldPresentation worldShapes; // path preview: drawn in the UI pass, placed in the zoomed world
 	int _showPathPreview = showPathPreview;
 	int v33 = 0;
 	float greenMoveLength = 0.0;

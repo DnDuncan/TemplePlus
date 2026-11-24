@@ -13,6 +13,25 @@
 #include "party.h"
 #include "python/python_integration_obj.h"
 #include "python/python_object.h"
+#include "graphics/mapterrain.h"
+#include "bginteriornavigation.h"
+
+// -1: ordinary native rules, 0: blocked/missing centre, 1: walkable AR2617 centre.
+static int BgUpperFloorCell(objHndl mover, const LocAndOffsets &loc) {
+    if (!mover || !originalDoorTerrain) return -1;
+    SectorLoc sector(loc.location);
+    if (sector.x()!=8 || sector.y()!=12) return -1;
+    if (!BgUpperFloorCentreNavigation(originalDoorTerrain->SceneAreaForActor(mover.handle),
+            int(sector.x()), int(sector.y()))) return -1;
+    if (!PathNodeSys::hasClearanceData) return 0;
+    auto index=PathNodeSys::clearanceData.clrIdx.clrAddr[12][8];
+    if (index==0xFFFF || index>=PathNodeSys::clearanceData.clrIdx.numSectors) return 0;
+    auto copy=loc; Subtile sub;
+    sub=sub.fromField(locSys.subtileFromLoc(&copy));
+    if (sub.x<0 || sub.y<0) return 0;
+    auto value=PathNodeSys::clearanceData.secClr[index].val[sub.y%192][sub.x%192];
+    return BgStaticClearancePassable(true,value,0)?1:0;
+}
 
 static constexpr int DontUseLength = std::numeric_limits<int>::min();
 #define PATH_CACHE_EXPIRATION_TIME 5000 // miliseconds
@@ -380,11 +399,16 @@ void Pathfinding::PathCacheInit()
 
 int Pathfinding::PathDestIsClear(PathQuery* pq, objHndl mover, LocAndOffsets destLoc)
 {
+	const int centreNavigation=BgUpperFloorCell(mover, destLoc);
+	if (centreNavigation==0) return 0;
 	RaycastPacket objIt;
 	objIt.origin = destLoc;
 	objIt.targetLoc = destLoc;
 
-	*(int*)&objIt.flags |= (ExcludeItemObjects | StopAfterFirstBlockerFound | StopAfterFirstFlyoverFound);
+	// Collect all object blockers: ignoring a peripheral sector hit must not
+    // hide a later full-radius collision with another actor.
+    *(int*)&objIt.flags |= centreNavigation==1 ? ExcludeItemObjects
+        : (ExcludeItemObjects | StopAfterFirstBlockerFound | StopAfterFirstFlyoverFound);
 
 	if (mover)
 	{
@@ -401,8 +425,10 @@ int Pathfinding::PathDestIsClear(PathQuery* pq, objHndl mover, LocAndOffsets des
 
 		for (int i = 0; i < objIt.resultCount; i++)
 		{
-			if (!objIt.results[i].obj) // means it's a sector blocker
+			if (!objIt.results[i].obj) { // sector blocker around the actor footprint
+				if (centreNavigation==1) continue;
 				return 0;
+			}
 
 			objType = objects.GetType(objIt.results[i].obj);
 
@@ -438,11 +464,16 @@ int Pathfinding::PathDestIsClear(PathQuery* pq, objHndl mover, LocAndOffsets des
 int Pathfinding::PathDestIsClear(objHndl mover, LocAndOffsets* destLoc)
 {
 
+	const int centreNavigation=BgUpperFloorCell(mover, *destLoc);
+	if (centreNavigation==0) return 0;
 	RaycastPacket objIt;
 	objIt.origin = *destLoc;
 	objIt.targetLoc = *destLoc;
 
-	*(int*)&objIt.flags |= (ExcludeItemObjects | StopAfterFirstBlockerFound | StopAfterFirstFlyoverFound);
+	// Collect all object blockers: ignoring a peripheral sector hit must not
+    // hide a later full-radius collision with another actor.
+    *(int*)&objIt.flags |= centreNavigation==1 ? ExcludeItemObjects
+        : (ExcludeItemObjects | StopAfterFirstBlockerFound | StopAfterFirstFlyoverFound);
 
 	if (mover)
 	{
@@ -458,8 +489,10 @@ int Pathfinding::PathDestIsClear(objHndl mover, LocAndOffsets* destLoc)
 
 		for (int i = 0; i < objIt.resultCount; i++)
 		{
-			if (!objIt.results[i].obj) // means it's a sector blocker
+			if (!objIt.results[i].obj) { // sector blocker around the actor footprint
+				if (centreNavigation==1) continue;
 				return 0;
+			}
 
 			objType = objects.GetType(objIt.results[i].obj);
 
@@ -1084,6 +1117,19 @@ void Pathfinding::PathNodesAddByDirections(Path* pqr, PathQuery* pq)
 		return;
 	} 
 
+    // AR2617 uses centre-cell clearance. The legacy simplifier still
+    // tests full-radius straight segments, so preserve its proven A* steps.
+    if (BgUpperFloorCell(pq->critter,pqr->from)==1 && BgUpperFloorCell(pq->critter,pqr->to)==1) {
+        const int count=pqr->nodeCount3;
+        pqr->nodeCount=0; pqr->currentNode=0;
+        BgEmitInteriorSubtileRoute(count,200,[&](int step,bool last) {
+            LocAndOffsets point=pqr->to;
+            if (!last) PathTempNodeAddByDirections(step,pqr,&point);
+            pqr->nodes[pqr->nodeCount++]=point;
+        });
+        return;
+    }
+
 	// else use the directions to build the nodes
 	LocAndOffsets newNode, curNode;
 		LocAndOffsets fromLoc = pqr->from;
@@ -1131,6 +1177,50 @@ void Pathfinding::PathNodesAddByDirections(Path* pqr, PathQuery* pq)
 		}
 		pqr->nodes[pqr->nodeCount++] = pqr->to;
 	pqr->currentNode = 0;
+}
+
+// Original Baldur's Gate doors block movement through temporary navigation
+// masks. Raycasts see them, but the clearance-based A* below does not look at
+// tile flags, so the closed leaves are checked here as well.
+namespace {
+struct ClearanceDoorBlockers {
+	std::vector<XMFLOAT2> points;
+	float limit2 = 0;
+	void Collect(const LocAndOffsets &a, const LocAndOffsets &b, float span, float radius) {
+		points.clear();
+		if (!originalDoorTerrain || !PathNodeSys::hasClearanceData) return;
+		const auto &tiles = originalDoorTerrain->GetOriginalDoorBlockingTiles();
+		if (tiles.empty()) return;
+		auto pa = a.ToInches2D(), pb = b.ToInches2D();
+		auto cx = (pa.x + pb.x) / 2, cy = (pa.y + pb.y) / 2;
+		auto half = span + (std::max)(std::abs(pa.x - pb.x), std::abs(pa.y - pb.y)) / 2;
+		constexpr float subtile = INCH_PER_TILE / 3;
+		for (const auto &tile : tiles) for (int j = 0; j < 3; ++j) for (int i = 0; i < 3; ++i) {
+			if (!(tile.mask & (0x200u << (j * 3 + i)))) continue;
+			auto x = (tile.x * 3 + i + 0.5f) * subtile, y = (tile.y * 3 + j + 0.5f) * subtile;
+			if (std::abs(x - cx) <= half && std::abs(y - cy) <= half) points.push_back({ x, y });
+		}
+		auto r = (std::max)(0.0f, radius) + subtile * 0.7071f;
+		limit2 = r * r;
+	}
+	bool Blocks(const LocAndOffsets &loc) const {
+		if (points.empty()) return false;
+		auto p = loc.ToInches2D();
+		for (const auto &q : points) {
+			auto dx = p.x - q.x, dy = p.y - q.y;
+			if (dx * dx + dy * dy <= limit2) return true;
+		}
+		return false;
+	}
+};
+// Sectors without clearance data (outside the converted area) are impassable.
+inline const SectorClearanceData *ClearanceSector(const LocAndOffsets &loc) {
+	SectorLoc secLoc(loc.location);
+	if (secLoc.x() >= 16 || secLoc.y() >= 16) return nullptr;
+	auto idx = PathNodeSys::clearanceData.clrIdx.clrAddr[secLoc.y()][secLoc.x()];
+	if (idx == 0xFFFF || idx >= PathNodeSys::clearanceData.clrIdx.numSectors) return nullptr;
+	return &PathNodeSys::clearanceData.secClr[idx];
+}
 }
 
 int Pathfinding::FindPathShortDistanceAdjRadius(PathQuery* pq, Path* pqr)
@@ -1209,6 +1299,8 @@ int Pathfinding::FindPathShortDistanceAdjRadius(PathQuery* pq, Path* pqr)
 	float requisiteClearanceCritters = requisiteClearance * 0.7f;
 	if (requisiteClearance > 12)
 		requisiteClearance *= 0.85f;
+	ClearanceDoorBlockers doorBlockers;
+	doorBlockers.Collect(pqr->from, pqr->to, gridSize / 2 * (INCH_PER_TILE / 3), requisiteClearance * 0.7f);
 
 	if (curIdx == -1)
 	{
@@ -1333,17 +1425,18 @@ int Pathfinding::FindPathShortDistanceAdjRadius(PathQuery* pq, Path* pqr)
 					SectorLoc secLoc(subPathTo.location);
 					//secLoc.GetFromLoc(subPathTo.location);
 					int secX = (int)secLoc.x(), secY = (int)secLoc.y();
-					int secClrIdx = PathNodeSys::clearanceData.clrIdx.clrAddr[secLoc.y()][secLoc.x()];
+					auto clearanceSector = ClearanceSector(subPathTo);
+					if (!clearanceSector || doorBlockers.Blocks(subPathTo)) continue;
 					auto secBaseTile = secLoc.GetBaseTile();
 					int ssty = shiftedSubtile.y % 192;
 					int sstx = shiftedSubtile.x % 192;
 					if (direction % 2) // 
 					{
-						if (PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192] < requisiteClearance)
+						if (!BgStaticClearancePassable(BgUpperFloorCell(pq->critter, subPathTo)==1, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192], requisiteClearance))
 						{
 							/*if (config.pathfindingDebugMode)
 							{
-								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
+								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
 							}*/
 							continue;
 						}
@@ -1351,11 +1444,11 @@ int Pathfinding::FindPathShortDistanceAdjRadius(PathQuery* pq, Path* pqr)
 					}
 					else
 					{
-						if (PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192] < diagonalClearance)
+						if (!BgStaticClearancePassable(BgUpperFloorCell(pq->critter, subPathTo)==1, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192], diagonalClearance))
 						{
 							/*if (config.pathfindingDebugMode)
 							{
-								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
+								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
 							}*/
 							continue;
 						}
@@ -2200,6 +2293,8 @@ int Pathfinding::FindPathShortDistanceSansTarget(PathQuery* pq, Path* pqr)
 	float requisiteClearanceCritters = requisiteClearance * 0.7f;
 	if (requisiteClearance > 12)
 		requisiteClearance *= 0.85f;
+	ClearanceDoorBlockers doorBlockers;
+	doorBlockers.Collect(pqr->from, pqr->to, gridSize / 2 * (INCH_PER_TILE / 3), requisiteClearance * 0.7f);
 
 
 
@@ -2318,27 +2413,28 @@ int Pathfinding::FindPathShortDistanceSansTarget(PathQuery* pq, Path* pqr)
 					SectorLoc secLoc(subPathTo.location);
 					//secLoc.GetFromLoc(subPathTo.location);
 					int secX = (int)secLoc.x(), secY = (int)secLoc.y();
-					int secClrIdx = PathNodeSys::clearanceData.clrIdx.clrAddr[secLoc.y()][secLoc.x()];
+					auto clearanceSector = ClearanceSector(subPathTo);
+					if (!clearanceSector || doorBlockers.Blocks(subPathTo)) continue;
 					auto secBaseTile = secLoc.GetBaseTile();
 					int ssty = shiftedSubtile.y % 192;
 					int sstx = shiftedSubtile.x % 192;
 					if (direction % 2) // xy straight
 					{
-						if (PathNodeSys::clearanceData.secClr[secClrIdx].val[ssty][sstx] < requisiteClearance){
+						if (!BgStaticClearancePassable(BgUpperFloorCell(pq->critter, subPathTo)==1, clearanceSector->val[ssty][sstx], requisiteClearance)){
 							//if (config.pathfindingDebugMode)
 							//{
-							//	//logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
+							//	//logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
 							//}
 							continue;
 						}
 					}
 					else // xy diagonal
 					{
-						if (PathNodeSys::clearanceData.secClr[secClrIdx].val[ssty][sstx] < diagonalClearance)
+						if (!BgStaticClearancePassable(BgUpperFloorCell(pq->critter, subPathTo)==1, clearanceSector->val[ssty][sstx], diagonalClearance))
 						{
 							/*if (config.pathfindingDebugMode)
 							{
-								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, PathNodeSys::clearanceData.secClr[secClrIdx].val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
+								logger->info("Pathfinding clearance too small:  {},  clearance value {}", subPathTo, clearanceSector->val[shiftedSubtile.y % 192][shiftedSubtile.x % 192]);
 							}*/
 							continue;
 						}

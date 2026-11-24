@@ -11,6 +11,9 @@
 #include "gamesystems/gamesystems.h"
 #include "gamesystems/legacysystems.h"
 #include "gameview.h"
+#include "ui_bgrolls.h"
+#include "ui_bgpanel.h"
+#include "ui_bgwalk.h"
 
 UiManager *uiManager;
 LgcyWidgetId mLedgerCurId = -1;
@@ -1012,6 +1015,11 @@ bool UiManager::TranslateMouseMessage(const TigMouseMsg& mouseMsg)
 
 bool UiManager::ProcessMessage(TigMsg &msg)
 {
+	bgwalk::Update();
+	if (bgrolls::HandleModalInput(msg)) return true;
+	if (bgpanel::HandleModalInput(msg)) return true;
+	if (bgwalk::HandleHotkey(msg)) return true;
+	if (bgwalk::HandleMouse(msg)) return true;
 	// Dispatch time update messages continuously to all advanced widgets
 	if (msg.type == TigMsgType::UPDATE_TIME) {
 		for (auto &entry : mActiveWidgets) {

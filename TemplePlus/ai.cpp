@@ -1,4 +1,5 @@
 ﻿#include "stdafx.h"
+#include "bgscenecombat.h"
 #include "common.h"
 #include <tig/tig_tabparser.h>
 
@@ -233,7 +234,9 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 		logger->info("AiStrategy: \t {} attempting {}...", objHnd, aiTac.aiTac->name);
 		auto aiFunc = aiTac.aiTac->aiFunc;
 		if (!aiFunc) continue;
+        if (aiTac.target && aiTac.target!=objHnd && !bgscenecombat::CanTarget(objHnd,aiTac.target)) aiTac.target=objHndl::null;
 		if (aiFunc(&aiTac)) {
+            if (aiTac.target && aiTac.target!=objHnd && !bgscenecombat::CanTarget(objHnd,aiTac.target)) {actSeq->curSeqReset(objHnd);continue;}
 			logger->info("AiStrategy: \t AI tactic succeeded; performing.");
 			actSeq->sequencePerform();
 			return TRUE;
@@ -253,6 +256,7 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 	if (aiTac.target)
 		logger->info("Target: {}", aiTac.target);
 	assert(aiTac.aiTac != nullptr);
+    if (aiTac.target && !bgscenecombat::CanTarget(objHnd,aiTac.target)) aiTac.target=objHndl::null;
 	if (Default(&aiTac))
 	{
 		actSeq->sequencePerform();
@@ -262,7 +266,7 @@ uint32_t AiSystem::StrategyParse(objHndl objHnd, objHndl target)
 	if (!aiTac.target || !combatSys.IsWithinReach(objHnd, aiTac.target)){
 		logger->info("AiStrategy: \t Default FAILED. Attempting to find pathable party member as target...");
 		objHndl pathablePartyMember = pathfindingSys.CanPathToParty(objHnd);
-		if (pathablePartyMember)
+		if (pathablePartyMember && bgscenecombat::CanTarget(objHnd,pathablePartyMember))
 		{
 			aiTac.target = pathablePartyMember;
 			logger->info("New target: {}", pathablePartyMember);
@@ -699,7 +703,7 @@ objHndl AiSystem::GetWhoHitMeLast(objHndl npc) {
 
 BOOL AiSystem::ConsiderTarget(objHndl obj, objHndl tgt)
 {
-	if (!tgt || tgt == obj)
+	if (!tgt || tgt == obj || !bgscenecombat::CanTarget(obj,tgt))
 		return 0;
 
 	py::tuple args = py::make_tuple(py::cast<objHndl>(obj), py::cast<objHndl>(tgt));
@@ -877,6 +881,9 @@ objHndl AiSystem::FindSuitableTarget(objHndl handle){
 	for (auto i =0; i < numCritters; i++){
 		auto target = critterList[i];
 		
+        // Detached PCs are recruited by the scene perception pass. Do not
+        // reroll their stealth here or return them to a combat tactic early.
+        if (bgscenecombat::Enabled() && !bgscenecombat::CanTarget(handle,target)) continue;
 		// Added 2019-01 because it was silly
 		if (target == handle)
 			continue;

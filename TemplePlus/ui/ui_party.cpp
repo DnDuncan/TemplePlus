@@ -10,15 +10,53 @@
 #include "ui_render.h"
 #include <tig/tig_msg.h>
 #include <gamesystems/d20/d20_help.h>
+#include "party.h"
+#include "turn_based.h"
+#include "bgscenecombat.h"
+#include "combat.h"
 LegacyUiParty uiParty;
 
 // TODO: merge this with UiParty
+
+// In combat a portrait selects only the fighter whose turn it is. A free BG hero,
+// or a hero whose encounter waits, is selectable as with F1-F8.
+static objHndl portraitMember;
+static objHndl __cdecl PortraitMember(uint32_t idx) {
+	portraitMember = party.GroupListGetMemberN(idx);
+	return portraitMember;
+}
+static objHndl __cdecl PortraitTurnActor() {
+	if (bgscenecombat::Free(portraitMember)) return portraitMember;
+	if (bgscenecombat::Parked(portraitMember)) bgscenecombat::Activate(portraitMember);
+	return tbSys.turnBasedGetCurrentActor();
+}
+// Releasing the left button on a portrait asks only "is combat active?" and then
+// ignores the click. Ask it for that portrait's hero instead.
+static int __cdecl PortraitCombatFor(uint32_t idx) {
+	auto member = party.GroupListGetMemberN(idx);
+	if (bgscenecombat::Free(member)) return 0;
+	if (bgscenecombat::Parked(member)) bgscenecombat::Activate(member);
+	else bgscenecombat::ShowFight(member);
+	return combatSys.isCombatActive() ? 1 : 0;
+}
+static void __declspec(naked) PortraitCombatCheck() {
+	__asm { // esi is the portrait widget; [esi+0xC] its party index (as at 0x101332B5)
+		mov eax, [esi + 0xC];
+		push eax;
+		call PortraitCombatFor;
+		add esp, 4;
+		ret;
+	}
+}
 
 class UiPartyHooks : public TempleFix {
 public:
 
 
 	void apply() override {
+		redirectCall(0x101335FB, PortraitMember);
+		redirectCall(0x10133607, PortraitTurnActor);
+		redirectCall(0x10133356, PortraitCombatCheck);
 
 		// hook the buff/debuff icon so it doesn't try to get a spell name if the spellEnum is -2
 		static char* (__cdecl* orgBuffDebuffGetBaseText)(BuffDebuffPacket*, int, int) = 

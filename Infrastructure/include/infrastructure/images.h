@@ -18,7 +18,8 @@ namespace gfx {
 		TGA,
 		FNTART,
 		IMG,
-		Unknown
+		Unknown,
+		PNG
 	};
 
 	struct ImageFileInfo {

@@ -6,7 +6,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_TGA
 #define STBI_ONLY_BMP
+#define STBI_ONLY_PNG
 #include "stb_image.h"
+
+#include <limits>
 
 #include <turbojpeg.h>
 
@@ -37,6 +40,24 @@ namespace gfx {
 
 	ImageFileInfo DetectImageFormat(span<uint8_t> data) {
 		ImageFileInfo info;
+		if (data.empty()) return info;
+		if (data.size_bytes() > (std::numeric_limits<int>::max)()) {
+			throw TempleException("Image input is too large.");
+		}
+
+		// PNG must be recognized before the weak TGA/font-art heuristics.
+		const uint8_t pngSignature[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
+		if (data.size() >= sizeof(pngSignature) &&
+			memcmp(data.data(), pngSignature, sizeof(pngSignature)) == 0) {
+			int comp;
+			if (!stbi_info_from_memory(data.data(), static_cast<int>(data.size_bytes()),
+				&info.width, &info.height, &comp)) {
+				throw TempleException("Invalid PNG header.");
+			}
+			info.hasAlpha = (comp == 2 || comp == 4);
+			info.format = ImageFileFormat::PNG;
+			return info;
+		}
 
 		stbi__context ctx;
 		stbi__start_mem(&ctx, &data[0], data.size_bytes());
@@ -168,12 +189,37 @@ namespace gfx {
 
 		DecodedImage result;
 		result.info = DetectImageFormat(data);
+		if (data.empty()) throw TempleException("Unrecognized image format.");
 
 		stbi__context ctx;
 		stbi__start_mem(&ctx, &data[0], data.size_bytes());
 		int w, h, comp;
 
 		switch (result.info.format) {
+		case ImageFileFormat::PNG: {
+			// Bound the allocation before invoking the decoder. The image loader
+			// is shared; original-door patches have a stricter 1024x1024 limit.
+			if (result.info.width <= 0 || result.info.height <= 0 ||
+				static_cast<uint64_t>(result.info.width) * result.info.height > 64u * 1024u * 1024u) {
+				throw TempleException("PNG dimensions exceed the image loader limit.");
+			}
+			std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> rgba(
+				stbi_load_from_memory(data.data(), static_cast<int>(data.size_bytes()), &w, &h, &comp, 4),
+				&stbi_image_free);
+			if (!rgba || w != result.info.width || h != result.info.height) {
+				throw TempleException("Unable to decode PNG pixels.");
+			}
+			auto pixels = static_cast<size_t>(w) * h;
+			result.data = std::make_unique<uint8_t[]>(pixels * 4);
+			for (size_t i = 0; i < pixels; ++i) {
+				// stb returns top-down RGBA; texture uploads and cursors use BGRA.
+				result.data[4 * i] = rgba.get()[4 * i + 2];
+				result.data[4 * i + 1] = rgba.get()[4 * i + 1];
+				result.data[4 * i + 2] = rgba.get()[4 * i];
+				result.data[4 * i + 3] = rgba.get()[4 * i + 3];
+			}
+			break;
+		}
 		case ImageFileFormat::BMP:
 			result.data.reset(stbi__bmp_load(&ctx, &w, &h, &comp, 4));
 			break;

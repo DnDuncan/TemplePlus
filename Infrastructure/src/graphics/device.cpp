@@ -1590,10 +1590,22 @@ RenderingDevice::CreateRenderTargetDepthStencil(int width, int height, bool mult
 }
 
 void RenderingDevice::SetScissorRect(int x, int y, int width, int height) {
-	D3D11_RECT rect{ x, y, x + width, y + height };
+	TigRect logical{ x, y, width, height };
+	auto &camera = GetCurrentCamera();
+	auto zoom = camera.GetPresentationZoom();
+	if (zoom != 1.0f && x == 0 && y == 0 && width == int(camera.GetScreenWidth()) && height == int(camera.GetScreenHeight())) {
+		logical.x = int(std::floor(width * 0.5f * (1 - 1 / zoom)));
+		logical.y = int(std::floor(height * 0.5f * (1 - 1 / zoom)));
+		logical.width = int(std::ceil(width / zoom)); logical.height = int(std::ceil(height / zoom));
+	}
+	auto cx = camera.GetScreenWidth() / 2, cy = camera.GetScreenHeight() / 2;
+	D3D11_RECT rect{
+		LONG(std::floor(cx + (logical.x - cx) * zoom)), LONG(std::floor(cy + (logical.y - cy) * zoom)),
+		LONG(std::ceil(cx + (logical.x + logical.width - cx) * zoom)),
+		LONG(std::ceil(cy + (logical.y + logical.height - cy) * zoom)) };
 	mContext->RSSetScissorRects(1, &rect);
 
-	mImpl->textEngine->SetScissorRect({ x, y, width, height });
+	mImpl->textEngine->SetScissorRect(logical);
 }
 
 void RenderingDevice::ResetScissorRect() {

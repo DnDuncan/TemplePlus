@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "gamesystems/map/sector.h"
 #include "util/fixes.h"
 #include "common.h"
 #include "obj.h"
@@ -20,6 +21,7 @@
 #include <gamesystems\objects\objsystem.h>
 #include <location.h>
 #include "gamesystems/gamesystems.h"
+#include "graphics/mapterrain.h"
 
 struct TigTextStyle;
 
@@ -36,6 +38,32 @@ public:
 		writeHex(0x101034D9, "C1 E0 10"); // was 08, a wrong shift (looks like a typo error, all the others are shifted by 0x10: radMenuEntry.d20ActionData1 = (invIdxFromCondArg2 << 16) | [spellIdx]
 	}
 } hexFixes;
+
+// Text floater palette (3 bytes per FloatLineColor at 0x102CDF50). Pure
+// 00 FF 00 green is hard to read over bright terrain; use a darker green so
+// success messages stand apart from red failures.
+class FloatColorFix : public TempleFix {
+public:
+	void apply() override {
+		writeHex(0x102CDF56, "1E B4 1E"); // FloatLineColor::Green
+	}
+} floatColorFix;
+
+// Source doors (Baldur's Gate art) are backed by an invisible native portal:
+// whenever the portal opens or closes (use, AI, scripts), the source door art
+// and navigation follow.
+class SourceDoorToggleFix : public TempleFix {
+public:
+	static void (__cdecl *orgToggle)(objHndl);
+	void apply() override {
+		orgToggle = replaceFunction<void(__cdecl)(objHndl)>(0x100B4700, [](objHndl handle) {
+			if (originalDoorTerrain && !originalDoorTerrain->PrepareSourceDoorToggle(handle)) return;
+			orgToggle(handle);
+			if (originalDoorTerrain) originalDoorTerrain->SyncSourceDoor(handle);
+		});
+	}
+} sourceDoorToggleFix;
+void (__cdecl *SourceDoorToggleFix::orgToggle)(objHndl);
 
 // Makes Kukri Proficiency Martial
 class KukriFix : public TempleFix {
@@ -433,7 +461,11 @@ public:
 	static int PartySelectedFormationMoveToPosition(LocAndOffsets loc, int isNotAlwaysRun){
 
 		isWalkOverride = true;
-		auto N = party.CurrentlySelectedNum();
+        auto N = party.CurrentlySelectedNum();
+        if (N==1) {
+            auto direct=MoveUpperFloorActor(party.GetCurrentlySelected(0),loc,false);
+            if (direct>=0) return direct;
+        }
 		for (int i = 0; i < static_cast<int>(N); i++) {
 			auto dude = party.GetCurrentlySelected(i);
 			if (!dude)
@@ -443,16 +475,76 @@ public:
 			}
 		}
 
-		return orgPartySelectedFormationMoveToPosition(loc, isWalkOverride);
+		formationTarget = loc; formationActive = true;
+		auto result = orgPartySelectedFormationMoveToPosition(loc, isWalkOverride);
+		formationActive = false;
+		return result;
 	};
 
+	// A formation slot can land on a blocked subtile (narrow Baldur's Gate
+	// scenery) and that member would silently stay behind. Probe the slot; when
+	// no path exists, use the nearest reachable point around the slot, then
+	// around the clicked point.
+	static bool CanPathTo(objHndl handle, const LocAndOffsets &to) {
+		PathQuery pq; PathQueryResult pqr;
+		pq.critter = handle; pq.from = objects.GetLocationFull(handle); pq.to = to;
+		pq.flags = static_cast<PathQueryFlags>(PQF_HAS_CRITTER | PQF_IGNORE_CRITTERS | PQF_ALLOW_ALTERNATIVE_TARGET_TILE);
+		return pathfindingSys.FindPath(&pq, &pqr) > 0;
+	}
+	static bool ReachableNear(objHndl handle, const LocAndOffsets &center, LocAndOffsets &out) {
+		static const int ring[8][2] = { {1,0},{0,1},{-1,0},{0,-1},{1,1},{-1,1},{-1,-1},{1,-1} };
+		for (int radius = 1; radius <= 3; ++radius) for (const auto &d : ring) {
+			auto candidate = center;
+			candidate.location.locx = static_cast<uint32_t>(int64_t(center.location.locx) + d[0] * radius);
+			candidate.location.locy = static_cast<uint32_t>(int64_t(center.location.locy) + d[1] * radius);
+			if (CanPathTo(handle, candidate)) { out = candidate; return true; }
+		}
+		return false;
+	}
+	static LocAndOffsets FormationDestination(objHndl handle, const LocAndOffsets &slot) {
+		if (!formationActive || !handle || CanPathTo(handle, slot)) return slot;
+		LocAndOffsets alternative;
+		if (ReachableNear(handle, slot, alternative)) return alternative;
+		if (CanPathTo(handle, formationTarget)) return formationTarget;
+		if (ReachableNear(handle, formationTarget, alternative)) return alternative;
+		return slot;
+	}
+
+    // -1 leaves all other scenes/native commands untouched.
+    static int MoveUpperFloorActor(objHndl actor, const LocAndOffsets &to, bool allowAlternative) {
+        if (!actor || combatSys.isCombatActive() || !party.IsInParty(actor)
+            || gameSystems->GetTerrain().SceneAreaForActor(actor.handle)!=5191) return -1;
+        SectorLoc sector(to.location);
+        if (sector.x()!=8 || sector.y()!=12) return -1;
+        PathQuery query; PathQueryResult path;
+        query.critter=actor; query.from=objects.GetLocationFull(actor); query.to=to;
+        query.flags=static_cast<PathQueryFlags>(PQF_HAS_CRITTER|PQF_TO_EXACT|PQF_IGNORE_CRITTERS
+            | (allowAlternative?PQF_ALLOW_ALTERNATIVE_TARGET_TILE:0));
+        if (pathfindingSys.FindPath(&query,&path)<=0) {
+            logger->info("Upper floor command refused: actor={} from={} requested={}",actor,query.from,to);
+            return FALSE;
+        }
+        logger->info("Upper floor command: actor={} from={} requested={} resolved={} nodes={}",
+            actor,query.from,to,path.to,path.nodeCount);
+        return gameSystems->GetAnim().PushPreparedPartyPath(actor,path)?TRUE:FALSE;
+    }
+
 	static bool isWalkOverride;
+	static bool formationActive;
+	static LocAndOffsets formationTarget;
 
 		void apply() override
 		{
 			isWalkOverride = false;
 
 			redirectToLambda<BOOL(__cdecl)(objHndl, LocAndOffsets)>(0x10044995, [](objHndl handle, LocAndOffsets loc) {
+				loc = FormationDestination(handle, loc);
+                auto interior=MoveUpperFloorActor(handle,loc,true);
+                if (interior>=0) return interior;
+                if ((config.partyMovementMode==0 || config.partyMovementMode==1) &&
+                    party.IsInParty(handle) && !combatSys.isCombatActive() &&
+                    gameSystems->GetTerrain().HasOriginalDoorInput())
+                    return gameSystems->GetAnim().PushMoveToTile(handle,loc)?TRUE:FALSE;
 				if (isWalkOverride)
 					return gameSystems->GetAnim().PushWalkToTile(handle, loc) ? TRUE : FALSE; 
 				else
@@ -468,6 +560,8 @@ public:
 		}
 } walkOnShortDistMod;
 bool WalkOnShortDistanceMod::isWalkOverride = false;
+bool WalkOnShortDistanceMod::formationActive = false;
+LocAndOffsets WalkOnShortDistanceMod::formationTarget = LocAndOffsets::null;
 int(__cdecl*WalkOnShortDistanceMod::orgPartySelectedFormationMoveToPosition)(LocAndOffsets loc, int walkFlag);
 
 // PartyPool UI Fix
