@@ -9,6 +9,7 @@ struct GameSystemConf;
 
 #include <string>
 #include <cstdint>
+#include <array>
 
 #include "gamesystem.h"
 
@@ -26,6 +27,14 @@ public:
 	const std::string &GetName() const override;
 
 	void SetMapId(int mapId);
+	using Limits = std::array<int64_t, 4>; // Left, top, right, bottom before zoom.
+	Limits GetBaseLimits() const;
+	void SetBaseLimits(const Limits& limits);
+
+private:
+	void ApplyZoomToScrollLimits();
+	int64_t mZoomExpandX = 0;
+	int64_t mZoomExpandY = 0;
 };
 
 class LocationSystem : public GameSystem, public BufferResettingGameSystem {

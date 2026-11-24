@@ -32,15 +32,14 @@ void ScrollSystem::ResetBuffers(const RebuildBufferInfo& rebuildInfo) {
 void ScrollSystem::Reset() {
 	auto reset = temple::GetPointer<void()>(0x10005700);
 	reset();
+	mZoomExpandX = mZoomExpandY = 0;
 }
-namespace {
 // Scroll limits (MapLimits.mes) are written for the unzoomed viewport. With the
 // world zoomed in (bg_camera_zoom / wheel) the visible area shrinks around the
 // screen centre, so the translation may go further by the hidden margin or the
 // map edges can never be reached.
-int64_t sZoomExpandX = 0, sZoomExpandY = 0;
 
-void ApplyZoomToScrollLimits() {
+void ScrollSystem::ApplyZoomToScrollLimits() {
 	auto &leftLim = temple::GetRef<int64_t>(0x10307340);
 	auto &rightLim = temple::GetRef<int64_t>(0x103072F0);
 	auto &topLim = temple::GetRef<int64_t>(0x10307368);
@@ -51,14 +50,28 @@ void ApplyZoomToScrollLimits() {
 		expandX = (int64_t)(config.renderWidth * 0.5 * (1.0 - 1.0 / zoom));
 		expandY = (int64_t)(config.renderHeight * 0.5 * (1.0 - 1.0 / zoom));
 	}
-	if (expandX == sZoomExpandX && expandY == sZoomExpandY) return;
-	leftLim += expandX - sZoomExpandX;
-	rightLim -= expandX - sZoomExpandX;
-	topLim += expandY - sZoomExpandY;
-	botLim -= expandY - sZoomExpandY;
-	sZoomExpandX = expandX;
-	sZoomExpandY = expandY;
+	leftLim += expandX - mZoomExpandX;
+	rightLim -= expandX - mZoomExpandX;
+	topLim += expandY - mZoomExpandY;
+	botLim -= expandY - mZoomExpandY;
+	mZoomExpandX = expandX;
+	mZoomExpandY = expandY;
 }
+
+ScrollSystem::Limits ScrollSystem::GetBaseLimits() const {
+	return {temple::GetRef<int64_t>(0x10307340) - mZoomExpandX,
+		temple::GetRef<int64_t>(0x10307368) - mZoomExpandY,
+		temple::GetRef<int64_t>(0x103072F0) + mZoomExpandX,
+		temple::GetRef<int64_t>(0x10307358) + mZoomExpandY};
+}
+
+void ScrollSystem::SetBaseLimits(const Limits& limits) {
+	temple::GetRef<int64_t>(0x10307340) = limits[0];
+	temple::GetRef<int64_t>(0x10307368) = limits[1];
+	temple::GetRef<int64_t>(0x103072F0) = limits[2];
+	temple::GetRef<int64_t>(0x10307358) = limits[3];
+	mZoomExpandX = mZoomExpandY = 0;
+	ApplyZoomToScrollLimits();
 }
 
 void ScrollSystem::AdvanceTime(uint32_t time) {
@@ -76,7 +89,7 @@ void ScrollSystem::SetMapId(int mapId)
 	static auto map_scroll_set_map_id = temple::GetPointer<void(int mapId)>(0x10005720);
 	map_scroll_set_map_id(mapId);
 	// The limits were just reloaded: the zoom margin is applied again next frame.
-	sZoomExpandX = sZoomExpandY = 0;
+	mZoomExpandX = mZoomExpandY = 0;
 
 	/*struct MapLimits{
 		int left = 9000;
