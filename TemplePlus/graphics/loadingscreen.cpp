@@ -11,6 +11,7 @@
 #include <tig/tig_font.h>
 #include <graphics/shaperenderer2d.h>
 #include <graphics/device.h>
+#include <graphics/textures.h>
 
 using namespace gfx;
 
@@ -29,6 +30,8 @@ struct LoadingScreen::Impl {
 	float progress = 0;
 	std::string message;
 	std::unique_ptr<CombinedImgFile> imageFile;
+	TextureRef campaignImage;
+	float campaignX = 0, campaignY = 0, campaignWidth = 0, campaignHeight = 0;
 
 	UiRectangle barBorder;
 	UiRectangle barUnfilled;
@@ -46,12 +49,23 @@ void LoadingScreen::Impl::Layout() {
 	auto centerX = device.GetCurrentCamera().GetScreenWidth() / 2.0f;
 	auto centerY = device.GetCurrentCamera().GetScreenHeight() / 2.0f;
 
-	auto imgX = (int)(centerX - imageFile->GetWidth() / 2.0f);
-	auto imgY = (int)(centerY - imageFile->GetHeight() / 2.0f);
-	imageFile->SetX(imgX);
-	imageFile->SetY(imgY);
-
-	auto barY = (int)(imgY + 20 + imageFile->GetHeight());
+	int barY;
+	if (campaignImage) {
+		auto size = campaignImage->GetSize();
+		auto scale = (std::min)(centerX * 1.8f / size.width, centerY * 1.6f / size.height);
+		campaignWidth = size.width * scale;
+		campaignHeight = size.height * scale;
+		campaignX = centerX - campaignWidth / 2;
+		campaignY = centerY - campaignHeight / 2 - 14;
+		barWidth = (std::min)(512, (int)campaignWidth);
+		barY = (int)(campaignY + campaignHeight + 12);
+	} else {
+		auto imgX = (int)(centerX - imageFile->GetWidth() / 2.0f);
+		auto imgY = (int)(centerY - imageFile->GetHeight() / 2.0f);
+		imageFile->SetX(imgX);
+		imageFile->SetY(imgY);
+		barY = (int)(imgY + 20 + imageFile->GetHeight());
+	}
 	auto barX = (int)(centerX - barWidth / 2.0f);
 
 	// Set up the border
@@ -80,7 +94,15 @@ void LoadingScreen::Impl::UpdateFilledBarWidth() {
 
 LoadingScreen::LoadingScreen(RenderingDevice &device, ShapeRenderer2d &shapeRenderer) 
 	: mImpl(std::make_unique<Impl>(device, shapeRenderer)) {
-	SetImage("art\\splash\\legal0322.img");
+	if (_stricmp(config.defaultModule.c_str(), "BG2ToEE") == 0) {
+		// BG2ToEE_core is mounted by TIG before game systems are initialized.
+		auto image = device.GetTextures().Resolve("art/splash/bg2toee-campaign.png", false);
+		if (image && image->IsValid()) {
+			mImpl->campaignImage = std::move(image);
+			mImpl->Layout();
+		}
+	}
+	if (!mImpl->campaignImage) SetImage("art\\splash\\legal0322.img");
 
 	mImpl->barBorder.SetColor(0xFF808080);
 	mImpl->barUnfilled.SetColor(0xFF1C324E);
@@ -125,12 +147,17 @@ void LoadingScreen::SetImage(const std::string& imagePath) {
 
 void LoadingScreen::Render() {
 
-	if (!mImpl->imageFile) {
+	if (!mImpl->campaignImage && !mImpl->imageFile) {
 		return;
 	}
 	
 	mImpl->device.BeginFrame();
-	mImpl->imageFile->Render();
+	if (mImpl->campaignImage) {
+		mImpl->shapeRenderer.DrawRectangle(mImpl->campaignX, mImpl->campaignY,
+			mImpl->campaignWidth, mImpl->campaignHeight, *mImpl->campaignImage, 0xFFFFFFFF);
+	} else {
+		mImpl->imageFile->Render();
+	}
 	mImpl->barBorder.Render();
 	mImpl->barUnfilled.Render();
 	mImpl->barFilled.Render();

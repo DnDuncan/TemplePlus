@@ -248,7 +248,6 @@ void ClippingSystem::Render() {
 			continue; // This is a mesh that failed to load
 		}
 	
-		mImpl->device.SetMaterial(mImpl->debug ? mImpl->debugMaterial : mesh->IsSourceCover() ? mImpl->coverMaterial : mImpl->material);
 		mImpl->device.SetMaterial(mImpl->pass == 1 ? mImpl->debugMaterial :
 			mImpl->pass == 2 ? mImpl->debugLineMaterial :
 			mesh->IsSourceCover() ? mImpl->coverMaterial : mImpl->material);
