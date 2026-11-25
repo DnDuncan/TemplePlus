@@ -215,7 +215,11 @@ bool Worn(objHndl item) { return inventory.IsInvIdxWorn(inventory.GetInventoryLo
 
 bool Accessible(objHndl item, objHndl holder) {
 	if (!Valid(holder) || !Valid(item) || !objSystem->GetObject(item)->IsItem()
-		|| inventory.GetParent(item) != holder || !inventory.ItemAccessibleDuringPolymorph(item)) return false;
+		|| inventory.GetParent(item) != holder) return false;
+	auto holderObject = objSystem->GetObject(holder);
+	if (holderObject->IsCritter() && d20Sys.d20Query(holder, DK_QUE_Polymorphed)
+		&& !inventory.ItemAccessibleDuringPolymorph(item)) return false;
+	if (sView.Trading() && objSystem->GetObject(item)->type == obj_t_money) return false;
 	if (holder == sView.other) {
 		auto flags = inventory.GetItemFlags(item);
 		if ((flags & OIF_NO_LOOT) || (sView.Trading() && Worn(item))) return false;
@@ -260,7 +264,7 @@ void Close() {
 	Reset();
 }
 
-bool Result(ItemErrorCode error, const wchar_t *success) {
+bool TransferResult(ItemErrorCode error, const wchar_t *success) {
 	if (error == IEC_OK) {
 		ClearSelection();
 		sStatus = success;
@@ -273,13 +277,7 @@ bool Result(ItemErrorCode error, const wchar_t *success) {
 void Move(objHndl from, objHndl to, int slot, int flags, const wchar_t *success) {
 	auto item = sItem;
 	if (!Accessible(item, from) || !Valid(to)) return;
-	if (objSystem->GetObject(to)->IsCritter() &&
-		objSystem->GetObject(item)->type == obj_t_money && to == sView.owner && from == sView.other) {
-		auto error = inventory.TransferWithFlags(item, to, slot, flags, objHndl::null);
-		Result(error, success);
-		return;
-	}
-	Result(inventory.TransferWithFlags(item, to, slot, flags, objHndl::null), success);
+	TransferResult(inventory.TransferWithFlags(item, to, slot, flags, objHndl::null), success);
 }
 
 void BeginTrade(bool buy) {
@@ -329,7 +327,7 @@ void Confirm() {
 	int p = 0, g = 0, s = 0, c = 0;
 	inventory.MoneyToCoins(sQuote, &p, &g, &s, &c);
 	const auto flags = buy ? IIF_4 : IIF_4 | IIF_Use_Max_Idx_200;
-	if (!Result(inventory.TransferWithFlags(item, to, -1, flags, objHndl::null),
+	if (!TransferResult(inventory.TransferWithFlags(item, to, -1, flags, objHndl::null),
 		buy ? L"Покупка завершена." : L"Продажа завершена.")) return;
 	if (buy) party.DebitMoney(p,g,s,c);
 	else party.MoneyAdj(p,g,s,c);
@@ -601,16 +599,18 @@ bool HandleInput(const TigMsg &msg) {
 			if (sView.HasOther() && theirs.Contains(sMouseX,sMouseY)) sOtherPage += delta;
 			else if (ours.Contains(sMouseX,sMouseY)) sPage += delta;
 		}
-		if (msg.arg4 & MSF_LMB_CLICK) sPressed = true;
-		if ((msg.arg4 & MSF_LMB_RELEASED) && sPressed) {
+		auto hovered = std::find_if(sControls.begin(), sControls.end(), [](const Control &control) {
+			return control.box.Contains(sMouseX, sMouseY);
+		});
+		if (msg.arg4 & MSF_LMB_CLICK) {
+			sPressed = hovered != sControls.end();
+			if (sPressed) sPressBox = hovered->box;
+		}
+		if (msg.arg4 & MSF_LMB_RELEASED) {
+			auto click = sPressed && hovered != sControls.end() && hovered->box == sPressBox
+				? hovered->click : std::function<void()>{};
 			sPressed = false;
-			for (const auto &control : sControls) {
-				if (control.box.Contains(sMouseX,sMouseY)) {
-					auto invoke = control.click;
-					invoke();
-					break;
-				}
-			}
+			if (click) click();
 		}
 		return true;
 	}
