@@ -285,6 +285,7 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
 	mLightningRenderer->Render();
 	// renderFuncs.RenderPfxLighting();
 
+	mGameSystems.GetTerrain().RenderWeatherShade();
 	mParticleSysRenderer->Render();
     // renderFuncs.RenderPartSys();
 

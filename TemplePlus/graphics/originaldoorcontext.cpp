@@ -171,6 +171,7 @@ void TerrainSystem::BindContextOutline(int mapId,const std::string &route,Origin
 }
 void TerrainSystem::ClearDoorContext() {
     bgscenecombat::ResetEngagement();
+	mWeatherShade = {};
 	if (mSavedSceneLimits && maps.GetCurrentMapId()==5136) {
 		gameSystems->GetScroll().SetBaseLimits(*mSavedSceneLimits);
 		if (_stricmp(config.defaultModule.c_str(), "BG2ToEE") == 0 &&
