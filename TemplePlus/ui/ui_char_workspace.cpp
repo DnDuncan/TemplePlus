@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "ui_char_workspace.h"
+#include "charworkspace_quote.h"
 
 #include <graphics/device.h>
 #include <graphics/shaperenderer2d.h>
@@ -27,7 +28,7 @@
 namespace charworkspace {
 namespace {
 
-constexpr int Width = 864, Height = 572, Rows = 8;
+constexpr int Width = 864, Height = 572, Rows = 8, IdentifyPrice = 10000;
 constexpr uint32_t Paper = 0xFF152027, Well = 0xFF19262E, Row = 0xFF203039;
 constexpr uint32_t Ink = 0xFFEDE8D7, Muted = 0xFFA9BBC3, Gold = 0xFFE3BA70;
 constexpr uint32_t Edge = 0xFF394E56, Selected = 0xFF334950;
@@ -35,7 +36,7 @@ constexpr char EnableResource[] = "mes/bg2toee_character_workspace.mes";
 
 enum class Filter { All, Gear, Consumable, Other };
 enum class Order { Slot, Name, Weight };
-enum class Action { None, Buy, Sell, Drop, Equip, Give };
+enum class Action { None, Buy, Sell, Identify, Drop, Equip, Give };
 
 struct Box {
 	int x, y, w, h;
@@ -68,7 +69,7 @@ struct Control {
 View sView;
 objHndl sItem{};
 Action sAction = Action::None;
-int sQuote = 0, sQuotedQuantity = 0;
+Quote sQuote{};
 bool sNative = false, sEnabled = false, sReadEnable = false;
 bool sPressed = false;
 Box sPressBox{};
@@ -250,8 +251,7 @@ int TradePrice(objHndl item, bool buy) {
 	auto price = buy
 		? inventory.GetAppraisedTransactionSum(item, sView.vendor, appraiser, SkillEnum::skill_appraise)
 		: inventory.GetAppraisedWorth(item, appraiser, sView.vendor, SkillEnum::skill_appraise);
-	const int64_t total = int64_t(price) * Quantity(item);
-	return total > 0 && total <= INT_MAX ? static_cast<int>(total) : 0;
+	return StackPrice(price, Quantity(item));
 }
 
 void Select(objHndl item) {
@@ -287,8 +287,7 @@ void BeginTrade(bool buy) {
 		sStatus = L"Торговец не предлагает цену за этот предмет.";
 		return;
 	}
-	sQuote = price;
-	sQuotedQuantity = Quantity(sItem);
+	sQuote = { price, Quantity(sItem) };
 	sAction = buy ? Action::Buy : Action::Sell;
 	sStatus.clear();
 }
@@ -306,8 +305,20 @@ void Confirm() {
 		}
 		return;
 	}
+	if (!sView.Trading()) return;
+	if (action == Action::Identify) {
+		if (!Accessible(item,sView.owner) || inventory.IsIdentified(item)) return;
+		if (party.GetMoney() < IdentifyPrice) {
+			sStatus = L"У группы недостаточно денег.";
+			return;
+		}
+		objSystem->GetObject(item)->SetItemFlag(OIF_IDENTIFIED, true);
+		party.DebitMoney(0, IdentifyPrice/100, 0, 0);
+		sStatus = L"Предмет опознан.";
+		return;
+	}
 	const bool buy = action == Action::Buy;
-	if (!sView.Trading() || (!buy && action != Action::Sell)) return;
+	if (!buy && action != Action::Sell) return;
 	const auto from = buy ? sView.other : sView.owner;
 	const auto to = buy ? sView.owner : sView.other;
 	if (!Accessible(item, from) || !Valid(to)) return;
@@ -315,17 +326,21 @@ void Confirm() {
 		sStatus = L"Сначала снимите предмет.";
 		return;
 	}
-	if (Quantity(item) != sQuotedQuantity || TradePrice(item, buy) != sQuote) {
+	switch (ValidateQuote(sQuote, { TradePrice(item, buy), Quantity(item) }, party.GetMoney(), buy)) {
+	case QuoteResult::Changed:
 		sStatus = L"Цена или количество изменились. Проверьте новый итог.";
 		return;
-	}
-	auto funds = party.GetMoney();
-	if ((buy && funds < sQuote) || (!buy && int64_t(funds) + sQuote > INT_MAX)) {
-		sStatus = buy ? L"У группы недостаточно денег." : L"Кошелёк переполнен.";
+	case QuoteResult::InsufficientFunds:
+		sStatus = L"У группы недостаточно денег.";
 		return;
+	case QuoteResult::WalletFull:
+		sStatus = L"Кошелёк переполнен.";
+		return;
+	case QuoteResult::Ready:
+		break;
 	}
 	int p = 0, g = 0, s = 0, c = 0;
-	inventory.MoneyToCoins(sQuote, &p, &g, &s, &c);
+	inventory.MoneyToCoins(sQuote.amount, &p, &g, &s, &c);
 	const auto flags = buy ? IIF_4 : IIF_4 | IIF_Use_Max_Idx_200;
 	if (!TransferResult(inventory.TransferWithFlags(item, to, -1, flags, objHndl::null),
 		buy ? L"Покупка завершена." : L"Продажа завершена.")) return;
@@ -478,11 +493,12 @@ bool CanUse(objHndl item) {
 
 void ItemDetails() {
 	Fill({616,145,230,343}, Well);
-	Text({628,148,204,27}, L"Карточка предмета", 15, Gold, gfx::TextAlign::Left, true);
 	if (!Accessible(sItem,sView.owner)) {
+		Text({628,148,204,27}, L"Характеристики", 15, Gold, gfx::TextAlign::Left, true);
 		Stats();
 		return;
 	}
+	Text({628,148,204,27}, L"Карточка предмета", 15, Gold, gfx::TextAlign::Left, true);
 	auto item = sItem;
 	auto worn = Worn(item);
 	Icon(item, {628,185,48,48});
@@ -510,33 +526,56 @@ void ItemDetails() {
 		Button({628,427,205,33}, L"Отменить выбор", [] { sAction = Action::None; sStatus.clear(); });
 }
 
+void TakeAll() {
+	const auto holder = sView.other;
+	int taken = 0;
+	for (auto item : inventory.GetInventory(holder)) {
+		if (!Accessible(item,holder)) continue;
+		const auto result = inventory.TransferWithFlags(item, sView.owner, -1, IIF_4, objHndl::null);
+		if (result == IEC_OK) ++taken;
+		else if (result == IEC_No_Room_For_Item) {
+			ClearSelection();
+			sStatus = L"Рюкзак заполнен. Перенесено позиций: " + std::to_wstring(taken);
+			return;
+		}
+	}
+	ClearSelection();
+	sStatus = L"Перенесено позиций: " + std::to_wstring(taken);
+}
+
 void ExchangeDetails() {
 	Fill({18,499,828,45}, Well);
-	if (sAction == Action::Buy || sAction == Action::Sell) {
-		auto buy = sAction == Action::Buy;
-		Text({29,500,514,43}, std::wstring(buy ? L"Заплатить " : L"Получить ")
-			+ Coins(sQuote) + L" за " + std::to_wstring(sQuotedQuantity) + L" шт.?", 13, Gold);
+	if (sAction == Action::Buy || sAction == Action::Sell || sAction == Action::Identify) {
+		std::wstring question;
+		if (sAction == Action::Identify) question = L"Опознать предмет за " + Coins(IdentifyPrice) + L"?";
+		else question = std::wstring(sAction == Action::Buy ? L"Заплатить " : L"Получить ")
+			+ Coins(sQuote.amount) + L" за " + std::to_wstring(sQuote.quantity) + L" шт.?";
+		Text({29,500,514,43}, question, 13, Gold);
 		Button({558,505,142,32}, L"Подтвердить", Confirm);
 		Button({712,505,122,32}, L"Отмена", [] { sAction = Action::None; });
 		return;
 	}
 	const bool theirs = Accessible(sItem,sView.other);
 	const bool ours = Accessible(sItem,sView.owner);
+	if (!sView.Trading()) Button({688,505,146,32}, L"Забрать всё", TakeAll);
 	if (!ours && !theirs) {
-		Text({29,500,700,43}, sView.Trading() ? L"Выберите предмет для покупки или продажи."
+		Text({29,500,650,43}, sView.Trading() ? L"Выберите предмет для покупки или продажи."
 			: L"Выберите предмет из найденного.", 12, Muted);
 		return;
 	}
-	Text({29,500,337,43}, Name(sItem), 13);
+	Text({29,500,303,43}, Name(sItem), 13);
 	if (sView.Trading()) {
 		const auto price = TradePrice(sItem,theirs);
-		Text({369,500,264,43}, price ? Coins(price) : L"Цена отсутствует", 13, Gold);
+		Text({339,500,204,43}, price ? Coins(price) : L"Цена отсутствует", 13, Gold);
+		if (ours && !inventory.IsIdentified(sItem)) {
+			Button({554,505,122,32}, L"Опознать", [] { sAction = Action::Identify; sStatus.clear(); });
+		}
 		Button({688,505,146,32}, theirs ? L"Купить" : L"Продать",
 			price && !Worn(sItem) ? std::function<void()>([theirs] { BeginTrade(theirs); }) : nullptr);
 	} else if (theirs) {
-		Button({688,505,146,32}, L"Забрать", [] { Move(sView.other,sView.owner,-1,IIF_4,L"Предмет получен."); });
+		Button({528,505,146,32}, L"Забрать", [] { Move(sView.other,sView.owner,-1,IIF_4,L"Предмет получен."); });
 	} else if (!Worn(sItem)) {
-		Button({688,505,146,32}, L"Переложить", [] { Move(sView.owner,sView.other,-1,IIF_4,L"Предмет переложен."); });
+		Button({528,505,146,32}, L"Переложить", [] { Move(sView.owner,sView.other,-1,IIF_4,L"Предмет переложен."); });
 	}
 }
 
