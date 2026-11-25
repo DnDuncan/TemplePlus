@@ -14,6 +14,7 @@
 #include "ui_bgrolls.h"
 #include "ui_bgpanel.h"
 #include "ui_bgwalk.h"
+#include "ui_char_workspace.h"
 
 UiManager *uiManager;
 LgcyWidgetId mLedgerCurId = -1;
@@ -646,6 +647,7 @@ void UiManager::Render()
 {
 	mTextLedger.clear();
 	mRenderLedger.clear();
+	if (charworkspace::Render()) return;
 
 	// Make a copy here since some vanilla logic will show/hide windows in their render callbacks
 	auto activeWindows(mActiveWindows);
@@ -1018,6 +1020,7 @@ bool UiManager::ProcessMessage(TigMsg &msg)
 	bgwalk::Update();
 	if (bgrolls::HandleModalInput(msg)) return true;
 	if (bgpanel::HandleModalInput(msg)) return true;
+	if (charworkspace::HandleInput(msg)) return true;
 	if (bgwalk::HandleHotkey(msg)) return true;
 	if (bgwalk::HandleMouse(msg)) return true;
 	// Dispatch time update messages continuously to all advanced widgets
