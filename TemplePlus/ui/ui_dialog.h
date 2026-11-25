@@ -23,6 +23,7 @@ public:
 
 	bool IsActive() const;
 	bool IsDialogEngaged() const;
+	bool UsesIePanel() const;
 
 
 	void Hide();

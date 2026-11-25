@@ -80,6 +80,7 @@ private:
 	int mHistoryScroll = 0;
 	std::unique_ptr<Skin> mScaled; // current skin scaled to the screen
 	int mScaledKey = -1;
+	objHndl mPortraitNpc = {};
 	int mPortraitDialog = -1, mPortraitTex = 0, mPortraitW = 0, mPortraitH = 0;
 };
 

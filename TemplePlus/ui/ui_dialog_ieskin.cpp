@@ -344,28 +344,25 @@ std::string IeDialogSkins::PortraitFor(const IeDlgView &view) {
 	return std::string();
 }
 
-// The NPC's own ToEE portrait through the engine's portrait asset loader (handles portrait packs): the big variant
-// (sub id 0) only. No medium/small fallback (scaled up it looks blurry) and no placeholder: an id without a
-// portraits.mes / pack entry resolves to line 0 (TMP_0000_b_smiley), so that counts as none and the slot stays empty.
+// Try the speaker's own portrait variants, excluding the engine's placeholder.
 static int ToeePortrait(objHndl npc, int &w, int &h) {
 	w = h = 0;
 	if (!npc) return 0;
 	auto id = critterSys.GetPortraitId(npc);
-	auto &ps = gameSystems->GetPortrait();
-	if (!id || ps.GetPortraitFileFromId(id, 0) == ps.GetPortraitFileFromId(0, 0)) {
-		logger->info("IE dialog skin: ToEE portrait id {}: no big portrait", id);
-		return 0;
+	if (!id) return 0;
+	auto &portraits = gameSystems->GetPortrait();
+	for (int variant : {0, 1, 2, 3, 4}) {
+		auto path = portraits.GetPortraitFileFromId(id, variant);
+		if (path == portraits.GetPortraitFileFromId(0, variant)) continue;
+		int tex = 0;
+		TigTextureRegistryEntry entry;
+		if (textureFuncs.RegisterTexture(path.c_str(), &tex) || !tex
+			|| textureFuncs.LoadTexture(tex, &entry) || !entry.width || !entry.height) continue;
+		w = entry.width;
+		h = entry.height;
+		return tex;
 	}
-	int tex = 0;
-	TigTextureRegistryEntry e;
-	if (temple::GetRef<int(__cdecl)(UiAssetType, int, int*, int)>(0x1004A360)(UiAssetType::Portraits, id, &tex, 0) || !tex
-		|| textureFuncs.LoadTexture(tex, &e)) {
-		logger->info("IE dialog skin: ToEE portrait id {}: big portrait not loaded", id);
-		return 0;
-	}
-	w = e.width; h = e.height;
-	logger->info("IE dialog skin: ToEE portrait id {} -> texture {} {}x{}", id, tex, w, h);
-	return tex;
+	return 0;
 }
 
 // ---------------------------------------------------------------------------------------------------- layout
@@ -501,8 +498,9 @@ static void DrawNpcLine(const IeDialogSkins::Skin &s, const IeDlgView &v, const 
 // The NPC portrait in the skin's portrait rect (panel-relative; it may sit outside the panel, e.g. beside the classic log).
 void IeDialogSkins::DrawPortrait(const Skin &s, const IeDlgView &v, const TigRect &panel) {
 	TigRect pr(panel.x + s.portrait.x, panel.y + s.portrait.y, s.portrait.width, s.portrait.height);
-	if (mPortraitDialog != v.dialogId) {
+	if (mPortraitDialog != v.dialogId || mPortraitNpc != v.npc) {
 		mPortraitDialog = v.dialogId;
+		mPortraitNpc = v.npc;
 		mPortraitTex = 0;
 		auto path = PortraitFor(v);
 		int texId = 0;
