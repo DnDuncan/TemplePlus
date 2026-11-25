@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "ui_char.h"
+#include "ui_char_workspace.h"
 #include "common.h"
 #include "config/config.h"
 #include "d20.h"
@@ -2057,6 +2058,7 @@ void UiChar::ResizeViewport(const UiResizeArgs& resizeArg) {
 	resize(&resizeArg);
 }
 void UiChar::Reset() {
+	charworkspace::Reset();
 	auto reset = temple::GetPointer<void()>(0x10143f80);
 	reset();
 }

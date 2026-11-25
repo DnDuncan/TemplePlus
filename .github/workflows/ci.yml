@@ -54,6 +54,13 @@ jobs:
         cl /nologo /std:c++17 /EHsc /W4 /WX Tests\OriginalDoorTests\originaldoorstate_test.cpp /Fe:originaldoorstate-tests.exe
         if errorlevel 1 exit /b 1
         originaldoorstate-tests.exe
+    - name: Test character workspace trade quotes
+      shell: cmd
+      run: |
+        call "%VS_INSTALL_PATH%\VC\Auxiliary\Build\vcvars32.bat" || exit /b 1
+        cl /nologo /std:c++17 /EHsc /W4 /WX Tests\CharWorkspaceTests\charworkspace_quote_test.cpp /Fe:charworkspace-tests.exe
+        if errorlevel 1 exit /b 1
+        charworkspace-tests.exe
     - uses: nuget/setup-nuget@v1
     - name: Set up Python 3.9
       uses: actions/setup-python@v4
