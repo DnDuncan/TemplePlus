@@ -43,9 +43,6 @@ struct Box {
 	bool operator==(const Box &other) const {
 		return x == other.x && y == other.y && w == other.w && h == other.h;
 	}
-	bool Contains(int px, int py) const {
-		return px >= x && py >= y && px < x + w && py < y + h;
-	}
 };
 
 struct View {
@@ -87,7 +84,7 @@ bool Valid(objHndl obj) {
 }
 
 bool Alive(objHndl obj) {
-	return Valid(obj) && !critterSys.IsDeadOrUnconscious(obj);
+	return Valid(obj) && objSystem->GetObject(obj)->IsCritter() && !critterSys.IsDeadOrUnconscious(obj);
 }
 
 std::wstring Name(objHndl obj) {
@@ -131,7 +128,7 @@ bool SyncView() {
 		if (mode == UiCharDisplayType::Bartering) {
 			vendor = temple::GetRef<objHndl>(0x10BE6EC8);
 			if (!Valid(vendor)) vendor = other;
-			if (!Alive(vendor) || !objSystem->GetObject(vendor)->IsCritter()) return false;
+			if (!Alive(vendor)) return false;
 			if (auto stock = inventory.GetSubstituteInventory(vendor); Valid(stock)) other = stock;
 		}
 		if (!Valid(other) || other == actor) return false;
@@ -140,6 +137,7 @@ bool SyncView() {
 	}
 	if (sView.nativeActor != actor || sView.mode != mode || sView.other != other || sView.vendor != vendor) {
 		sView = { actor, actor, vendor, other, mode };
+		logger->info("Character workspace opened, mode {}", static_cast<uint32_t>(mode));
 		sPage = sOtherPage = 0;
 		sPressed = false;
 		ClearSelection();
@@ -152,8 +150,15 @@ bool SyncView() {
 }
 
 TigRect Pixel(Box r) {
-	return { sLeft + int(r.x*sScale), sTop + int(r.y*sScale),
-		std::max(1, int(r.w*sScale)), std::max(1, int(r.h*sScale)) };
+	const auto x = int(r.x*sScale), y = int(r.y*sScale);
+	return { sLeft+x, sTop+y, std::max(1, int((r.x+r.w)*sScale)-x),
+		std::max(1, int((r.y+r.h)*sScale)-y) };
+}
+
+bool Hovered(Box r) {
+	const auto rect = Pixel(r);
+	return sMouseX >= rect.x && sMouseY >= rect.y
+		&& sMouseX < rect.x + rect.width && sMouseY < rect.y + rect.height;
 }
 
 void Fill(Box r, uint32_t color) {
@@ -177,7 +182,7 @@ void Text(Box r, const std::wstring &text, int size = 12, uint32_t color = Ink,
 void Rule(int x, int y, int w) { Fill({ x,y,w,1 }, Edge); }
 
 void Button(Box r, const std::wstring &text, std::function<void()> click, bool selected = false) {
-	const auto hover = click && r.Contains(sMouseX, sMouseY);
+	const auto hover = click && Hovered(r);
 	Fill(r, hover || selected ? Selected : Row);
 	if (selected || hover) Fill({ r.x,r.y+r.h-2,r.w,2 }, Gold);
 	Text(r, text, 12, click ? (selected ? Gold : Ink) : Muted, gfx::TextAlign::Center);
@@ -420,7 +425,7 @@ void List(Box pane, const std::wstring &label, objHndl holder, int &page, bool e
 		const auto &item = items[page*Rows+i];
 		const Box r{ pane.x+6,pane.y+37+i*34,pane.w-12,31 };
 		bool chosen = sItem == item.object;
-		bool hovered = r.Contains(sMouseX,sMouseY);
+		bool hovered = Hovered(r);
 		Fill(r, chosen || hovered ? Selected : Row);
 		if (chosen) Fill({r.x,r.y,3,r.h}, Gold);
 		Icon(item.object, {r.x+6,r.y+2,27,27});
@@ -453,7 +458,7 @@ void Equipment() {
 		auto item = inventory.ItemWornAt(sView.owner, slot);
 		Box r{ 25+(i%2)*115,181+(i/2)*36,111,32 };
 		bool target = sAction == Action::Equip;
-		Fill(r, r.Contains(sMouseX,sMouseY) || (item && item == sItem) ? Selected : Row);
+		Fill(r, Hovered(r) || (item && item == sItem) ? Selected : Row);
 		if (target) Fill({r.x,r.y,2,r.h}, Gold);
 		Icon(item, {r.x+3,r.y+3,26,26});
 		Text({r.x+32,r.y,r.w-34,r.h}, slots[slot], 10, item ? Ink : Muted);
@@ -629,17 +634,17 @@ bool HandleInput(const TigMsg &msg) {
 		}
 		return true;
 	case TigMsgType::MOUSE: {
-		sMouseX = int((int(msg.arg1)-sLeft)/sScale);
-		sMouseY = int((int(msg.arg2)-sTop)/sScale);
+		sMouseX = static_cast<int>(msg.arg1);
+		sMouseY = static_cast<int>(msg.arg2);
 		if (msg.arg4 & MSF_SCROLLWHEEL_CHANGE) {
 			const Box theirs{18,145,409,343};
 			const Box ours = sView.HasOther() ? Box{437,145,409,343} : Box{270,145,334,343};
 			const int delta = static_cast<int>(msg.arg3) > 0 ? -1 : 1;
-			if (sView.HasOther() && theirs.Contains(sMouseX,sMouseY)) sOtherPage += delta;
-			else if (ours.Contains(sMouseX,sMouseY)) sPage += delta;
+			if (sView.HasOther() && Hovered(theirs)) sOtherPage += delta;
+			else if (Hovered(ours)) sPage += delta;
 		}
 		auto hovered = std::find_if(sControls.begin(), sControls.end(), [](const Control &control) {
-			return control.box.Contains(sMouseX, sMouseY);
+			return Hovered(control.box);
 		});
 		if (msg.arg4 & MSF_LMB_CLICK) {
 			sPressed = hovered != sControls.end();
