@@ -9,6 +9,7 @@
 #include <temple/dll.h>
 #include <particles/render.h>
 #include <particles/instances.h>
+#include "ui/ui_dialog.h"
 #include "ui/ui_render.h"
 #include "tig/tig_font.h"
 #include "particlesystems.h"
@@ -307,7 +308,9 @@ void GameRenderer::RenderWorld(RenderWorldInfo *info) {
     renderFuncs.RenderUiRelated(info);
     mGameSystems.GetTerrain().RenderOriginalTravel();
     bgscenecombat::RenderStealthRanges();
-    renderFuncs.RenderTextBubbles(info);
+    if (!uiDialog || !uiDialog->UsesIePanel()) {
+        renderFuncs.RenderTextBubbles(info);
+    }
     renderFuncs.RenderTextFloaters(info);
 
     if (config.debugClipping) { 

@@ -477,6 +477,11 @@ bool UiDlg::IsActive() const
 	return !(mImpl->mFlags & 1) || !uiManager->IsHidden(mImpl->mWndId);
 }
 
+bool UiDlg::UsesIePanel() const
+{
+	return mImpl->mIsActive && mImpl->mIeApplied && !uiManager->IsHidden(mImpl->mWndId);
+}
+
 bool UiDlg::IsDialogEngaged() const
 {
 	return mImpl->mSlot.dialogEngaged != FALSE;
