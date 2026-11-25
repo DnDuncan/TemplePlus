@@ -6,6 +6,7 @@
 #include <graphics/shaperenderer2d.h>
 #include <graphics/textengine.h>
 #include <infrastructure/stringutil.h>
+#include <infrastructure/vfs.h>
 
 #include "combat.h"
 #include "critter.h"
