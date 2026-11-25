@@ -3,6 +3,7 @@
 #include "../../TemplePlus/graphics/originaldooruse.h"
 #include "../../TemplePlus/graphics/originaltravel.h"
 #include "../../TemplePlus/graphics/originaldoorcontext.h"
+#include "../../TemplePlus/graphics/weather_shade.h"
 #include "../../TemplePlus/ui/bgpanelmodel.h"
 #include "../../TemplePlus/gamesystems/bglights.h"
 #include "../../TemplePlus/graphics/sourcecontainers.h"
@@ -809,6 +810,17 @@ int main() {
         assert(!opening.Unseen(1,2,8000)); // the next action was seen
         opening.Note(1,2,true,9000);opening.Clear();
         assert(!opening.Unseen(1,2,9000));
+    }
+    {
+        WeatherShade shade;
+        const uint32_t start = UINT32_MAX - 300;
+        shade.Set(140, start);
+        assert(shade.Opacity(start + 600) == 70); // clock wrap
+        shade.Set(140, start + 600);
+        assert(shade.Opacity(start + 1200) == 140); // repeated weather tick leaves fade time intact
+        shade.Set(0, start + 1200);
+        assert(shade.Opacity(start + 1800) == 70);
+        assert(shade.Opacity(start + 2400) == 0);
     }
     std::cout << "Original door registry tests passed\n";
 }

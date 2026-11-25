@@ -974,6 +974,25 @@ void TerrainSystem::Flash(int ms)
 	mFlashUntil = timeGetTime() + uint32_t(LightningFlashMs(ms));
 }
 
+void TerrainSystem::SetWeatherShade(int alpha)
+{
+	mWeatherShade.Set(alpha, timeGetTime());
+}
+
+void TerrainSystem::RenderWeatherShade()
+{
+	auto scene = FocusedSceneArea();
+	if (scene != 5136 && scene != 5198) return;
+	auto now = timeGetTime();
+	auto alpha = mWeatherShade.Opacity(now);
+	if (LightningFlashActive(mFlashUntil, now)) alpha /= 3;
+	if (!alpha) return;
+	auto viewport = gameView->GetWorldViewport();
+	auto color = (uint32_t(alpha) << 24) | 0x00090F17;
+	mShapeRenderer.DrawRectangle(float(viewport.left), float(viewport.top),
+		float(viewport.right - viewport.left), float(viewport.bottom - viewport.top), color);
+}
+
 void TerrainSystem::LoadModule()
 {
 	auto groundMapping = MesFile::ParseFile("art/ground/ground.mes");

@@ -1912,6 +1912,12 @@ static PyObject* PyGame_BgTerrainFlash(PyObject*,PyObject* args) {
     if (!PyArg_ParseTuple(args,"i:bg_terrain_flash",&ms)) return nullptr;
     gameSystems->GetTerrain().Flash(ms);Py_RETURN_NONE;
 }
+static PyObject* PyGame_BgWeatherShade(PyObject*,PyObject* args) {
+	int alpha;
+	if (!PyArg_ParseTuple(args, "i:bg_weather_shade", &alpha)) return nullptr;
+	gameSystems->GetTerrain().SetWeatherShade(alpha);
+	Py_RETURN_NONE;
+}
 static PyObject* PyGame_BgSoundStop(PyObject*,PyObject* args) {
     int streamId;
     if (!PyArg_ParseTuple(args,"i:bg_sound_stop",&streamId)) return nullptr;
@@ -2368,6 +2374,7 @@ static PyMethodDef PyGameMethods[]{
 	{"bg_source_door_clear",PyGame_BgSourceDoorClear,METH_VARARGS,NULL},
 	{"bg_candlekeep_interior_version",PyGame_BgCandlekeepInteriorVersion,METH_VARARGS,NULL},
 	{"bg_terrain_flash",PyGame_BgTerrainFlash,METH_VARARGS,NULL},
+	{"bg_weather_shade", PyGame_BgWeatherShade, METH_VARARGS, NULL},
 	{"bg_sound_stop",PyGame_BgSoundStop,METH_VARARGS,NULL},
 	{"bg_panel_show",PyGame_BgPanelShow,METH_VARARGS,NULL},
 	{"bg_panel_hide",PyGame_BgPanelHide,METH_VARARGS,NULL},

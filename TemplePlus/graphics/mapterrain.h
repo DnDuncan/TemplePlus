@@ -9,6 +9,7 @@
 #include "originaldooruse.h"
 #include "originaltravel.h"
 #include "originaldoorcontext.h"
+#include "weather_shade.h"
 #include "sourcecontainers.h"
 #include "../worldviewzoom.h"
 #include <infrastructure/location.h>
@@ -60,6 +61,8 @@ public:
 	void Load(int groundArtId);
 	// Lightning: for `ms` real milliseconds a night map draws its day ground.
 	void Flash(int ms);
+	void SetWeatherShade(int alpha);
+	void RenderWeatherShade();
 
 	void LoadModule() override;
 	void UnloadModule() override;
@@ -180,6 +183,7 @@ private:
 	uint32_t mTransitionStart = 0;
 	float mTransitionProgress = 0;
 	uint32_t mFlashUntil = 0;
+	WeatherShade mWeatherShade;
 
 	// Terrain colors are managed by the daylight system
 	float &mTerrainTintRed = temple::GetRef<float>(0x11E69574);
