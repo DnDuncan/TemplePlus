@@ -104,9 +104,7 @@ bool SyncView() {
 	if (!uiSystems || !objSystem || !vfs) return false;
 	auto &native = Native();
 	auto actor = native.GetCritter();
-	// This is the stock visibility query also used by the inventory hotkey.
-	bool visible = actor && temple::GetRef<int(__cdecl)()>(0x10143820)();
-	if (!visible) {
+	if (!actor) {
 		if (sView.nativeActor) Reset();
 		return false;
 	}
